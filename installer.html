@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Tallo CPA — Extension Installer</title>
+  <title>Taxify it! — Admin Installer</title>
   <style>
     :root {
       --navy: #0d1b3e; --navy-light: #1a2f5e;
@@ -58,8 +58,11 @@
     .btn-primary:hover { background: var(--navy-light); }
     .btn-success { background: var(--green); color: white; }
     .btn-success:hover { background: #219a52; }
+    .btn-danger { background: var(--accent); color: white; }
+    .btn-danger:hover { background: #a93226; }
     .btn-outline { background: white; color: var(--navy); border: 1.5px solid var(--border); }
     .btn-outline:hover { border-color: var(--navy); }
+    .btn-outline-sm { padding: 4px 10px; font-size: 11px; }
     .btn:disabled { opacity: 0.4; cursor: not-allowed; }
     .btn-group { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
 
@@ -80,7 +83,7 @@
     .business-item.installing { border-color: #93c5fd; background: #eff6ff; }
     .business-item input[type=checkbox] { width: 15px; height: 15px; accent-color: var(--navy); flex-shrink: 0; }
     .business-name { flex: 1; font-weight: 600; }
-    .business-status { font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 4px; }
+    .business-status { font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 4px; flex-shrink: 0; }
     .status-ok   { background: #dcfce7; color: #15803d; }
     .status-err  { background: #fee2e2; color: #b91c1c; }
     .status-run  { background: #dbeafe; color: #1d4ed8; }
@@ -112,8 +115,8 @@
 
 <header>
   <div>
-    <div class="logo">🇵🇭 Tallo CPA — BIR Tax App Installer</div>
-    <div class="sub">Installs the extension across multiple Manager.io businesses via API</div>
+    <div class="logo">🇵🇭 Taxify it! — Admin Installer</div>
+    <div class="sub">Install / uninstall the Taxify it! extension across Manager.io businesses</div>
   </div>
 </header>
 
@@ -148,53 +151,9 @@
     <div id="connect-status"></div>
   </div>
 
-  <!-- STEP 2: EXTENSION CONFIG -->
-  <div class="card">
-    <div class="card-title">⚙️ Step 2 — Extension Configuration</div>
-
-    <div class="form-group">
-      <label class="form-label">Preset</label>
-      <select class="form-select" id="ext-preset" onchange="applyExtPreset()">
-        <option value="legacy">Tallo CPA – BIR Tax (legacy, multi-business admin tool)</option>
-        <option value="taxify">Taxify it! (per-business app)</option>
-      </select>
-      <div class="hint">Switching presets fills in the fields below — existing installs of either preset are unaffected.</div>
-    </div>
-
-    <div class="form-row">
-      <div class="form-group">
-        <label class="form-label">Extension Name (shown in sidebar)</label>
-        <input class="form-input" id="ext-name" value="Tallo CPA – BIR Tax">
-      </div>
-      <div class="form-group">
-        <label class="form-label">Extension UUID (DO NOT CHANGE after first install)</label>
-        <input class="form-input" id="ext-uuid" value="7a3f9e2d-5b8c-4e1a-9d6f-2c4a7b8e3f1d"
-          style="font-family:monospace;font-size:11px;">
-        <div class="hint">Must match the UUID in the installed page (index.html or taxify.html)</div>
-      </div>
-    </div>
-    <div class="form-row">
-      <div class="form-group">
-        <label class="form-label">Extension URL (GitHub Pages)</label>
-        <input class="form-input" id="ext-url" value="https://erolljay.github.io/tallocpa-taxapp/">
-        <div class="hint">Must be HTTPS. This is where the page is hosted.</div>
-      </div>
-      <div class="form-group">
-        <label class="form-label">Placement</label>
-        <input class="form-input" id="ext-placement" value="/" style="font-family:monospace;font-size:11px;">
-        <div class="hint">"/" = left sidebar, "summary-view" = Summary page, "reports" = Reports tab, etc.</div>
-      </div>
-    </div>
-
-    <details style="margin-top:12px;">
-      <summary style="cursor:pointer;font-size:11px;font-weight:600;color:var(--muted);">📋 View raw PUT /api4/extension payload</summary>
-      <pre id="payload-preview" style="background:#f1f5f9;padding:12px;border-radius:6px;font-size:11px;margin-top:8px;overflow-x:auto;"></pre>
-    </details>
-  </div>
-
-  <!-- STEP 3: SELECT BUSINESSES -->
+  <!-- STEP 2: SELECT BUSINESSES -->
   <div class="card" id="businesses-card" style="display:none;">
-    <div class="card-title">🏢 Step 3 — Select Businesses to Install</div>
+    <div class="card-title">🏢 Step 2 — Select Businesses</div>
 
     <div class="select-row">
       <a onclick="selectAll(true)">Select All</a>
@@ -206,7 +165,10 @@
 
     <div class="btn-group" style="margin-top:16px;">
       <button class="btn btn-success" id="btn-install" onclick="installAll()">
-        ⚡ Install on Selected Businesses
+        ⚡ Install Taxify it! on Selected
+      </button>
+      <button class="btn btn-danger" id="btn-uninstall" onclick="uninstallAll()">
+        🗑️ Uninstall Taxify it! from Selected
       </button>
       <button class="btn btn-outline" onclick="checkInstalled()">
         🔎 Check Installation Status
@@ -217,43 +179,19 @@
 
   <!-- REFERENCE -->
   <div class="card">
-    <div class="card-title">📖 API Reference — PUT /api4/extension</div>
+    <div class="card-title">📖 Taxify it! extension identity</div>
     <table>
       <thead>
-        <tr><th>Parameter</th><th>Value</th><th>Notes</th></tr>
+        <tr><th>Field</th><th>Value</th></tr>
       </thead>
       <tbody>
-        <tr><td><code>key</code></td><td>Extension UUID v4</td><td>Stable — never change after first install</td></tr>
-        <tr><td><code>value.name</code></td><td>Display name</td><td>Shown as sidebar button label</td></tr>
-        <tr><td><code>value.source</code></td><td><code>1</code></td><td>Always 1 for custom extensions</td></tr>
-        <tr><td><code>value.endpoint</code></td><td>GitHub Pages URL</td><td>Must be HTTPS</td></tr>
-        <tr><td><code>value.placement</code></td><td><code>/</code> or <code>summary-view</code>, <code>reports</code>, etc.</td><td><code>/</code> = left sidebar; <code>summary-view</code> = Summary page (used by the Taxify it! preset)</td></tr>
-        <tr><td><code>business</code></td><td>Exact business name</td><td>Case-sensitive — from /api4/businesses</td></tr>
+        <tr><td>Name</td><td><code id="ref-name"></code></td></tr>
+        <tr><td>UUID</td><td><code id="ref-uuid"></code></td></tr>
+        <tr><td>Endpoint</td><td><code id="ref-url"></code></td></tr>
+        <tr><td>Placement</td><td><code id="ref-placement"></code></td></tr>
       </tbody>
     </table>
-
-    <div style="margin-top:14px;">
-      <div class="card-title" style="font-size:12px;margin-bottom:8px;">Headers required</div>
-      <pre style="background:#f1f5f9;padding:10px;border-radius:6px;font-size:11px;">Authorization: Bearer &lt;your-access-token&gt;
-Content-Type: application/json
-Accept: application/json</pre>
-    </div>
-
-    <div style="margin-top:14px;">
-      <div class="card-title" style="font-size:12px;margin-bottom:8px;">GET /api4/businesses — response shape</div>
-      <pre style="background:#f1f5f9;padding:10px;border-radius:6px;font-size:11px;">{
-  "businesses": [
-    { "name": "ABC Corporation", "_links": { "self": { "href": "..." } } },
-    { "name": "Juan Dela Cruz Trading", "_links": { ... } }
-  ]
-}</pre>
-    </div>
-
-    <div style="margin-top:14px;">
-      <div class="card-title" style="font-size:12px;margin-bottom:8px;">To REMOVE an extension</div>
-      <pre style="background:#f1f5f9;padding:10px;border-radius:6px;font-size:11px;">DELETE /api4/extension?key=&lt;uuid&gt;&amp;business=&lt;name&gt;
-Headers: Authorization: Bearer &lt;token&gt;</pre>
-    </div>
+    <div class="hint" style="margin-top:8px;">These values are fixed for this installer — they are not editable here because the UUID must never change after first install.</div>
   </div>
 
 </div><!-- /container -->
@@ -261,50 +199,18 @@ Headers: Authorization: Bearer &lt;token&gt;</pre>
 <script>
   let businesses = [];
 
-  // ── EXTENSION PRESETS ────────────────────────────────────────
-  const EXT_PRESETS = {
-    legacy: {
-      name: 'Tallo CPA – BIR Tax',
-      uuid: '7a3f9e2d-5b8c-4e1a-9d6f-2c4a7b8e3f1d',
-      url:  'https://erolljay.github.io/tallocpa-taxapp/',
-      placement: '/',
-    },
-    taxify: {
-      name: 'Taxify it!',
-      uuid: '9f1c2e4a-6b3d-4f8e-a2c5-7d9e0f1a2b3c',
-      url:  'https://erolljay.github.io/taxify.ph/taxify.html',
-      placement: 'summary-view',
-    },
+  // Fixed Taxify it! extension identity — DO NOT CHANGE the uuid after first install.
+  const TAXIFY_EXT = {
+    name: 'Taxify it!',
+    uuid: '9f1c2e4a-6b3d-4f8e-a2c5-7d9e0f1a2b3c',
+    url:  'https://erolljay.github.io/taxify.ph/taxify.html',
+    placement: 'summary-view',
   };
 
-  function applyExtPreset() {
-    const preset = EXT_PRESETS[document.getElementById('ext-preset').value];
-    if (!preset) return;
-    document.getElementById('ext-name').value = preset.name;
-    document.getElementById('ext-uuid').value = preset.uuid;
-    document.getElementById('ext-url').value  = preset.url;
-    document.getElementById('ext-placement').value = preset.placement || '/';
-    updatePayloadPreview();
-  }
-
-  // ── UPDATE PAYLOAD PREVIEW ──────────────────────────────────
-  function updatePayloadPreview() {
-    const payload = {
-      key: document.getElementById('ext-uuid').value,
-      value: {
-        name: document.getElementById('ext-name').value,
-        source: 1,
-        endpoint: document.getElementById('ext-url').value,
-        placement: document.getElementById('ext-placement').value
-      },
-      business: '<Business Name>'
-    };
-    document.getElementById('payload-preview').textContent = JSON.stringify(payload, null, 2);
-  }
-  ['ext-name','ext-uuid','ext-url','ext-placement'].forEach(id =>
-    document.getElementById(id).addEventListener('input', updatePayloadPreview)
-  );
-  updatePayloadPreview();
+  document.getElementById('ref-name').textContent = TAXIFY_EXT.name;
+  document.getElementById('ref-uuid').textContent = TAXIFY_EXT.uuid;
+  document.getElementById('ref-url').textContent = TAXIFY_EXT.url;
+  document.getElementById('ref-placement').textContent = TAXIFY_EXT.placement;
 
   // ── API HELPER ──────────────────────────────────────────────
   async function managerApi(method, path, body = null) {
@@ -390,7 +296,7 @@ Headers: Authorization: Bearer &lt;token&gt;</pre>
     logEl.style.display = '';
     logEl.innerHTML = '';
 
-    log('info', 'Checking installation status for all businesses…');
+    log('info', 'Checking Taxify it! installation status for all businesses…');
 
     for (let i = 0; i < businesses.length; i++) {
       const name = businesses[i].name;
@@ -398,19 +304,20 @@ Headers: Authorization: Bearer &lt;token&gt;</pre>
       const statusEl = document.getElementById(`status-${i}`);
 
       try {
-        // GET the extension key to see if installed
-        const res = await managerApi('GET', `/api4/extension?key=${encodeURIComponent(document.getElementById('ext-uuid').value)}&business=${encodeURIComponent(name)}`);
+        const res = await managerApi('GET', `/api4/extension?key=${encodeURIComponent(TAXIFY_EXT.uuid)}&business=${encodeURIComponent(name)}`);
         if (res && res.endpoint) {
           item.className = 'business-item installed';
           statusEl.className = 'business-status status-ok';
           statusEl.textContent = '✓ Installed';
           log('ok', `${name} — already installed`);
         } else {
+          item.className = 'business-item';
           statusEl.className = 'business-status status-none';
           statusEl.textContent = 'Not installed';
           log('info', `${name} — not installed`);
         }
       } catch {
+        item.className = 'business-item';
         statusEl.className = 'business-status status-none';
         statusEl.textContent = 'Unknown';
         log('info', `${name} — status unknown`);
@@ -429,18 +336,6 @@ Headers: Authorization: Bearer &lt;token&gt;</pre>
     btn.disabled = true;
     btn.innerHTML = '<span class="spinner"></span> Installing…';
 
-    const extUuid = document.getElementById('ext-uuid').value.trim();
-    const extName = document.getElementById('ext-name').value.trim();
-    const extUrl  = document.getElementById('ext-url').value.trim();
-    const extPlacement = document.getElementById('ext-placement').value.trim() || '/';
-
-    if (!extUuid || !extName || !extUrl) {
-      log('err', 'Extension config is incomplete. Fill in all fields in Step 2.');
-      btn.disabled = false;
-      btn.innerHTML = '⚡ Install on Selected Businesses';
-      return;
-    }
-
     let ok = 0, fail = 0;
 
     for (let i = 0; i < businesses.length; i++) {
@@ -454,15 +349,15 @@ Headers: Authorization: Bearer &lt;token&gt;</pre>
       item.className     = 'business-item installing';
       statusEl.className = 'business-status status-run';
       statusEl.textContent = '⏳ Installing…';
-      log('info', `Installing on: ${name}…`);
+      log('info', `Installing Taxify it! on: ${name}…`);
 
       const payload = {
-        key: extUuid,
+        key: TAXIFY_EXT.uuid,
         value: {
-          name: extName,
+          name: TAXIFY_EXT.name,
           source: 1,
-          endpoint: extUrl,
-          placement: extPlacement,
+          endpoint: TAXIFY_EXT.url,
+          placement: TAXIFY_EXT.placement,
         },
         business: name,
       };
@@ -482,13 +377,59 @@ Headers: Authorization: Bearer &lt;token&gt;</pre>
         fail++;
       }
 
-      // Small delay to avoid hammering the server
       await sleep(200);
     }
 
     log('ok', `Done. ${ok} installed, ${fail} failed.`);
     btn.disabled = false;
-    btn.innerHTML = '⚡ Install on Selected Businesses';
+    btn.innerHTML = '⚡ Install Taxify it! on Selected';
+  }
+
+  // ── UNINSTALL ALL SELECTED ──────────────────────────────────
+  async function uninstallAll() {
+    const btn   = document.getElementById('btn-uninstall');
+    const logEl = document.getElementById('log');
+    logEl.style.display = '';
+    logEl.innerHTML = '';
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span> Uninstalling…';
+
+    let ok = 0, fail = 0;
+
+    for (let i = 0; i < businesses.length; i++) {
+      const chk = document.getElementById(`chk-${i}`);
+      if (!chk?.checked) continue;
+
+      const name    = businesses[i].name;
+      const item    = document.getElementById(`biz-${i}`);
+      const statusEl = document.getElementById(`status-${i}`);
+
+      item.className     = 'business-item installing';
+      statusEl.className = 'business-status status-run';
+      statusEl.textContent = '⏳ Uninstalling…';
+      log('info', `Uninstalling Taxify it! from: ${name}…`);
+
+      try {
+        await managerApi('DELETE', `/api4/extension?key=${encodeURIComponent(TAXIFY_EXT.uuid)}&business=${encodeURIComponent(name)}`);
+        item.className     = 'business-item';
+        statusEl.className = 'business-status status-none';
+        statusEl.textContent = 'Not installed';
+        log('ok', `✓ ${name} — uninstalled successfully`);
+        ok++;
+      } catch (err) {
+        item.className     = 'business-item failed';
+        statusEl.className = 'business-status status-err';
+        statusEl.textContent = '✗ Failed';
+        log('err', `✗ ${name} — ${err.message}`);
+        fail++;
+      }
+
+      await sleep(200);
+    }
+
+    log('ok', `Done. ${ok} uninstalled, ${fail} failed.`);
+    btn.disabled = false;
+    btn.innerHTML = '🗑️ Uninstall Taxify it! from Selected';
   }
 
   // ── LOG ─────────────────────────────────────────────────────
