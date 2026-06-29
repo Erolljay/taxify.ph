@@ -2,165 +2,28 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Taxify it! — Admin Installer</title>
-  <style>
-    :root {
-      --navy: #0d1b3e; --navy-light: #1a2f5e;
-      --accent: #c0392b; --green: #27ae60;
-      --border: #dde3ec; --bg: #f4f6f9;
-      --text: #1a1a2e; --muted: #6b7280;
-    }
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: 'Segoe UI', system-ui, sans-serif; font-size: 13px; background: var(--bg); color: var(--text); min-height: 100vh; }
-
-    header {
-      background: var(--navy);
-      border-bottom: 2px solid var(--accent);
-      padding: 14px 24px;
-      display: flex; align-items: center; gap: 12px;
-      color: white;
-    }
-    header .logo { font-size: 16px; font-weight: 700; }
-    header .sub  { font-size: 11px; color: #94a3c4; }
-
-    .container { max-width: 780px; margin: 32px auto; padding: 0 16px; }
-
-    .card {
-      background: white; border: 1px solid var(--border);
-      border-radius: 10px; padding: 22px; margin-bottom: 18px;
-      box-shadow: 0 1px 4px rgba(0,0,0,0.05);
-    }
-    .card-title {
-      font-size: 13px; font-weight: 700; color: var(--navy);
-      margin-bottom: 14px; padding-bottom: 10px;
-      border-bottom: 1px solid var(--border);
-      display: flex; align-items: center; gap: 6px;
-    }
-
-    .btn {
-      display: inline-flex; align-items: center; gap: 6px;
-      padding: 9px 16px; border-radius: 6px; font-size: 12px;
-      font-weight: 600; cursor: pointer; border: none; font-family: inherit;
-      transition: background 0.15s;
-    }
-    .btn-primary { background: var(--navy); color: white; }
-    .btn-primary:hover { background: var(--navy-light); }
-    .btn-success { background: var(--green); color: white; }
-    .btn-success:hover { background: #219a52; }
-    .btn-danger { background: var(--accent); color: white; }
-    .btn-danger:hover { background: #a93226; }
-    .btn-outline { background: white; color: var(--navy); border: 1.5px solid var(--border); }
-    .btn-outline:hover { border-color: var(--navy); }
-    .btn:disabled { opacity: 0.4; cursor: not-allowed; }
-    .btn-group { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
-
-    .alert { padding: 10px 14px; border-radius: 7px; font-size: 12px; margin-bottom: 12px; display: flex; gap: 8px; align-items: flex-start; }
-    .alert-info    { background: #eff6ff; border: 1px solid #bfdbfe; color: #1e40af; }
-    .alert-warn    { background: #fffbeb; border: 1px solid #fde68a; color: #92400e; }
-    .alert-error   { background: #fef2f2; border: 1px solid #fecaca; color: #991b1b; }
-    .alert-success { background: #f0fdf4; border: 1px solid #bbf7d0; color: #14532d; }
-
-    .business-list { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
-    .business-item {
-      display: flex; align-items: center; gap: 10px;
-      padding: 10px 12px; border: 1.5px solid var(--border);
-      border-radius: 7px; background: #fafbfc;
-    }
-    .business-item.installed { border-color: #86efac; background: #f0fdf4; }
-    .business-item.failed    { border-color: #fca5a5; background: #fef2f2; }
-    .business-item.installing { border-color: #93c5fd; background: #eff6ff; }
-    .business-item input[type=checkbox] { width: 15px; height: 15px; accent-color: var(--navy); flex-shrink: 0; }
-    .business-name { flex: 1; font-weight: 600; }
-    .business-status { font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 4px; flex-shrink: 0; }
-    .status-ok   { background: #dcfce7; color: #15803d; }
-    .status-err  { background: #fee2e2; color: #b91c1c; }
-    .status-run  { background: #dbeafe; color: #1d4ed8; }
-    .status-none { background: #f1f5f9; color: #64748b; }
-
-    .progress-log {
-      background: #0f172a; color: #94a3b8; font-family: 'Courier New', monospace;
-      font-size: 11px; padding: 14px; border-radius: 7px; max-height: 200px;
-      overflow-y: auto; margin-top: 14px; line-height: 1.6;
-    }
-    .log-ok   { color: #4ade80; }
-    .log-err  { color: #f87171; }
-    .log-info { color: #93c5fd; }
-
-    .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid rgba(255,255,255,0.3); border-top-color: white; border-radius: 50%; animation: spin 0.7s linear infinite; }
-    @keyframes spin { to { transform: rotate(360deg); } }
-
-    .select-row { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; }
-    .select-row a { font-size: 11px; color: #3498db; cursor: pointer; text-decoration: underline; }
-
-    table { width: 100%; border-collapse: collapse; font-size: 12px; }
-    th { background: var(--navy); color: white; padding: 8px 12px; text-align: left; font-size: 11px; }
-    td { padding: 7px 12px; border-bottom: 1px solid #f0f0f0; vertical-align: middle; }
-    tr:nth-child(even) { background: #fafbfc; }
-    code { background: #f1f5f9; padding: 2px 6px; border-radius: 4px; font-family: monospace; font-size: 11px; }
-  </style>
+  <link rel="stylesheet" href="styles.css">
 </head>
 <body>
 
-<header>
-  <div>
-    <div class="logo">🇵🇭 Taxify it! — Admin Installer</div>
-    <div class="sub">Install / uninstall the Taxify it! extension across businesses</div>
-  </div>
-</header>
+<h1>&#127477;&#127469; Taxify it! — Admin Installer</h1>
 
-<div class="container">
+<div class="business-bar">
+  <label>Business
+    <select id="business" required></select>
+  </label>
+</div>
 
-  <!-- BUSINESSES -->
-  <div class="card" id="businesses-card">
-    <div class="card-title">🏢 Select Businesses</div>
-    <div id="load-status"><div class="alert alert-info">⏳ Loading businesses…</div></div>
+<p class="muted">Install the Taxify it! app for the selected business. It will appear on that business's
+<strong>Summary</strong> page.</p>
 
-    <div class="select-row">
-      <a onclick="selectAll(true)">Select All</a>
-      <a onclick="selectAll(false)">Deselect All</a>
-      <span id="sel-count" style="font-size:11px;color:var(--muted);margin-left:auto;"></span>
-    </div>
+<div id="install-list"></div>
 
-    <div class="business-list" id="business-list"></div>
-
-    <div class="btn-group" style="margin-top:16px;">
-      <button class="btn btn-success" id="btn-install" onclick="installAll()">
-        ⚡ Install Taxify it! on Selected
-      </button>
-      <button class="btn btn-danger" id="btn-uninstall" onclick="uninstallAll()">
-        🗑️ Uninstall Taxify it! from Selected
-      </button>
-      <button class="btn btn-outline" onclick="checkInstalled()">
-        🔎 Check Installation Status
-      </button>
-    </div>
-    <div class="progress-log" id="log" style="display:none;"></div>
-  </div>
-
-  <!-- REFERENCE -->
-  <div class="card">
-    <div class="card-title">📖 Taxify it! extension identity</div>
-    <table>
-      <thead>
-        <tr><th>Field</th><th>Value</th></tr>
-      </thead>
-      <tbody>
-        <tr><td>Name</td><td><code id="ref-name"></code></td></tr>
-        <tr><td>UUID</td><td><code id="ref-uuid"></code></td></tr>
-        <tr><td>Endpoint</td><td><code id="ref-url"></code></td></tr>
-        <tr><td>Placement</td><td><code id="ref-placement"></code></td></tr>
-      </tbody>
-    </table>
-    <div class="hint" style="margin-top:8px;font-size:11px;color:var(--muted);">These values are fixed for this installer — they are not editable here because the UUID must never change after first install.</div>
-  </div>
-
-</div><!-- /container -->
-
+<!-- Extension UUID: 9f1c2e4a-6b3d-4f8e-a2c5-7d9e0f1a2b3c  DO NOT CHANGE -->
 <script src="shared.js"></script>
 <script>
-  let businesses = [];
-
   // Fixed Taxify it! extension identity — DO NOT CHANGE the uuid after first install.
   const TAXIFY_EXT = {
     name: 'Taxify it!',
@@ -169,212 +32,65 @@
     placement: 'summary-view',
   };
 
-  document.getElementById('ref-name').textContent = TAXIFY_EXT.name;
-  document.getElementById('ref-uuid').textContent = TAXIFY_EXT.uuid;
-  document.getElementById('ref-url').textContent = TAXIFY_EXT.url;
-  document.getElementById('ref-placement').textContent = TAXIFY_EXT.placement;
+  let _installed = null;
 
-  // ── LOAD BUSINESSES (via Manager postMessage bridge) ────────
-  async function loadAllBusinesses() {
-    const statusEl = document.getElementById('load-status');
+  async function renderInstallList(b) {
+    const container = document.getElementById('install-list');
+    if (!container || !b) return;
+    container.innerHTML = '<div class="status">Loading...</div>';
     try {
-      const res = await apiRequest('GET', '/api4/businesses');
-      businesses = res?.businesses || [];
-      if (!businesses.length) {
-        statusEl.innerHTML = '<div class="alert alert-warn">⚠️ No businesses found.</div>';
-        return;
-      }
-      statusEl.innerHTML = `<div class="alert alert-success">✅ Found <strong>${businesses.length}</strong> business${businesses.length > 1 ? 'es' : ''}.</div>`;
-      renderBusinessList();
-    } catch (err) {
-      statusEl.innerHTML = `<div class="alert alert-error">❌ ${escHtml(err.message)}</div>`;
+      const res = await apiRequest('GET', '/api4/extension-batch?business=' + encodeURIComponent(b) + '&Skip=0&PageSize=200');
+      const items = (res?.items || []).map(it => ({ key: it.key, value: it.item || {} }));
+      _installed = items.find(it => it.key === TAXIFY_EXT.uuid) || null;
+    } catch (e) {
+      _installed = null;
     }
-  }
-  loadAllBusinesses();
-
-  // ── RENDER BUSINESS LIST ────────────────────────────────────
-  function renderBusinessList() {
-    const list = document.getElementById('business-list');
-    list.innerHTML = businesses.map((b, i) => `
-      <div class="business-item" id="biz-${i}">
-        <input type="checkbox" id="chk-${i}" checked onchange="updateSelCount()">
-        <label class="business-name" for="chk-${i}">${escHtml(b.name)}</label>
-        <span class="business-status status-none" id="status-${i}">Unknown</span>
-      </div>
-    `).join('');
-    updateSelCount();
+    buildInstallTable(b, container);
   }
 
-  function selectAll(val) {
-    businesses.forEach((_, i) => {
-      const chk = document.getElementById(`chk-${i}`);
-      if (chk) chk.checked = val;
+  function buildInstallTable(b, container) {
+    let badge, action;
+    if (_installed) {
+      badge = '<span style="font-size:10px;background:#d1fae5;color:#065f46;padding:2px 8px;border-radius:10px;">Installed</span>';
+      action = `<button class="secondary" data-action="uninstall" style="font-size:11px;">Uninstall</button>`;
+    } else {
+      badge = '<span style="font-size:10px;background:#fee2e2;color:#991b1b;padding:2px 8px;border-radius:10px;">Not installed</span>';
+      action = `<button class="secondary" data-action="install" style="font-size:11px;">Install</button>`;
+    }
+
+    let html = '<table style="width:100%;border-collapse:collapse;margin-bottom:4px;">';
+    html += '<thead><tr style="font-size:11px;color:#9ca3af;"><th style="text-align:left;padding:5px 8px;font-weight:500;">App</th><th style="padding:5px 8px;font-weight:500;text-align:center;">Status</th><th style="padding:5px 8px;font-weight:500;text-align:center;">Action</th></tr></thead><tbody>';
+    html += `<tr style="border-bottom:.5px solid #f3f4f6;"><td style="padding:7px 8px;font-size:12px;font-weight:500;">${escHtml(TAXIFY_EXT.name)}</td><td style="padding:7px 8px;text-align:center;">${badge}</td><td style="padding:7px 8px;text-align:center;">${action}</td></tr>`;
+    html += '</tbody></table>';
+
+    container.innerHTML = html;
+    container.querySelectorAll('button[data-action]').forEach(btn => {
+      btn.addEventListener('click', () => onInstallAction(btn, b));
     });
-    updateSelCount();
   }
 
-  function updateSelCount() {
-    const total = businesses.length;
-    const sel   = businesses.filter((_, i) => document.getElementById(`chk-${i}`)?.checked).length;
-    document.getElementById('sel-count').textContent = `${sel} of ${total} selected`;
-  }
-
-  // ── FIND OUR EXTENSION ON A BUSINESS ────────────────────────
-  async function findTaxifyExtension(name) {
-    const res = await apiRequest('GET', '/api4/extension-batch?business=' + encodeURIComponent(name) + '&Skip=0&PageSize=200');
-    const items = res?.items || [];
-    return items.find(it => it.key === TAXIFY_EXT.uuid) || null;
-  }
-
-  // ── CHECK INSTALLATION STATUS ───────────────────────────────
-  async function checkInstalled() {
-    const logEl = document.getElementById('log');
-    logEl.style.display = '';
-    logEl.innerHTML = '';
-
-    log('info', 'Checking Taxify it! installation status for all businesses…');
-
-    for (let i = 0; i < businesses.length; i++) {
-      const name = businesses[i].name;
-      const item = document.getElementById(`biz-${i}`);
-      const statusEl = document.getElementById(`status-${i}`);
-
-      try {
-        const found = await findTaxifyExtension(name);
-        if (found) {
-          item.className = 'business-item installed';
-          statusEl.className = 'business-status status-ok';
-          statusEl.textContent = '✓ Installed';
-          log('ok', `${name} — already installed`);
-        } else {
-          item.className = 'business-item';
-          statusEl.className = 'business-status status-none';
-          statusEl.textContent = 'Not installed';
-          log('info', `${name} — not installed`);
-        }
-      } catch (err) {
-        item.className = 'business-item';
-        statusEl.className = 'business-status status-none';
-        statusEl.textContent = 'Unknown';
-        log('info', `${name} — status unknown (${err.message})`);
-      }
-    }
-
-    log('ok', 'Status check complete.');
-  }
-
-  // ── INSTALL ALL SELECTED ────────────────────────────────────
-  async function installAll() {
-    const btn   = document.getElementById('btn-install');
-    const logEl = document.getElementById('log');
-    logEl.style.display = '';
-    logEl.innerHTML = '';
+  async function onInstallAction(btn, b) {
+    const action = btn.dataset.action;
     btn.disabled = true;
-    btn.innerHTML = '<span class="spinner"></span> Installing…';
-
-    let ok = 0, fail = 0;
-
-    for (let i = 0; i < businesses.length; i++) {
-      const chk = document.getElementById(`chk-${i}`);
-      if (!chk?.checked) continue;
-
-      const name    = businesses[i].name;
-      const item    = document.getElementById(`biz-${i}`);
-      const statusEl = document.getElementById(`status-${i}`);
-
-      item.className     = 'business-item installing';
-      statusEl.className = 'business-status status-run';
-      statusEl.textContent = '⏳ Installing…';
-      log('info', `Installing Taxify it! on: ${name}…`);
-
-      try {
+    btn.textContent = action === 'install' ? 'Installing...' : 'Uninstalling...';
+    try {
+      if (action === 'install') {
         await apiRequest('POST', '/api4/extension', {
-          business: name,
-          value: {
-            Name: TAXIFY_EXT.name,
-            Source: 0,
-            Endpoint: TAXIFY_EXT.url,
-            Placement: TAXIFY_EXT.placement,
-          },
+          business: b,
+          value: { Name: TAXIFY_EXT.name, Source: 0, Endpoint: TAXIFY_EXT.url, Placement: TAXIFY_EXT.placement },
         });
-        item.className     = 'business-item installed';
-        statusEl.className = 'business-status status-ok';
-        statusEl.textContent = '✓ Installed';
-        log('ok', `✓ ${name} — installed successfully`);
-        ok++;
-      } catch (err) {
-        item.className     = 'business-item failed';
-        statusEl.className = 'business-status status-err';
-        statusEl.textContent = '✗ Failed';
-        log('err', `✗ ${name} — ${err.message}`);
-        fail++;
+      } else {
+        await apiRequest('DELETE', '/api4/extension?business=' + encodeURIComponent(b) + '&key=' + encodeURIComponent(TAXIFY_EXT.uuid));
       }
-
-      await sleep(200);
+      await renderInstallList(b);
+    } catch (err) {
+      btn.disabled = false;
+      btn.textContent = action === 'install' ? 'Install' : 'Uninstall';
+      alert('Failed: ' + err.message);
     }
-
-    log('ok', `Done. ${ok} installed, ${fail} failed.`);
-    btn.disabled = false;
-    btn.innerHTML = '⚡ Install Taxify it! on Selected';
   }
 
-  // ── UNINSTALL ALL SELECTED ──────────────────────────────────
-  async function uninstallAll() {
-    const btn   = document.getElementById('btn-uninstall');
-    const logEl = document.getElementById('log');
-    logEl.style.display = '';
-    logEl.innerHTML = '';
-    btn.disabled = true;
-    btn.innerHTML = '<span class="spinner"></span> Uninstalling…';
-
-    let ok = 0, fail = 0;
-
-    for (let i = 0; i < businesses.length; i++) {
-      const chk = document.getElementById(`chk-${i}`);
-      if (!chk?.checked) continue;
-
-      const name    = businesses[i].name;
-      const item    = document.getElementById(`biz-${i}`);
-      const statusEl = document.getElementById(`status-${i}`);
-
-      item.className     = 'business-item installing';
-      statusEl.className = 'business-status status-run';
-      statusEl.textContent = '⏳ Uninstalling…';
-      log('info', `Uninstalling Taxify it! from: ${name}…`);
-
-      try {
-        await apiRequest('DELETE', '/api4/extension?business=' + encodeURIComponent(name) + '&key=' + encodeURIComponent(TAXIFY_EXT.uuid));
-        item.className     = 'business-item';
-        statusEl.className = 'business-status status-none';
-        statusEl.textContent = 'Not installed';
-        log('ok', `✓ ${name} — uninstalled successfully`);
-        ok++;
-      } catch (err) {
-        item.className     = 'business-item failed';
-        statusEl.className = 'business-status status-err';
-        statusEl.textContent = '✗ Failed';
-        log('err', `✗ ${name} — ${err.message}`);
-        fail++;
-      }
-
-      await sleep(200);
-    }
-
-    log('ok', `Done. ${ok} uninstalled, ${fail} failed.`);
-    btn.disabled = false;
-    btn.innerHTML = '🗑️ Uninstall Taxify it! from Selected';
-  }
-
-  // ── LOG ─────────────────────────────────────────────────────
-  function log(type, msg) {
-    const el = document.getElementById('log');
-    const ts = new Date().toLocaleTimeString('en-PH');
-    const cls = type === 'ok' ? 'log-ok' : type === 'err' ? 'log-err' : 'log-info';
-    el.innerHTML += `<span class="${cls}">[${ts}] ${escHtml(msg)}</span>\n`;
-    el.scrollTop = el.scrollHeight;
-  }
-
-  function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+  loadBusinesses('business', () => renderInstallList(App.currentBusiness));
 </script>
 </body>
 </html>
