@@ -1,0 +1,489 @@
+/* ============================================================
+   Taxify it! — app shell logic
+   Settings mode: ported from app.js, but resolves a single business via
+   getReportBusiness() instead of a manual <select id="business">, since
+   each Taxify it! install is scoped to one business.
+   User mode: category-card landing screen + StepEngine workflows.
+   ============================================================ */
+
+let biz = '';
+let setup = null;
+
+// ── MODE SWITCHING (Settings / User) ─────────────────────────
+function activateMode(mode) {
+  document.querySelectorAll('.tfy-mode-btn').forEach(b => b.classList.toggle('active', b.dataset.mode === mode));
+  document.getElementById('settings-mode').hidden = mode !== 'settings';
+  document.getElementById('user-mode').hidden = mode !== 'user';
+  if (mode === 'user') renderUserMode();
+}
+
+document.querySelectorAll('.tfy-mode-btn').forEach(b => {
+  b.addEventListener('click', () => activateMode(b.dataset.mode));
+});
+
+// ── SETTINGS MODE: TAB SWITCHING ──────────────────────────────
+const allViews = document.querySelectorAll('[id$="-view"]');
+const cfLoaded = {};
+const cfControllers = {};
+let setupTabLoaded = false;
+let coaTabLoaded = false;
+let coaController = null;
+
+function activateTab(view) {
+  document.querySelectorAll('#settings-mode .tab').forEach(t => t.classList.toggle('active', t.dataset.view === view));
+  allViews.forEach(v => { v.hidden = v.id !== (view + '-view'); });
+
+  if (view === 'reports')            renderReportsTab(biz);
+  if (view === 'setup' && !setupTabLoaded) { setupTabLoaded = true; loadTaxCodesTab(); }
+  if (view === 'batch-import-setup') renderBatchImportSetupTab(biz);
+  if (view === 'business')           lazyMountCF('business', biz);
+  if (view === 'payslip-items')      lazyMountCF('payslipItems', biz);
+  if (view === 'coa')                lazyMountCoa(biz);
+}
+
+document.querySelectorAll('#settings-mode .tab').forEach(t => {
+  t.addEventListener('click', () => activateTab(t.dataset.view));
+});
+
+function lazyMountCoa(b) {
+  if (!b || typeof COA === 'undefined' || coaTabLoaded) return;
+  coaTabLoaded = true;
+  coaController = COA.mount(document.getElementById('coa-view'));
+  coaController.refresh();
+}
+
+function lazyMountCF(section, b) {
+  if (!b || typeof CF === 'undefined') return;
+  const key = b + '__' + section;
+  if (cfLoaded[key]) return;
+  cfLoaded[key] = true;
+
+  if (section === 'business') {
+    cfControllers.business = CF.mountBusiness(document.getElementById('business-view'));
+    cfControllers.business.refresh();
+  } else if (section === 'payslipItems') {
+    cfControllers.payslipItems = CF.mountPayslipItems(document.getElementById('payslip-items-view'));
+    cfControllers.payslipItems.refresh();
+  }
+}
+
+// ── REPORTS TAB (raw extension install management) ────────────
+let _installed = [];
+
+async function renderReportsTab(b) {
+  const container = document.getElementById('report-install-list');
+  if (!container || !b) return;
+  container.innerHTML = '<div class="status">Loading...</div>';
+  try {
+    const res = await apiRequest('GET', '/api4/extension-batch?business=' + encodeURIComponent(b) + '&Skip=0&PageSize=200');
+    _installed = (res?.items || []).map(it => ({ key: it.key, value: it.item || {} }));
+  } catch (e) { _installed = []; }
+  buildReportTable(b, container);
+}
+
+function buildReportTable(b, container) {
+  const groups = {};
+  REPORTS.forEach(r => { (groups[r.group] = groups[r.group] || []).push(r); });
+
+  let html = '';
+  Object.keys(groups).forEach(group => {
+    html += `<h3 style="margin:18px 0 6px;font-size:12px;font-weight:500;text-transform:uppercase;letter-spacing:.05em;color:#6b7280;border-bottom:.5px solid #e5e7eb;padding-bottom:4px;">${escHtml(group)}</h3>`;
+    html += '<table style="width:100%;border-collapse:collapse;margin-bottom:4px;">';
+    html += '<thead><tr style="font-size:11px;color:#9ca3af;"><th style="text-align:left;padding:5px 8px;font-weight:500;">Report</th><th style="padding:5px 8px;font-weight:500;text-align:center;">Status</th><th style="padding:5px 8px;font-weight:500;text-align:center;">Action</th></tr></thead><tbody>';
+    groups[group].forEach(r => {
+      const ep = reportEndpoint(r);
+      const inst = _installed.find(e => (e.value.Endpoint || e.value.endpoint) === ep);
+      let badge, action;
+      if (!r.available) {
+        const label = r.phase >= 3 ? 'Phase 3' : 'Phase 2';
+        badge = `<span style="font-size:10px;background:#f3f4f6;color:#6b7280;padding:2px 8px;border-radius:10px;">${label}</span>`;
+        action = '<button class="secondary" disabled style="opacity:.4;font-size:11px;">Install</button>';
+      } else if (inst) {
+        badge = '<span style="font-size:10px;background:#d1fae5;color:#065f46;padding:2px 8px;border-radius:10px;">Installed</span>';
+        action = `<button class="secondary" data-action="uninstall" data-key="${escHtml(inst.key)}" style="font-size:11px;">Uninstall</button>`;
+      } else {
+        badge = '<span style="font-size:10px;background:#fee2e2;color:#991b1b;padding:2px 8px;border-radius:10px;">Not installed</span>';
+        action = `<button class="secondary" data-action="install" data-name="${escHtml(r.name)}" data-ep="${escHtml(ep)}" style="font-size:11px;">Install</button>`;
+      }
+      html += `<tr style="border-bottom:.5px solid #f3f4f6;"><td style="padding:7px 8px;font-size:12px;font-weight:500;">${escHtml(r.name)}</td><td style="padding:7px 8px;text-align:center;">${badge}</td><td style="padding:7px 8px;text-align:center;">${action}</td></tr>`;
+    });
+    html += '</tbody></table>';
+  });
+
+  container.innerHTML = html;
+  container.querySelectorAll('button[data-action]').forEach(btn => {
+    btn.addEventListener('click', () => onReportAction(btn, b));
+  });
+}
+
+async function onReportAction(btn, b) {
+  const action = btn.dataset.action;
+  btn.disabled = true;
+  btn.textContent = action === 'install' ? 'Installing...' : 'Uninstalling...';
+  try {
+    if (action === 'install') {
+      await apiRequest('POST', '/api4/extension', {
+        business: b,
+        value: { Name: btn.dataset.name, Source: 0, Endpoint: btn.dataset.ep, Placement: 'reports' }
+      });
+    } else {
+      await apiRequest('DELETE', '/api4/extension?business=' + encodeURIComponent(b) + '&key=' + encodeURIComponent(btn.dataset.key));
+    }
+    await renderReportsTab(b);
+  } catch (err) {
+    btn.disabled = false;
+    btn.textContent = action === 'install' ? 'Install' : 'Uninstall';
+    alert('Failed: ' + err.message);
+  }
+}
+
+// ── BATCH IMPORT SETUP TAB ─────────────────────────────────────
+let _biInstalled = [];
+
+async function renderBatchImportSetupTab(b) {
+  const container = document.getElementById('batch-import-install-list');
+  if (!container || !b) return;
+  container.innerHTML = '<div class="status">Loading...</div>';
+  try {
+    const res = await apiRequest('GET', '/api4/extension-batch?business=' + encodeURIComponent(b) + '&Skip=0&PageSize=200');
+    _biInstalled = (res?.items || []).map(it => ({ key: it.key, value: it.item || {} }));
+  } catch (e) { _biInstalled = []; }
+  buildBatchImportInstallTable(b, container);
+}
+
+function buildBatchImportInstallTable(b, container) {
+  let html = '<table style="width:100%;border-collapse:collapse;margin-bottom:4px;">';
+  html += '<thead><tr style="font-size:11px;color:#9ca3af;"><th style="text-align:left;padding:5px 8px;font-weight:500;">Tool</th><th style="padding:5px 8px;font-weight:500;text-align:left;">Placement</th><th style="padding:5px 8px;font-weight:500;text-align:center;">Status</th><th style="padding:5px 8px;font-weight:500;text-align:center;">Action</th></tr></thead><tbody>';
+  BATCH_IMPORT_INSTALLS.forEach(r => {
+    const ep = reportEndpoint(r);
+    const inst = _biInstalled.find(e => (e.value.Endpoint || e.value.endpoint) === ep);
+    let badge, action;
+    if (inst) {
+      badge = '<span style="font-size:10px;background:#d1fae5;color:#065f46;padding:2px 8px;border-radius:10px;">Installed</span>';
+      action = `<button class="secondary" data-action="uninstall" data-key="${escHtml(inst.key)}" style="font-size:11px;">Uninstall</button>`;
+    } else {
+      badge = '<span style="font-size:10px;background:#fee2e2;color:#991b1b;padding:2px 8px;border-radius:10px;">Not installed</span>';
+      action = `<button class="secondary" data-action="install" data-name="${escHtml(r.name)}" data-ep="${escHtml(ep)}" data-placement="${escHtml(r.placement)}" style="font-size:11px;">Install</button>`;
+    }
+    html += `<tr style="border-bottom:.5px solid #f3f4f6;"><td style="padding:7px 8px;font-size:12px;font-weight:500;">${escHtml(r.name)}</td><td style="padding:7px 8px;font-size:11px;color:#6b7280;">${escHtml(r.placement)}</td><td style="padding:7px 8px;text-align:center;">${badge}</td><td style="padding:7px 8px;text-align:center;">${action}</td></tr>`;
+  });
+  html += '</tbody></table>';
+
+  container.innerHTML = html;
+  container.querySelectorAll('button[data-action]').forEach(btn => {
+    btn.addEventListener('click', () => onBatchImportAction(btn, b));
+  });
+}
+
+async function onBatchImportAction(btn, b) {
+  const action = btn.dataset.action;
+  btn.disabled = true;
+  btn.textContent = action === 'install' ? 'Installing...' : 'Uninstalling...';
+  try {
+    if (action === 'install') {
+      await apiRequest('POST', '/api4/extension', {
+        business: b,
+        value: { Name: btn.dataset.name, Source: 0, Endpoint: btn.dataset.ep, Placement: btn.dataset.placement }
+      });
+    } else {
+      await apiRequest('DELETE', '/api4/extension?business=' + encodeURIComponent(b) + '&key=' + encodeURIComponent(btn.dataset.key));
+    }
+    await renderBatchImportSetupTab(b);
+  } catch (err) {
+    btn.disabled = false;
+    btn.textContent = action === 'install' ? 'Install' : 'Uninstall';
+    alert('Failed: ' + err.message);
+  }
+}
+
+// ── TAX CODES TAB ───────────────────────────────────────────────
+let _taxCodes = [];
+let _tcCoa = {};
+let _tcAccountLinks = {};
+
+const refreshBtn = document.getElementById('refreshSetup');
+if (refreshBtn) refreshBtn.addEventListener('click', loadTaxCodesTab);
+
+const VAT_ACCOUNT_LINKABLE = [
+  'Output VAT 12%',
+  'Input VAT 12% (Capital Goods)',
+  'Input VAT 12% (Other Goods)',
+  'Input VAT 12% (Services)',
+];
+
+async function loadTaxCodesTab() {
+  const out = document.getElementById('setupOutput');
+  if (!biz) { out.innerHTML = '<div class="error">Business not detected yet.</div>'; return; }
+  out.innerHTML = '<div class="status">Loading tax codes...</div>';
+  try {
+    const results = await Promise.all([
+      apiRequest('GET', '/api4/tax-code-batch?business=' + encodeURIComponent(biz) + '&Skip=0&PageSize=200'),
+      (typeof loadChartOfAccounts === 'function') ? loadChartOfAccounts(biz, true) : Promise.resolve({}),
+      (typeof getAccountLinkMapping === 'function') ? getAccountLinkMapping(biz) : Promise.resolve({}),
+    ]);
+    const res = results[0];
+    _taxCodes = (res?.items || []).map(it => ({ key: it.key, value: it.item || {} }));
+    _tcCoa = results[1] || {};
+    _tcAccountLinks = results[2] || {};
+  } catch (err) {
+    out.innerHTML = '<div class="error">Failed to load: ' + escHtml(err.message) + '</div>';
+    return;
+  }
+  renderTaxCodesOutput(biz, out);
+}
+
+const TC_GROUPS = [
+  { key: 'VAT',  label: 'Business Tax Codes — VAT',                  sub: 'Output and input VAT for VAT-registered businesses' },
+  { key: 'PT',   label: 'Business Tax Codes — Percentage Tax',       sub: 'PT010, PT040, PT101 — for non-VAT / specific industries' },
+  { key: 'EWT',  label: 'EWT / CWT on Income Payments',              sub: 'Withheld from suppliers (WI/WC series) — Manager rate = 100%' },
+  { key: 'GOVT', label: 'EWT / CWT — Government Withheld from You',  sub: 'Final withholding VAT (WV) + PT (WB) — Manager rate = 100%' },
+  { key: 'FWT',  label: 'Final Withholding Tax',                     sub: 'Passive income: royalties, interest, dividends — Manager rate = 100%' },
+];
+
+function renderTaxCodesOutput(b, out) {
+  const tcByName = {};
+  _taxCodes.forEach(tc => {
+    const n = (tc.value.Name || tc.value.name || '').toLowerCase().trim();
+    if (n) tcByName[n] = tc;
+  });
+
+  let html = '<p style="font-size:11px;color:#6b7280;margin-bottom:16px;">' +
+    'All tax codes are pre-defined. Status shows whether each code exists in this business. ' +
+    'Click <strong>Create</strong> to add missing codes or <strong>Create All Missing</strong> per group.' +
+    '</p>';
+
+  TC_GROUPS.forEach(grp => {
+    const codes = TAX_CODE_TEMPLATES.filter(t => t.group === grp.key);
+    if (!codes.length) return;
+    const missing = codes.filter(t => !tcByName[t.Name.toLowerCase().trim()]);
+
+    html += '<div style="margin-bottom:24px;">';
+    html += '<div style="display:flex;align-items:baseline;justify-content:space-between;border-bottom:1.5px solid #e5e7eb;padding-bottom:6px;margin-bottom:8px;">';
+    html += '<div>';
+    html += `<span style="font-size:13px;font-weight:600;color:#1a2f5e;">${escHtml(grp.label)}</span>`;
+    html += `<span style="font-size:11px;color:#9ca3af;margin-left:8px;">${escHtml(grp.sub)}</span>`;
+    html += '</div>';
+    if (missing.length) {
+      html += `<button class="secondary" data-action="create-group" data-group="${escHtml(grp.key)}" style="font-size:11px;padding:3px 10px;">Create All Missing (${missing.length})</button>`;
+    } else {
+      html += '<span style="font-size:11px;color:#27ae60;font-weight:500;">✓ All present</span>';
+    }
+    html += '</div>';
+
+    const hasAccountCol = grp.key === 'VAT';
+    html += '<table style="width:100%;border-collapse:collapse;">';
+    html += '<thead><tr style="font-size:10px;color:#9ca3af;text-transform:uppercase;letter-spacing:.04em;">';
+    html += '<th style="text-align:left;padding:4px 8px;font-weight:500;">Tax Code Name</th>';
+    html += '<th style="padding:4px 8px;font-weight:500;text-align:center;">BIR Rate</th>';
+    html += '<th style="padding:4px 8px;font-weight:500;text-align:center;">Manager Rate</th>';
+    if (hasAccountCol) html += '<th style="padding:4px 8px;font-weight:500;text-align:left;">GL Account</th>';
+    html += '<th style="padding:4px 8px;font-weight:500;text-align:center;">Status</th>';
+    html += '<th style="padding:4px 8px;"></th>';
+    html += '</tr></thead><tbody>';
+
+    codes.forEach(tpl => {
+      const match = tcByName[tpl.Name.toLowerCase().trim()];
+      const birRateStr = tpl.birRate > 0 ? tpl.birRate + '%' : '0%';
+      const mgrRateStr = tpl.managerRate === 100 ? '100% *' : tpl.managerRate + '%';
+      const badge = match
+        ? '<span style="font-size:10px;background:#d1fae5;color:#065f46;padding:2px 8px;border-radius:10px;">✓ Found</span>'
+        : '<span style="font-size:10px;background:#fee2e2;color:#991b1b;padding:2px 8px;border-radius:10px;">Missing</span>';
+      const action = match
+        ? '<span style="font-size:11px;color:#9ca3af;">—</span>'
+        : `<button class="secondary" data-action="create-tc" data-name="${escHtml(tpl.Name)}" data-mgr-rate="${tpl.managerRate}" data-group="${escHtml(tpl.group)}" style="font-size:11px;padding:3px 10px;">Create</button>`;
+      html += `<tr style="border-bottom:.5px solid #f3f4f6;" data-tc-name="${escHtml(tpl.Name)}" data-tc-mgr-rate="${tpl.managerRate}" data-tc-group="${escHtml(tpl.group)}" data-tc-key="${escHtml(match ? match.key : '')}">`;
+      html += `<td style="padding:6px 8px;font-size:12px;font-weight:500;">${escHtml(tpl.Name)}</td>`;
+      html += `<td style="padding:6px 8px;font-size:12px;text-align:center;color:#374151;">${birRateStr}</td>`;
+      html += `<td style="padding:6px 8px;font-size:12px;text-align:center;color:${tpl.managerRate === 100 ? '#b45309' : '#374151'};">${mgrRateStr}</td>`;
+      if (hasAccountCol) {
+        if (VAT_ACCOUNT_LINKABLE.indexOf(tpl.Name) !== -1) {
+          const linkKey = 'tc:' + tpl.Name;
+          const nativeAccount = (match && match.value && match.value.account) || '';
+          const selected = _tcAccountLinks[linkKey] || nativeAccount || '';
+          const opts = (typeof COA !== 'undefined') ? COA.accountOptionsHtml(_tcCoa, { isPnL: false, selected }) : '<option value="">-- none --</option>';
+          html += `<td style="padding:6px 8px;"><div style="display:flex;gap:4px;">
+            <select data-role="tc-account" style="font-size:11px;flex:1;">${opts}</select>
+            <button class="secondary" data-action="save-tc-account" style="font-size:11px;padding:2px 8px;">Save</button>
+            </div></td>`;
+        } else {
+          html += '<td style="padding:6px 8px;font-size:11px;color:#9ca3af;">—</td>';
+        }
+      }
+      html += `<td style="padding:6px 8px;text-align:center;">${badge}</td>`;
+      html += `<td style="padding:6px 8px;text-align:center;">${action}</td>`;
+      html += '</tr>';
+    });
+    html += '</tbody></table>';
+    if (grp.key !== 'VAT' && grp.key !== 'PT') {
+      html += '<p style="font-size:10px;color:#9ca3af;margin:4px 8px 0;">* Manager rate 100% = line amount entered by accountant IS the withholding tax amount.</p>';
+    }
+    html += '</div>';
+  });
+
+  out.innerHTML = html;
+  out.querySelectorAll('[data-action="create-tc"]').forEach(btn => btn.addEventListener('click', () => onCreateTaxCode(btn, b)));
+  out.querySelectorAll('[data-action="create-group"]').forEach(btn => btn.addEventListener('click', () => onCreateGroupTaxCodes(btn, b)));
+  out.querySelectorAll('[data-action="save-tc-account"]').forEach(btn => btn.addEventListener('click', () => onSaveTcAccount(btn, b)));
+}
+
+function taxRateEnum(group, managerRate) {
+  if (group === 'EWT' || group === 'GOVT' || group === 'FWT') return 0;
+  return managerRate > 0 ? 2 : 0;
+}
+
+function buildTaxCodeValue(name, managerRate, group, accountGuid) {
+  const tr = taxRateEnum(group, managerRate);
+  return {
+    name,
+    taxRate: tr,
+    type: 0,
+    rate: tr === 2 ? managerRate : 0,
+    account: accountGuid || null,
+  };
+}
+
+async function createTaxCodeWithAccount(b, name, mgrRate, group, accountGuid) {
+  const created = await apiRequest('POST', '/api4/tax-code', {
+    business: b,
+    value: buildTaxCodeValue(name, mgrRate, group, null)
+  });
+  if (accountGuid) {
+    const tcKey = typeof created === 'string' ? created : (created?.key || created?.Key);
+    if (tcKey) {
+      await apiRequest('PUT', '/api4/tax-code', {
+        business: b,
+        key: tcKey,
+        value: buildTaxCodeValue(name, mgrRate, group, accountGuid)
+      });
+    }
+  }
+}
+
+async function onCreateTaxCode(btn, b) {
+  const name = btn.dataset.name;
+  const mgrRate = parseFloat(btn.dataset.mgrRate);
+  const group = btn.dataset.group || '';
+  const accountGuid = VAT_ACCOUNT_LINKABLE.indexOf(name) !== -1 ? (_tcAccountLinks['tc:' + name] || null) : null;
+  btn.disabled = true; btn.textContent = 'Creating…';
+  try {
+    await createTaxCodeWithAccount(b, name, mgrRate, group, accountGuid);
+    await loadTaxCodesTab();
+  } catch (err) {
+    btn.disabled = false; btn.textContent = 'Create';
+    alert('Failed: ' + err.message);
+  }
+}
+
+async function onCreateGroupTaxCodes(btn, b) {
+  const grpKey = btn.dataset.group;
+  const tcByName = {};
+  _taxCodes.forEach(tc => {
+    const n = (tc.value.Name || tc.value.name || '').toLowerCase().trim();
+    if (n) tcByName[n] = true;
+  });
+  const missing = TAX_CODE_TEMPLATES.filter(t => t.group === grpKey && !tcByName[t.Name.toLowerCase().trim()]);
+  if (!missing.length) return;
+  btn.disabled = true; btn.textContent = 'Creating…';
+  try {
+    for (const m of missing) {
+      const accountGuid = VAT_ACCOUNT_LINKABLE.indexOf(m.Name) !== -1 ? (_tcAccountLinks['tc:' + m.Name] || null) : null;
+      await createTaxCodeWithAccount(b, m.Name, m.managerRate, m.group, accountGuid);
+    }
+    await loadTaxCodesTab();
+  } catch (err) {
+    btn.disabled = false; btn.textContent = 'Create All Missing';
+    alert('Failed: ' + err.message);
+  }
+}
+
+async function onSaveTcAccount(btn, b) {
+  const row = btn.closest('tr');
+  const name = row.dataset.tcName;
+  const mgrRate = parseFloat(row.dataset.tcMgrRate);
+  const group = row.dataset.tcGroup;
+  const tcKey = row.dataset.tcKey;
+  const accountGuid = row.querySelector('[data-role="tc-account"]').value || null;
+
+  btn.disabled = true; btn.textContent = '…';
+  try {
+    _tcAccountLinks['tc:' + name] = accountGuid || '';
+    if (!accountGuid) delete _tcAccountLinks['tc:' + name];
+    await saveAccountLinkMapping(b, _tcAccountLinks);
+    if (tcKey) {
+      await apiRequest('PUT', '/api4/tax-code', {
+        business: b,
+        key: tcKey,
+        value: buildTaxCodeValue(name, mgrRate, group, accountGuid),
+      });
+    }
+    btn.disabled = false; btn.textContent = '✓ Saved';
+    setTimeout(() => { btn.textContent = 'Save'; }, 1400);
+  } catch (err) {
+    btn.disabled = false; btn.textContent = 'Save';
+    alert('Failed: ' + err.message);
+  }
+}
+
+// ── USER MODE: CATEGORY CARDS + STEP ENGINE ────────────────────
+let _userActiveCategory = null;
+let _stepEngineHandle = null;
+
+function workflowKeyForIncomeTax() {
+  if (setup && setup.classification === 'Individual') return 'individual';
+  return 'nonindividual';
+}
+
+function renderUserMode() {
+  const root = document.getElementById('user-mode');
+  if (_userActiveCategory) { renderWorkflowScreen(root, _userActiveCategory); return; }
+  renderCategoryCards(root);
+}
+
+function renderCategoryCards(root) {
+  root.innerHTML = `
+    <div class="tfy-category-grid">
+      ${WORKFLOW_CATEGORIES.map(c => `
+        <button type="button" class="tfy-category-card" data-cat="${escHtml(c.key)}">
+          <span class="tfy-category-icon">${c.icon}</span>
+          <span class="tfy-category-label">${escHtml(c.label)}</span>
+        </button>`).join('')}
+    </div>`;
+  root.querySelectorAll('.tfy-category-card').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const cat = btn.dataset.cat;
+      _userActiveCategory = cat === 'income' ? workflowKeyForIncomeTax() : cat;
+      renderUserMode();
+    });
+  });
+}
+
+function renderWorkflowScreen(root, workflowKey) {
+  const workflow = WORKFLOWS[workflowKey];
+  root.innerHTML = `
+    <button type="button" class="btn btn-outline" id="tfy-back-to-categories" style="margin-bottom:12px;">← Back to categories</button>
+    <div id="tfy-workflow-mount"></div>`;
+  root.querySelector('#tfy-back-to-categories').addEventListener('click', () => {
+    _userActiveCategory = null;
+    _stepEngineHandle = null;
+    renderUserMode();
+  });
+  if (!workflow) {
+    root.querySelector('#tfy-workflow-mount').innerHTML = '<p class="muted">This workflow isn\'t configured yet.</p>';
+    return;
+  }
+  _stepEngineHandle = StepEngine.mount(root.querySelector('#tfy-workflow-mount'), workflow, biz);
+}
+
+// ── BOOTSTRAP ────────────────────────────────────────────────
+(async function init() {
+  try {
+    biz = await getReportBusiness(document.getElementById('biz-context-wrap'));
+  } catch (e) {
+    document.getElementById('biz-context-wrap').innerHTML =
+      `<div class="alert alert-error">Could not detect a business: ${escHtml(e.message)}</div>`;
+    return;
+  }
+  setup = await loadSetup(biz);
+  document.getElementById('tfy-biz-name').textContent = biz;
+  activateTab('welcome');
+})();

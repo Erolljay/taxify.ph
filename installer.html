@@ -152,6 +152,15 @@
   <div class="card">
     <div class="card-title">⚙️ Step 2 — Extension Configuration</div>
 
+    <div class="form-group">
+      <label class="form-label">Preset</label>
+      <select class="form-select" id="ext-preset" onchange="applyExtPreset()">
+        <option value="legacy">Tallo CPA – BIR Tax (legacy, multi-business admin tool)</option>
+        <option value="taxify">Taxify it! (per-business app)</option>
+      </select>
+      <div class="hint">Switching presets fills in the fields below — existing installs of either preset are unaffected.</div>
+    </div>
+
     <div class="form-row">
       <div class="form-group">
         <label class="form-label">Extension Name (shown in sidebar)</label>
@@ -161,13 +170,20 @@
         <label class="form-label">Extension UUID (DO NOT CHANGE after first install)</label>
         <input class="form-input" id="ext-uuid" value="7a3f9e2d-5b8c-4e1a-9d6f-2c4a7b8e3f1d"
           style="font-family:monospace;font-size:11px;">
-        <div class="hint">Must match the UUID in index.html</div>
+        <div class="hint">Must match the UUID in the installed page (index.html or taxify.html)</div>
       </div>
     </div>
-    <div class="form-group">
-      <label class="form-label">Extension URL (GitHub Pages)</label>
-      <input class="form-input" id="ext-url" value="https://erolljay.github.io/tallocpa-taxapp/">
-      <div class="hint">Must be HTTPS. This is where your index.html is hosted.</div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Extension URL (GitHub Pages)</label>
+        <input class="form-input" id="ext-url" value="https://erolljay.github.io/tallocpa-taxapp/">
+        <div class="hint">Must be HTTPS. This is where the page is hosted.</div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Placement</label>
+        <input class="form-input" id="ext-placement" value="/" style="font-family:monospace;font-size:11px;">
+        <div class="hint">"/" = left sidebar, "summary-view" = Summary page, "reports" = Reports tab, etc.</div>
+      </div>
     </div>
 
     <details style="margin-top:12px;">
@@ -211,7 +227,7 @@
         <tr><td><code>value.name</code></td><td>Display name</td><td>Shown as sidebar button label</td></tr>
         <tr><td><code>value.source</code></td><td><code>1</code></td><td>Always 1 for custom extensions</td></tr>
         <tr><td><code>value.endpoint</code></td><td>GitHub Pages URL</td><td>Must be HTTPS</td></tr>
-        <tr><td><code>value.placement</code></td><td><code>/</code></td><td>Puts it in the left sidebar</td></tr>
+        <tr><td><code>value.placement</code></td><td><code>/</code> or <code>summary-view</code>, <code>reports</code>, etc.</td><td><code>/</code> = left sidebar; <code>summary-view</code> = Summary page (used by the Taxify it! preset)</td></tr>
         <tr><td><code>business</code></td><td>Exact business name</td><td>Case-sensitive — from /api4/businesses</td></tr>
       </tbody>
     </table>
@@ -245,6 +261,32 @@ Headers: Authorization: Bearer &lt;token&gt;</pre>
 <script>
   let businesses = [];
 
+  // ── EXTENSION PRESETS ────────────────────────────────────────
+  const EXT_PRESETS = {
+    legacy: {
+      name: 'Tallo CPA – BIR Tax',
+      uuid: '7a3f9e2d-5b8c-4e1a-9d6f-2c4a7b8e3f1d',
+      url:  'https://erolljay.github.io/tallocpa-taxapp/',
+      placement: '/',
+    },
+    taxify: {
+      name: 'Taxify it!',
+      uuid: '9f1c2e4a-6b3d-4f8e-a2c5-7d9e0f1a2b3c',
+      url:  'https://erolljay.github.io/taxify.ph/taxify.html',
+      placement: 'summary-view',
+    },
+  };
+
+  function applyExtPreset() {
+    const preset = EXT_PRESETS[document.getElementById('ext-preset').value];
+    if (!preset) return;
+    document.getElementById('ext-name').value = preset.name;
+    document.getElementById('ext-uuid').value = preset.uuid;
+    document.getElementById('ext-url').value  = preset.url;
+    document.getElementById('ext-placement').value = preset.placement || '/';
+    updatePayloadPreview();
+  }
+
   // ── UPDATE PAYLOAD PREVIEW ──────────────────────────────────
   function updatePayloadPreview() {
     const payload = {
@@ -253,13 +295,13 @@ Headers: Authorization: Bearer &lt;token&gt;</pre>
         name: document.getElementById('ext-name').value,
         source: 1,
         endpoint: document.getElementById('ext-url').value,
-        placement: '/'
+        placement: document.getElementById('ext-placement').value
       },
       business: '<Business Name>'
     };
     document.getElementById('payload-preview').textContent = JSON.stringify(payload, null, 2);
   }
-  ['ext-name','ext-uuid','ext-url'].forEach(id =>
+  ['ext-name','ext-uuid','ext-url','ext-placement'].forEach(id =>
     document.getElementById(id).addEventListener('input', updatePayloadPreview)
   );
   updatePayloadPreview();
@@ -390,6 +432,7 @@ Headers: Authorization: Bearer &lt;token&gt;</pre>
     const extUuid = document.getElementById('ext-uuid').value.trim();
     const extName = document.getElementById('ext-name').value.trim();
     const extUrl  = document.getElementById('ext-url').value.trim();
+    const extPlacement = document.getElementById('ext-placement').value.trim() || '/';
 
     if (!extUuid || !extName || !extUrl) {
       log('err', 'Extension config is incomplete. Fill in all fields in Step 2.');
@@ -419,7 +462,7 @@ Headers: Authorization: Bearer &lt;token&gt;</pre>
           name: extName,
           source: 1,
           endpoint: extUrl,
-          placement: '/',
+          placement: extPlacement,
         },
         business: name,
       };
