@@ -6,12 +6,18 @@
   <title>Taxify it!</title>
   <link rel="stylesheet" href="styles.css">
   <style>
-    .tfy-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:8px; }
-    .tfy-header h1 { margin:0; }
-    .tfy-biz-pill { font-size:12px; background:#eef2ff; color:#3730a3; padding:4px 12px; border-radius:14px; font-weight:600; }
-    .tfy-mode-bar { display:flex; gap:8px; margin-bottom:16px; }
-    .tfy-mode-btn { font-size:13px; font-weight:600; padding:8px 18px; border-radius:8px; border:1px solid #d1d5db; background:#fff; cursor:pointer; }
-    .tfy-mode-btn.active { background:#1a2f5e; color:#fff; border-color:#1a2f5e; }
+    html, body { height:100%; margin:0; }
+    .tfy-shell { display:flex; min-height:100vh; align-items:stretch; }
+
+    .tfy-sidenav { width:230px; flex-shrink:0; background:#0d1b3e; color:#fff; display:flex; flex-direction:column; padding:18px 0; }
+    .tfy-sidenav-biz { font-size:13px; font-weight:700; padding:0 18px 16px; margin-bottom:8px; border-bottom:1px solid rgba(255,255,255,.12); word-break:break-word; }
+    .tfy-sidenav-nav { display:flex; flex-direction:column; gap:2px; flex:1; }
+    .tfy-sidenav-bottom { border-top:1px solid rgba(255,255,255,.12); padding-top:8px; margin-top:8px; }
+    .tfy-nav-item { display:block; width:100%; text-align:left; background:none; border:none; border-left:3px solid transparent; color:#cbd5e1; font-size:13px; font-weight:500; padding:10px 18px; cursor:pointer; font-family:inherit; }
+    .tfy-nav-item:hover { background:rgba(255,255,255,.06); color:#fff; }
+    .tfy-nav-item.active { background:#1a2f5e; color:#fff; font-weight:700; border-left-color:#f59e0b; }
+
+    .tfy-main { flex:1; min-width:0; padding:24px 28px; }
 
     .tfy-category-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:14px; }
     .tfy-category-card { display:flex; flex-direction:column; align-items:center; gap:8px; padding:24px 12px; border:1px solid #e5e7eb; border-radius:10px; background:#fff; cursor:pointer; font-size:13px; font-weight:600; color:#1a2f5e; }
@@ -39,87 +45,100 @@
 </head>
 <body>
 
-<div class="tfy-header">
-  <h1>Taxify it!</h1>
-  <span class="tfy-biz-pill" id="tfy-biz-name">Detecting business…</span>
-</div>
+<div class="tfy-shell">
 
-<div id="biz-context-wrap"></div>
-
-<div class="tfy-mode-bar">
-  <button type="button" class="tfy-mode-btn active" data-mode="user">📁 User</button>
-  <button type="button" class="tfy-mode-btn" data-mode="settings">⚙️ Settings</button>
-</div>
-
-<!-- ── USER MODE ────────────────────────────────────────────── -->
-<div id="user-mode"></div>
-
-<!-- ── SETTINGS MODE ────────────────────────────────────────── -->
-<div id="settings-mode" hidden>
-
-  <div class="tabs">
-    <button type="button" class="tab active" data-view="welcome">Welcome</button>
-    <button type="button" class="tab" data-view="business">Business</button>
-    <button type="button" class="tab" data-view="coa">Chart of Accounts</button>
-    <button type="button" class="tab" data-view="setup">Tax codes</button>
-    <button type="button" class="tab" data-view="batch-import-setup">Setup</button>
-    <button type="button" class="tab" data-view="payslip-items">Payslip items</button>
-    <button type="button" class="tab" data-view="reports">Reports</button>
-  </div>
-
-  <!-- ── WELCOME ──────────────────────────────────────────────── -->
-  <div id="welcome-view">
-    <p>Taxify it! helps this business generate BIR-compliant tax returns and reports using
-    data already in Manager.io — no double-entry needed.</p>
-    <p>Recommended setup order for a new business:</p>
-    <ol>
-      <li><strong>Business</strong> — BIR identity fields (TIN, RDO Code, classification, registered name, address).</li>
-      <li><strong>Chart of Accounts</strong> — create/rename GL accounts and groups, and map each one to a BIR
-      income-tax category (Asset, Liabilities, Equity, Revenue, Cost of Sales, Cost of Services, Operating
-      Expenses, Other Income, Other Expense) so 1701/1701Q/1702Q/1702RT classify them correctly.</li>
-      <li><strong>Tax codes</strong> — create standard PH tax codes, then map VAT, EWT / CWT, FWT, and Percentage
-      Tax categories — including the GL account each VAT code should post to.</li>
-      <li><strong>Setup</strong> — install Batch Import tools for Sales, Purchases, and Payroll.</li>
-      <li><strong>Payslip items</strong> — assign payslip items to BIR reporting categories, plus the expense /
-      liability account each one posts to, so values flow into 1601C, SAWT, and 2316 correctly.</li>
-      <li><strong>Reports</strong> — install the BIR report buttons this business needs.</li>
-    </ol>
-    <p class="muted">Customer / Supplier / Employee BIR details (TIN, addresses, SSS / PhilHealth / Pag-IBIG
-    numbers, etc.) are filled in directly within the relevant report screens, not here.</p>
-    <p class="muted">Once setup is done, switch to <strong>User</strong> mode above to start preparing filings.</p>
-  </div>
-
-  <!-- ── REPORTS ──────────────────────────────────────────────── -->
-  <div id="reports-view" hidden>
-    <p class="muted">Install a BIR report to make it available under this business's <strong>Reports</strong> tab.</p>
-    <div id="report-install-list"></div>
-  </div>
-
-  <!-- ── TAX CODES ────────────────────────────────────────────── -->
-  <div id="setup-view" hidden>
-    <div class="setup-actions">
-      <button type="button" id="refreshSetup" class="primary">Load status</button>
-      <span class="muted">Per-row buttons create one tax code at a time.</span>
+  <nav class="tfy-sidenav">
+    <div class="tfy-sidenav-biz" id="tfy-biz-name">Detecting business…</div>
+    <div class="tfy-sidenav-nav">
+      <button type="button" class="tfy-nav-item active" data-nav="dashboard">Dashboard</button>
+      <button type="button" class="tfy-nav-item" data-nav="vat">VAT</button>
+      <button type="button" class="tfy-nav-item" data-nav="expanded">Expanded Withholding Tax</button>
+      <button type="button" class="tfy-nav-item" data-nav="compensation">Withholding Tax on Compensation</button>
+      <button type="button" class="tfy-nav-item" data-nav="income">Income Tax</button>
+      <button type="button" class="tfy-nav-item" data-nav="others">Others</button>
     </div>
-    <div id="setupOutput"></div>
-  </div>
+    <div class="tfy-sidenav-bottom">
+      <button type="button" class="tfy-nav-item" data-nav="settings">⚙️ Settings</button>
+    </div>
+  </nav>
 
-  <!-- ── BATCH IMPORT SETUP ───────────────────────────────────── -->
-  <div id="batch-import-setup-view" hidden>
-    <p class="muted">Install Batch Import buttons. Once installed, each one appears directly on the
-    <strong>Sales Invoices</strong> or <strong>Purchase Invoices</strong> page, letting the bookkeeper
-    upload a simple Excel sheet that gets posted straight into Manager.</p>
-    <div id="batch-import-install-list"></div>
-  </div>
+  <main class="tfy-main">
 
-  <!-- ── BUSINESS ─────────────────────────────────────────────── -->
-  <div id="business-view" hidden></div>
+    <div id="biz-context-wrap"></div>
 
-  <!-- ── CHART OF ACCOUNTS ────────────────────────────────────── -->
-  <div id="coa-view" hidden></div>
+    <!-- ── USER MODE ────────────────────────────────────────────── -->
+    <div id="user-mode"></div>
 
-  <!-- ── PAYSLIP ITEMS ─────────────────────────────────────────── -->
-  <div id="payslip-items-view" hidden></div>
+    <!-- ── SETTINGS MODE ────────────────────────────────────────── -->
+    <div id="settings-mode" hidden>
+
+      <div class="tabs">
+        <button type="button" class="tab active" data-view="welcome">Welcome</button>
+        <button type="button" class="tab" data-view="business">Business</button>
+        <button type="button" class="tab" data-view="coa">Chart of Accounts</button>
+        <button type="button" class="tab" data-view="setup">Tax codes</button>
+        <button type="button" class="tab" data-view="batch-import-setup">Setup</button>
+        <button type="button" class="tab" data-view="payslip-items">Payslip items</button>
+        <button type="button" class="tab" data-view="reports">Reports</button>
+      </div>
+
+      <!-- ── WELCOME ──────────────────────────────────────────────── -->
+      <div id="welcome-view">
+        <p>Taxify it! helps this business generate BIR-compliant tax returns and reports using
+        data already in Manager.io — no double-entry needed.</p>
+        <p>Recommended setup order for a new business:</p>
+        <ol>
+          <li><strong>Business</strong> — BIR identity fields (TIN, RDO Code, classification, registered name, address).</li>
+          <li><strong>Chart of Accounts</strong> — create/rename GL accounts and groups, and map each one to a BIR
+          income-tax category (Asset, Liabilities, Equity, Revenue, Cost of Sales, Cost of Services, Operating
+          Expenses, Other Income, Other Expense) so 1701/1701Q/1702Q/1702RT classify them correctly.</li>
+          <li><strong>Tax codes</strong> — create standard PH tax codes, then map VAT, EWT / CWT, FWT, and Percentage
+          Tax categories — including the GL account each VAT code should post to.</li>
+          <li><strong>Setup</strong> — install Batch Import tools for Sales, Purchases, and Payroll.</li>
+          <li><strong>Payslip items</strong> — assign payslip items to BIR reporting categories, plus the expense /
+          liability account each one posts to, so values flow into 1601C, SAWT, and 2316 correctly.</li>
+          <li><strong>Reports</strong> — install the BIR report buttons this business needs.</li>
+        </ol>
+        <p class="muted">Customer / Supplier / Employee BIR details (TIN, addresses, SSS / PhilHealth / Pag-IBIG
+        numbers, etc.) are filled in directly within the relevant report screens, not here.</p>
+        <p class="muted">Once setup is done, go back to <strong>Dashboard</strong> in the sidebar to start preparing filings.</p>
+      </div>
+
+      <!-- ── REPORTS ──────────────────────────────────────────────── -->
+      <div id="reports-view" hidden>
+        <p class="muted">Install a BIR report to make it available under this business's <strong>Reports</strong> tab.</p>
+        <div id="report-install-list"></div>
+      </div>
+
+      <!-- ── TAX CODES ────────────────────────────────────────────── -->
+      <div id="setup-view" hidden>
+        <div class="setup-actions">
+          <button type="button" id="refreshSetup" class="primary">Load status</button>
+          <span class="muted">Per-row buttons create one tax code at a time.</span>
+        </div>
+        <div id="setupOutput"></div>
+      </div>
+
+      <!-- ── BATCH IMPORT SETUP ───────────────────────────────────── -->
+      <div id="batch-import-setup-view" hidden>
+        <p class="muted">Install Batch Import buttons. Once installed, each one appears directly on the
+        <strong>Sales Invoices</strong> or <strong>Purchase Invoices</strong> page, letting the bookkeeper
+        upload a simple Excel sheet that gets posted straight into Manager.</p>
+        <div id="batch-import-install-list"></div>
+      </div>
+
+      <!-- ── BUSINESS ─────────────────────────────────────────────── -->
+      <div id="business-view" hidden></div>
+
+      <!-- ── CHART OF ACCOUNTS ────────────────────────────────────── -->
+      <div id="coa-view" hidden></div>
+
+      <!-- ── PAYSLIP ITEMS ─────────────────────────────────────────── -->
+      <div id="payslip-items-view" hidden></div>
+
+    </div>
+
+  </main>
 
 </div>
 

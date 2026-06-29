@@ -9,16 +9,28 @@
 let biz = '';
 let setup = null;
 
-// ── MODE SWITCHING (Settings / User) ─────────────────────────
-function activateMode(mode) {
-  document.querySelectorAll('.tfy-mode-btn').forEach(b => b.classList.toggle('active', b.dataset.mode === mode));
-  document.getElementById('settings-mode').hidden = mode !== 'settings';
-  document.getElementById('user-mode').hidden = mode !== 'user';
-  if (mode === 'user') renderUserMode();
+// ── SIDENAV (Dashboard / VAT / Expanded / Compensation / Income / Others / Settings) ──
+let _settingsActivated = false;
+
+function goToNav(key) {
+  document.querySelectorAll('.tfy-nav-item').forEach(b => b.classList.toggle('active', b.dataset.nav === key));
+  const isSettings = key === 'settings';
+  document.getElementById('settings-mode').hidden = !isSettings;
+  document.getElementById('user-mode').hidden = isSettings;
+
+  if (isSettings) {
+    if (!_settingsActivated) { _settingsActivated = true; activateTab('welcome'); }
+    return;
+  }
+
+  if (key === 'dashboard') _userActiveCategory = null;
+  else if (key === 'income') _userActiveCategory = workflowKeyForIncomeTax();
+  else _userActiveCategory = key; // vat / expanded / compensation / others
+  renderUserMode();
 }
 
-document.querySelectorAll('.tfy-mode-btn').forEach(b => {
-  b.addEventListener('click', () => activateMode(b.dataset.mode));
+document.querySelectorAll('.tfy-nav-item').forEach(b => {
+  b.addEventListener('click', () => goToNav(b.dataset.nav));
 });
 
 // ── SETTINGS MODE: TAB SWITCHING ──────────────────────────────
@@ -435,6 +447,7 @@ function workflowKeyForIncomeTax() {
 
 function renderUserMode() {
   const root = document.getElementById('user-mode');
+  if (_userActiveCategory === 'others') { renderOthersScreen(root); return; }
   if (_userActiveCategory) { renderWorkflowScreen(root, _userActiveCategory); return; }
   renderCategoryCards(root);
 }
@@ -449,24 +462,22 @@ function renderCategoryCards(root) {
         </button>`).join('')}
     </div>`;
   root.querySelectorAll('.tfy-category-card').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const cat = btn.dataset.cat;
-      _userActiveCategory = cat === 'income' ? workflowKeyForIncomeTax() : cat;
-      renderUserMode();
-    });
+    btn.addEventListener('click', () => goToNav(btn.dataset.cat));
   });
+}
+
+function renderOthersScreen(root) {
+  root.innerHTML = `
+    <p class="muted">These categories aren't built yet:</p>
+    <ul>
+      <li>Percentage Tax</li>
+      <li>Final Withholding Tax</li>
+    </ul>`;
 }
 
 function renderWorkflowScreen(root, workflowKey) {
   const workflow = WORKFLOWS[workflowKey];
-  root.innerHTML = `
-    <button type="button" class="btn btn-outline" id="tfy-back-to-categories" style="margin-bottom:12px;">← Back to categories</button>
-    <div id="tfy-workflow-mount"></div>`;
-  root.querySelector('#tfy-back-to-categories').addEventListener('click', () => {
-    _userActiveCategory = null;
-    _stepEngineHandle = null;
-    renderUserMode();
-  });
+  root.innerHTML = `<div id="tfy-workflow-mount"></div>`;
   if (!workflow) {
     root.querySelector('#tfy-workflow-mount').innerHTML = '<p class="muted">This workflow isn\'t configured yet.</p>';
     return;
@@ -485,5 +496,5 @@ function renderWorkflowScreen(root, workflowKey) {
   }
   setup = await loadSetup(biz);
   document.getElementById('tfy-biz-name').textContent = biz;
-  activateTab('welcome');
+  goToNav('dashboard');
 })();
