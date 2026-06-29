@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>1701-Q — Quarterly Income Tax Return for Individuals</title>
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    body { background: white; overflow: auto; height: auto; }
+    #app-header { display: none; }
+    .report-wrap { max-width: 1100px; margin: 0 auto; padding: 16px; }
+    .form-title { text-align:center; margin-bottom:12px; }
+    .form-title h2 { margin:0; font-size:16px; }
+    .form-title .sub { font-size:11px; color:#6b7280; }
+    @media print {
+      .filter-bar, .btn, .no-print { display: none !important; }
+    }
+  </style>
+</head>
+<body>
+<div class="report-wrap">
+  <div class="page-header no-print">
+    <div>
+      <div class="page-title">🧾 BIR Form 1701-Q</div>
+      <div class="page-subtitle">Quarterly Income Tax Return for Individuals, Estates and Trusts</div>
+    </div>
+  </div>
+  <div id="biz-selector-wrap" class="no-print"></div>
+  <div id="filter-area" class="no-print"></div>
+  <div id="report-output">
+    <div class="alert alert-info">Select a quarter and click <strong>Generate</strong> to compute the 1701-Q.</div>
+  </div>
+</div>
+<script>const REPORT_ID = "a1b2c3d4-0007-4000-8000-000000000001";</script>
+<script src="shared.js"></script>
+<script src="custom-fields.js"></script>
+<script src="payroll-helpers.js"></script>
+<script src="tax-codes.js"></script>
+<script src="pnl-helpers.js"></script>
+<script src="deduction-helpers.js"></script>
+<script src="1701q-report.js"></script>
+<script>
+  document.addEventListener('DOMContentLoaded', async () => {
+    await init1701QReport();
+  });
+</script>
+</body>
+</html>

@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>QAP – Quarterly Alphalist of Payees</title>
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    body { background: white; overflow: auto; height: auto; }
+    #app-header { display: none; }
+    .report-wrap { max-width: 1100px; margin: 0 auto; padding: 16px; }
+    @media print {
+      .filter-bar, .btn, .no-print { display: none !important; }
+    }
+  </style>
+</head>
+<body>
+<div class="report-wrap">
+  <div class="page-header no-print">
+    <div>
+      <div class="page-title">📑 QAP — Quarterly Alphalist of Payees</div>
+      <div class="page-subtitle">Attachment to BIR Form 1601-EQ — EWT withheld from suppliers, per RMC No. 15-2025, Annex A</div>
+    </div>
+  </div>
+  <div id="biz-selector-wrap" class="no-print"></div>
+  <div class="tab-bar no-print" id="qap-tabs">
+    <button class="tab-btn active" data-tab="report">📑 QAP Report</button>
+    <button class="tab-btn" data-tab="suppliers">👤 Suppliers</button>
+  </div>
+  <div id="tab-report" class="tab-panel active">
+    <div id="filter-area" class="no-print"></div>
+    <div id="report-output"></div>
+  </div>
+  <div id="tab-suppliers" class="tab-panel no-print"></div>
+</div>
+<script>const REPORT_ID = "e5f6a7b8-c9d0-4123-e456-f7a8b9c0d1e2";</script>
+<script src="shared.js"></script>
+<script src="custom-fields.js"></script>
+<script src="ewt-helpers.js"></script>
+<script src="tax-codes.js"></script>
+<script src="qap-report.js"></script>
+<script>
+  document.addEventListener('DOMContentLoaded', () => initQAPReport());
+</script>
+</body>
+</html>

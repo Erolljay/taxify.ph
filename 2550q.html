@@ -1,0 +1,829 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BIR Form 2550Q – Quarterly VAT Return</title>
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    body { background: #f4f6f9; overflow: auto; height: auto; font-size: 13px; }
+    .rw { max-width: 960px; margin: 0 auto; padding: 16px; }
+
+    /* Form layout */
+    .bir-form { background: white; border: 1px solid #c5cdd8; border-radius: 8px; overflow: hidden; margin-bottom: 14px; }
+    .bir-header { background: #0d1b3e; color: white; padding: 10px 16px; font-size: 12px; font-weight: 700; letter-spacing: 0.4px; text-transform: uppercase; display: flex; align-items: center; gap: 8px; }
+    .bir-row { display: flex; border-bottom: 1px solid #f0f0f0; min-height: 36px; }
+    .bir-row:last-child { border-bottom: none; }
+    .bir-row.total { background: #f8fafc; font-weight: 700; }
+    .bir-row.payable { background: #fef2f2; }
+    .bir-row.refund  { background: #f0fdf4; }
+    .bir-row.section-head { background: #e8edf5; font-weight: 700; font-size: 11px; color: #0d1b3e; }
+    .item-no { width: 36px; min-width: 36px; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; color: #6b7280; background: #f8fafc; border-right: 1px solid #f0f0f0; }
+    .item-label { flex: 1; padding: 8px 12px; font-size: 11.5px; color: #1a1a2e; display: flex; align-items: center; line-height: 1.4; }
+    .item-label small { font-size: 10px; color: #6b7280; display: block; }
+    .item-col { width: 160px; min-width: 160px; border-left: 1px solid #f0f0f0; display: flex; align-items: center; }
+    .item-col.wide { width: 200px; min-width: 200px; }
+    .item-col-head { background: #0d1b3e; color: #94a3c4; font-size: 9px; font-weight: 700; text-align: center; padding: 4px; letter-spacing: 0.3px; }
+    .amt { font-family: 'Courier New', monospace; font-size: 12px; text-align: right; padding: 6px 10px; width: 100%; }
+    .amt.computed { color: #0d1b3e; font-weight: 600; }
+    .amt.manual { background: #fffbeb; color: #92400e; }
+    .amt.zero { color: #c5cdd8; }
+    .amt.payable { color: #c0392b; font-weight: 700; font-size: 13px; }
+    .amt.refund { color: #27ae60; font-weight: 700; font-size: 13px; }
+    input.amt { border: none; border-bottom: 1.5px dashed #f59e0b; outline: none; background: #fffbeb; border-radius: 0; }
+    input.amt:focus { background: #fef3c7; border-bottom-color: #d97706; }
+
+    /* Schedule 3 table */
+    .sched-table { width: 100%; border-collapse: collapse; font-size: 11px; }
+    .sched-table th { background: #0d1b3e; color: white; padding: 6px 10px; text-align: left; }
+    .sched-table td { padding: 6px 10px; border-bottom: 1px solid #f0f0f0; }
+    .sched-table tr:nth-child(even) { background: #fafbfc; }
+    .sched-table tfoot td { font-weight: 700; background: #e8edf5; border-top: 2px solid #c5cdd8; }
+
+    /* Period header */
+    .period-info { background: #0d1b3e; color: white; padding: 12px 16px; border-radius: 8px; margin-bottom: 14px; font-size: 12px; display: flex; gap: 24px; flex-wrap: wrap; }
+    .period-info .pi-item { display: flex; flex-direction: column; gap: 2px; }
+    .period-info .pi-label { font-size: 9px; color: #94a3c4; text-transform: uppercase; letter-spacing: 0.5px; }
+    .period-info .pi-value { font-weight: 700; font-size: 13px; }
+
+    /* Tabs */
+    .tab-bar { display: flex; gap: 4px; margin-bottom: 14px; border-bottom: 2px solid #e5e7eb; }
+    .tab-btn { background: none; border: none; padding: 8px 16px; font-size: 12px; font-weight: 600; color: #6b7280; cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -2px; }
+    .tab-btn.active { color: #0d1b3e; border-bottom-color: #0d1b3e; }
+    .tax-codes-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    .tax-codes-table th { background: #0d1b3e; color: white; padding: 8px 10px; text-align: left; font-size: 11px; }
+    .tax-codes-table td { padding: 8px 10px; border-bottom: 1px solid #f0f0f0; vertical-align: middle; }
+    .tax-codes-table select { width: 100%; padding: 5px; font-size: 12px; }
+
+    /* Print styles */
+    @media print {
+      body { background: white; }
+      .no-print { display: none !important; }
+      .rw { padding: 0; max-width: 100%; }
+      .bir-form { border: 1px solid #999; border-radius: 0; page-break-inside: avoid; }
+    }
+  </style>
+</head>
+<body>
+<div class="rw">
+
+  <!-- Controls -->
+  <div class="no-print" style="margin-bottom:14px;">
+    <div class="page-header" style="margin-bottom:10px;">
+      <div>
+        <div class="page-title">📋 BIR Form 2550Q</div>
+        <div class="page-subtitle">Quarterly Value-Added Tax Return — April 2024 ENCS</div>
+      </div>
+    </div>
+
+    <!-- Business selector injected here by getReportBusiness() if multiple businesses -->
+    <div id="biz-selector-wrap"></div>
+
+    <div class="tab-bar">
+      <button class="tab-btn active" data-tab="return">📋 Return</button>
+      <button class="tab-btn" data-tab="taxcodes">🗂 Tax Codes</button>
+    </div>
+  </div>
+
+  <!-- RETURN TAB -->
+  <div id="tab-return" class="no-print-wrap">
+    <div class="no-print" style="margin-bottom:14px;">
+      <div class="filter-bar">
+        <label>Quarter</label>
+        <select id="f-quarter"></select>
+        <label>Year</label>
+        <select id="f-year"></select>
+        <div class="filter-sep"></div>
+        <button class="btn btn-primary" id="btn-gen">⚡ Generate</button>
+        <button class="btn btn-outline" id="btn-print" style="display:none" onclick="window.print()">🖨 Print / PDF</button>
+      </div>
+    </div>
+
+    <!-- Output -->
+    <div id="output">
+      <div class="alert alert-info">Select a quarter and year, then click <strong>Generate</strong>.</div>
+    </div>
+  </div>
+
+  <!-- TAX CODES TAB -->
+  <div id="tab-taxcodes" style="display:none;">
+    <div id="taxcodes-output">
+      <div class="alert alert-info">Loading tax code mapping…</div>
+    </div>
+  </div>
+
+</div>
+
+<script>const REPORT_ID = "b2c3d4e5-f6a7-4890-b123-c4d5e6f7a8b9";</script>
+<script src="shared.js"></script>
+<script src="tax-codes.js"></script>
+<script>
+// VAT_CATEGORY_TC_NAME, fetchManagerTaxCodes, autoMatchVatMapping,
+// getMappingOverrides/saveMappingOverrides, and getVatMapping are defined in tax-codes.js
+
+function lineAmounts(item, line, rateByKey) {
+  const qty       = Number(line?.qty ?? 1);
+  const unitPrice = Number(line?.salesUnitPrice ?? line?.purchaseUnitPrice ?? line?.unitPrice ?? 0);
+  let gross = qty * unitPrice;
+  if (line?.discountPercentage) gross *= (1 - Number(line.discountPercentage) / 100);
+  gross -= Number(line?.discountAmount || 0);
+
+  const tcKey = line?.taxCode || line?.TaxCode || '';
+  const rate  = Number(rateByKey?.[tcKey] ?? 0);
+  const includesTax = !!item?.amountsIncludeTax;
+
+  let net, tax;
+  if (rate) {
+    if (includesTax) { net = gross / (1 + rate / 100); tax = gross - net; }
+    else             { net = gross; tax = gross * rate / 100; }
+  } else {
+    net = gross; tax = 0;
+  }
+  return { net: Math.abs(net), tax: Math.abs(tax), gross: Math.abs(gross) };
+}
+
+// ── TAX CODES TAB ────────────────────────────────────────────
+async function loadTaxCodesTab() {
+  const biz = App.currentBusiness || '';
+  const out = document.getElementById('taxcodes-output');
+  if (!biz) { out.innerHTML = `<div class="alert alert-warn">⚠️ No business selected.</div>`; return; }
+
+  out.innerHTML = `<div class="spinner-wrap"><div class="spinner"></div><span>Loading tax codes…</span></div>`;
+  try {
+    const taxCodes = await fetchManagerTaxCodes(biz);
+    const auto      = autoMatchVatMapping(taxCodes);
+    const overrides = getMappingOverrides(biz);
+
+    const optionsHtml = taxCodes
+      .slice()
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .map(tc => `<option value="${escHtml(tc.key)}">${escHtml(tc.name)}</option>`)
+      .join('');
+
+    const rows = Object.entries(VAT_CATEGORY_TC_NAME).map(([catKey, tcName]) => {
+      const selectedKey = (overrides[catKey] !== undefined ? overrides[catKey] : auto[catKey]) || '';
+      const found = !!auto[catKey];
+      return `
+        <tr>
+          <td>
+            <strong>${escHtml(tcName)}</strong>
+            ${found ? '' : `<div style="font-size:10px;color:#c0392b;">⚠️ No matching tax code found in Manager</div>`}
+          </td>
+          <td>
+            <select class="tc-map-sel" data-cat="${catKey}">
+              <option value="">— Not mapped —</option>
+              ${optionsHtml}
+            </select>
+          </td>
+        </tr>`;
+    }).join('');
+
+    out.innerHTML = `
+      <div class="alert alert-info" style="margin-bottom:14px;font-size:11px;">
+        ℹ️ Each BIR category is matched by default to the Manager tax code with the matching standard name.
+        If you renamed a tax code or use a different one, choose it here. This affects the figures pulled into the 2550Q.
+      </div>
+      <div class="card" style="padding:0;overflow:hidden;">
+        <table class="tax-codes-table">
+          <thead><tr><th style="width:45%;">BIR Tax Code</th><th>Tax Code in Manager (${taxCodes.length} found)</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+      <div style="margin-top:14px;display:flex;justify-content:flex-end;">
+        <button class="btn btn-primary" id="btn-save-taxcodes">💾 Save Mapping</button>
+      </div>`;
+
+    // Apply selections (after innerHTML to set selected values)
+    out.querySelectorAll('.tc-map-sel').forEach(sel => {
+      const catKey = sel.dataset.cat;
+      const selectedKey = (overrides[catKey] !== undefined ? overrides[catKey] : auto[catKey]) || '';
+      sel.value = selectedKey;
+    });
+
+    document.getElementById('btn-save-taxcodes').addEventListener('click', () => {
+      const newOverrides = {};
+      out.querySelectorAll('.tc-map-sel').forEach(sel => {
+        newOverrides[sel.dataset.cat] = sel.value;
+      });
+      saveMappingOverrides(biz, newOverrides);
+      showToast('✅ Tax code mapping saved.', 'success');
+    });
+  } catch (err) {
+    out.innerHTML = `<div class="alert alert-error">❌ ${escHtml(err.message)}</div>`;
+  }
+}
+
+// ── INIT ─────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', async () => {
+  const now  = new Date();
+  const curQ = Math.ceil((now.getMonth() + 1) / 3);
+  const curY = now.getFullYear();
+
+  const qSel = document.getElementById('f-quarter');
+  const ySel = document.getElementById('f-year');
+
+  [1,2,3,4].forEach(q => {
+    const o = document.createElement('option');
+    o.value = q; o.textContent = quarterLabel(q);
+    if (q === curQ) o.selected = true;
+    qSel.appendChild(o);
+  });
+
+  [curY-2, curY-1, curY, curY+1].forEach(y => {
+    const o = document.createElement('option');
+    o.value = y; o.textContent = y;
+    if (y === curY) o.selected = true;
+    ySel.appendChild(o);
+  });
+
+  // Detect the active business from Manager
+  try {
+    App.currentBusiness = await getReportBusiness(document.getElementById('biz-selector-wrap'));
+  } catch(e) {
+    document.getElementById('output').innerHTML =
+      `<div class="alert alert-warn">⚠️ Could not connect to Manager: ${e.message}</div>`;
+    return;
+  }
+
+  document.getElementById('btn-gen').addEventListener('click', generate);
+
+  // Tab switching
+  document.querySelectorAll('.tab-bar .tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.tab-bar .tab-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      const tab = btn.dataset.tab;
+      document.getElementById('tab-return').style.display    = tab === 'return'   ? '' : 'none';
+      document.getElementById('tab-taxcodes').style.display   = tab === 'taxcodes' ? '' : 'none';
+      if (tab === 'taxcodes') loadTaxCodesTab();
+    });
+  });
+});
+
+// ── GENERATE ──────────────────────────────────────────────────
+async function generate() {
+  const biz    = App.currentBusiness || '';
+  const output = document.getElementById('output');
+
+  if (!biz) {
+    output.innerHTML = `<div class="alert alert-warn">⚠️ No business selected.</div>`;
+    return;
+  }
+
+  output.innerHTML = `<div class="spinner-wrap"><div class="spinner"></div><span>Loading business setup…</span></div>`;
+  const setup = await loadSetup(biz);
+
+  if (!setup || !setup.tin) {
+    output.innerHTML = `<div class="alert alert-warn">⚠️ Business info not configured yet. Fill in the <strong>Business</strong> tab in the Tallo CPA extension first.</div>`;
+    return;
+  }
+
+  const quarter = parseInt(document.getElementById('f-quarter').value, 10);
+  const year    = parseInt(document.getElementById('f-year').value, 10);
+  const { start, end } = getPeriodDates('quarterly', quarter, year);
+
+  output.innerHTML = `<div class="spinner-wrap"><div class="spinner"></div><span>Fetching transactions from Manager…</span></div>`;
+
+  try {
+    const { vm, rateByKey } = await getVatMapping(biz);
+    // Fetch invoices + receipts in parallel
+    const [salesItems, purchItems, receiptItems, paymentItems] = await Promise.all([
+      fetchAllBatch('/api4/sales-invoice-batch',    biz),
+      fetchAllBatch('/api4/purchase-invoice-batch', biz),
+      fetchAllBatch('/api4/receipt-batch',          biz),
+      fetchAllBatch('/api4/payment-batch',          biz),
+    ]);
+
+    const sales    = salesItems.filter(({ item }) => inRange(item?.issueDate || item?.Date, start, end));
+    const purch    = purchItems.filter(({ item }) => inRange(item?.issueDate || item?.Date, start, end));
+    const receipts = receiptItems.filter(({ item }) => inRange(item?.issueDate || item?.Date, start, end));
+    const payments = paymentItems.filter(({ item }) => inRange(item?.issueDate || item?.Date, start, end));
+
+    const custMap = await loadPartyBIR(biz, 'customer');
+
+    // ── PART IV: SALES ────────────────────────────────────────
+    let vatableSales = 0, zeroRated = 0, exemptSales = 0, outputTax = 0;
+    const govtWVRows = [];
+    // Include receipts (cash sales) that carry sales tax codes directly on their lines
+    for (const { item } of [...sales, ...receipts]) {
+      for (const line of (item?.lines || item?.Lines || [])) {
+        const tc = line?.taxCode || line?.TaxCode || '';
+        if (!tc) continue;
+        const { net, tax, gross } = lineAmounts(item, line, rateByKey);
+        if (tc === vm.sales_taxable)     { vatableSales += net; outputTax += tax; }
+        else if (tc === vm.sales_zero)   { zeroRated    += net; }
+        else if (tc === vm.sales_exempt) { exemptSales  += net; }
+        else if (tc === vm.govt_wv012 || tc === vm.govt_wv022) {
+          const custKey  = item?.customer || item?.Customer || '';
+          const cd       = custMap[custKey] || {};
+          const custName = cd.companyName || [cd.lastName, cd.firstName].filter(Boolean).join(', ') || custKey;
+          const issued   = item?.issueDate || item?.Date;
+          govtWVRows.push({
+            period:  issued ? new Date(issued).toLocaleDateString('en-PH', { month:'short', year:'numeric' }) : '',
+            name:    custName,
+            income:  gross / 0.05,
+            cwt:     gross,
+            type:    tc === vm.govt_wv012 ? 'WV012' : 'WV022',
+          });
+        }
+      }
+    }
+
+    // ── PART IV: PURCHASES ────────────────────────────────────
+    let capGoods = 0, otherGoods = 0, services = 0, purZero = 0, purExempt = 0;
+    let capTax = 0, otherTax = 0, svcTax = 0;
+    // Include payments (cash purchases/expenses) that carry purchase tax codes directly on their lines
+    for (const { item } of [...purch, ...payments]) {
+      for (const line of (item?.lines || item?.Lines || [])) {
+        const tc = line?.taxCode || line?.TaxCode || '';
+        if (!tc) continue;
+        const { net, tax } = lineAmounts(item, line, rateByKey);
+        if (tc === vm.purch_capital)      { capGoods   += net; capTax   += tax; }
+        else if (tc === vm.purch_other)   { otherGoods += net; otherTax += tax; }
+        else if (tc === vm.purch_services){ services   += net; svcTax   += tax; }
+        else if (tc === vm.purch_zero)    { purZero    += net; }
+        else if (tc === vm.purch_exempt)  { purExempt  += net; }
+      }
+    }
+
+    // ── SCHEDULE 3: CREDITABLE VAT WITHHELD ───────────────────
+    const cwtAccounts  = (setup.vatMapping || {}).cwtAccounts || [];
+    const sched3Rows   = [...govtWVRows];
+
+    for (const { item } of receipts) {
+      for (const line of (item?.lines || item?.Lines || [])) {
+        const acctName = line?.accountName || line?.AccountName || line?.account || line?.Account || '';
+        const matched  = cwtAccounts.find(c => c.accountName && acctName.toLowerCase().includes(c.accountName.toLowerCase()));
+        if (!matched) continue;
+        const amt = Math.abs(Number(line?.amount ?? line?.Amount ?? 0));
+        if (amt === 0) continue;
+        const custKey  = item?.customer || item?.Customer || '';
+        const cd       = custMap[custKey] || {};
+        const custName = cd.companyName || [cd.lastName, cd.firstName].filter(Boolean).join(', ') || custKey;
+        const issued   = item?.issueDate || item?.Date;
+        sched3Rows.push({
+          period:  issued ? new Date(issued).toLocaleDateString('en-PH', { month:'short', year:'numeric' }) : '',
+          name:    custName,
+          income:  Math.abs(Number(item?.amountDue ?? item?.AmountDue ?? item?.total ?? item?.Total ?? 0)),
+          cwt:     amt,
+          type:    matched.type,
+        });
+      }
+    }
+
+    const totalCWT = sched3Rows.reduce((a, r) => a + r.cwt, 0);
+
+    // ── CARRY-OVER FROM PREV QUARTER ──────────────────────────
+    // (carry-over stored in Manager business-details in a future phase)
+    const autoCarryOver = 0;
+
+    // ── COMPUTED TOTALS ───────────────────────────────────────
+    const totalSales   = vatableSales + zeroRated + exemptSales;
+    const totalCurInTax= capTax + otherTax + svcTax;
+    const totalCurPurch= capGoods + otherGoods + services + purZero + purExempt;
+
+    // Item 34B
+    const i34B = outputTax;
+    // Items 35,36 = manual
+    // Item 37 = 34B - 35 + 36 (will compute after manual inputs)
+    // Item 38 = carry-over (auto or manual)
+    // Item 43 = sum of 38-42
+    // Item 50 = totalCurInTax
+    // Item 51 = 43 + 50
+    // Items 52-56 = manual
+    // Item 57 = sum of 52-56
+    // Item 60 = 51 - 59
+    // Item 61 = 37 - 60
+
+    // (VAT result carry-over will be stored in Manager in a future phase)
+
+    renderForm(output, {
+      biz, setup, quarter, year, start, end,
+      vatableSales, zeroRated, exemptSales, totalSales, outputTax, i34B,
+      capGoods, otherGoods, services, purZero, purExempt,
+      capTax, otherTax, svcTax, totalCurInTax, totalCurPurch,
+      autoCarryOver, sched3Rows, totalCWT,
+      vm,
+    });
+
+    document.getElementById('btn-print').style.display = '';
+
+  } catch (err) {
+    output.innerHTML = `<div class="alert alert-error">❌ ${escHtml(err.message)}</div>`;
+  }
+}
+
+// ── RENDER FORM ───────────────────────────────────────────────
+function renderForm(el, d) {
+  const qLabel = quarterLabel(d.quarter);
+  const qMonths = [['January','February','March'],['April','May','June'],['July','August','September'],['October','November','December']][d.quarter-1];
+  const periodFrom = `${qMonths[0]} 1, ${d.year}`;
+  const periodTo   = `${qMonths[2]} ${new Date(d.year, d.quarter*3, 0).getDate()}, ${d.year}`;
+  const s = d.setup;
+  const isIndividual = s.classification === 'Individual';
+
+  el.innerHTML = `
+
+  <!-- PERIOD INFO BANNER -->
+  <div class="period-info no-print">
+    <div class="pi-item"><div class="pi-label">Business</div><div class="pi-value">${escHtml(d.biz)}</div></div>
+    <div class="pi-item"><div class="pi-label">Quarter</div><div class="pi-value">${qLabel} ${d.year}</div></div>
+    <div class="pi-item"><div class="pi-label">Period</div><div class="pi-value">${periodFrom} – ${periodTo}</div></div>
+    <div class="pi-item"><div class="pi-label">TIN</div><div class="pi-value">${escHtml(s.tin||'—')}</div></div>
+    <div class="pi-item" style="margin-left:auto;">
+      <div class="pi-label">Tax Codes</div>
+      <div class="pi-value" style="font-size:10px;">${d.vm.sales_taxable ? '✅ Found' : '⚠️ Missing'}</div>
+    </div>
+  </div>
+
+  <!-- PART I: BACKGROUND -->
+  <div class="bir-form">
+    <div class="bir-header">📋 Part I — Background Information</div>
+    ${bRow('7','TIN',`<span style="font-family:monospace;font-weight:700;">${escHtml(s.tin||'—')}</span>`, '8','RDO Code',`<span style="font-family:monospace;font-weight:700;">${escHtml(s.rdoCode||'—')}</span>`)}
+    ${bRowFull('9','Taxpayer\'s Name', isIndividual
+      ? `${escHtml([s.lastName,s.firstName,s.middleName].filter(Boolean).join(', '))||escHtml(s.taxpayerName||'—')}`
+      : escHtml(s.taxpayerName||'—'))}
+    ${bRowFull('10','Registered Address', escHtml(s.address||'—') + (s.zipCode ? ` &nbsp;<strong>ZIP: ${escHtml(s.zipCode)}</strong>` : ''))}
+    ${bRow('3','Quarter',`<strong>${d.quarter}${['st','nd','rd','th'][d.quarter-1]}</strong>`, '2','Year Ended',`<strong>${d.year}</strong>`)}
+    ${bRow('4','Return Period',`${periodFrom} – ${periodTo}`, '13','Classification',escHtml(s.classification||'Non-Individual'))}
+  </div>
+
+  <!-- PART IV: VAT COMPUTATION -->
+  <div class="bir-form">
+    <div class="bir-header">🧮 Part IV — Details of VAT Computation</div>
+
+    <!-- Column headers -->
+    <div class="bir-row" style="background:#1a2f5e;">
+      <div class="item-no" style="background:#1a2f5e;"></div>
+      <div class="item-label" style="color:#94a3c4;font-size:10px;font-weight:700;"></div>
+      <div class="item-col item-col-head">A. Sales / Purchases<br><span style="color:#5a7ab5;">(Excl. of VAT)</span></div>
+      <div class="item-col item-col-head">B. Output / Input Tax</div>
+    </div>
+
+    <!-- Sales section -->
+    <div class="bir-row section-head"><div class="item-no"></div><div class="item-label">TOTAL SALES AND OUTPUT TAX</div><div class="item-col"></div><div class="item-col"></div></div>
+
+    ${amtRow2('31','VATable Sales', d.vatableSales, d.outputTax, 'computed', 'computed')}
+    ${amtRow1A('32','Zero-Rated Sales', d.zeroRated, 'computed')}
+    ${amtRow1A('33','Exempt Sales', d.exemptSales, 'computed')}
+    ${amtRow2('34','Total Sales & Output Tax Due', d.totalSales, d.i34B, 'computed total', 'computed total')}
+
+    <div class="bir-row">
+      <div class="item-no">35</div>
+      <div class="item-label">Less: Output VAT on Uncollected Receivables <small>Manual entry if applicable</small></div>
+      <div class="item-col"></div>
+      <div class="item-col"><input class="amt manual" id="i35" type="number" value="0" step="0.01" onchange="recompute()" placeholder="0.00"></div>
+    </div>
+    <div class="bir-row">
+      <div class="item-no">36</div>
+      <div class="item-label">Add: Output VAT on Recovered Uncollected Receivables <small>Manual entry if applicable</small></div>
+      <div class="item-col"></div>
+      <div class="item-col"><input class="amt manual" id="i36" type="number" value="0" step="0.01" onchange="recompute()" placeholder="0.00"></div>
+    </div>
+    <div class="bir-row total">
+      <div class="item-no">37</div>
+      <div class="item-label">Total Adjusted Output Tax Due (34B – 35B + 36B)</div>
+      <div class="item-col"></div>
+      <div class="item-col"><span class="amt computed" id="i37">${fmt(d.i34B)}</span></div>
+    </div>
+
+    <!-- Input tax carried over -->
+    <div class="bir-row section-head"><div class="item-no"></div><div class="item-label">LESS: ALLOWABLE INPUT TAX</div><div class="item-col"></div><div class="item-col"></div></div>
+
+    <div class="bir-row" style="background:#fffbeb;">
+      <div class="item-no">38</div>
+      <div class="item-label">Input Tax Carried Over from Previous Quarter
+        <small>${d.autoCarryOver > 0 ? `✅ Auto-computed from previous quarter: ₱ ${fmt(d.autoCarryOver)}` : 'No carry-over from previous quarter (or first filing)'}</small>
+      </div>
+      <div class="item-col"></div>
+      <div class="item-col"><input class="amt manual" id="i38" type="number" value="${d.autoCarryOver.toFixed(2)}" step="0.01" onchange="recompute()" placeholder="0.00"></div>
+    </div>
+    <div class="bir-row">
+      <div class="item-no">39</div>
+      <div class="item-label">Input Tax Deferred on Capital Goods &gt; P1M from Previous Quarter <small>From Schedule 1</small></div>
+      <div class="item-col"></div>
+      <div class="item-col"><input class="amt manual" id="i39" type="number" value="0" step="0.01" onchange="recompute()" placeholder="0.00"></div>
+    </div>
+    <div class="bir-row">
+      <div class="item-no">40</div>
+      <div class="item-label">Transitional Input Tax</div>
+      <div class="item-col"></div>
+      <div class="item-col"><input class="amt manual" id="i40" type="number" value="0" step="0.01" onchange="recompute()" placeholder="0.00"></div>
+    </div>
+    <div class="bir-row">
+      <div class="item-no">41</div>
+      <div class="item-label">Presumptive Input Tax</div>
+      <div class="item-col"></div>
+      <div class="item-col"><input class="amt manual" id="i41" type="number" value="0" step="0.01" onchange="recompute()" placeholder="0.00"></div>
+    </div>
+    <div class="bir-row">
+      <div class="item-no">42</div>
+      <div class="item-label">Others</div>
+      <div class="item-col"></div>
+      <div class="item-col"><input class="amt manual" id="i42" type="number" value="0" step="0.01" onchange="recompute()" placeholder="0.00"></div>
+    </div>
+    <div class="bir-row total">
+      <div class="item-no">43</div>
+      <div class="item-label">Total (Sum of Items 38B to 42B)</div>
+      <div class="item-col"></div>
+      <div class="item-col"><span class="amt computed" id="i43">${fmt(d.autoCarryOver)}</span></div>
+    </div>
+
+    <!-- Current transactions -->
+    <div class="bir-row section-head"><div class="item-no"></div><div class="item-label">CURRENT TRANSACTIONS</div><div class="item-col item-col-head">A. Purchases</div><div class="item-col item-col-head">B. Input Tax</div></div>
+
+    ${amtRow2('44','Domestic Purchases (Goods & Services)', d.capGoods+d.otherGoods+d.services, d.totalCurInTax, 'computed', 'computed')}
+    <div class="bir-row">
+      <div class="item-no">48</div>
+      <div class="item-label">Domestic Purchases with No Input Tax (Zero-Rated)</div>
+      <div class="item-col"><span class="amt computed">${fmt(d.purZero)}</span></div>
+      <div class="item-col"></div>
+    </div>
+    <div class="bir-row">
+      <div class="item-no">49</div>
+      <div class="item-label">VAT-Exempt Purchases</div>
+      <div class="item-col"><span class="amt computed">${fmt(d.purExempt)}</span></div>
+      <div class="item-col"></div>
+    </div>
+    <div class="bir-row total">
+      <div class="item-no">50</div>
+      <div class="item-label">Total Current Purchases / Input Tax</div>
+      <div class="item-col"><span class="amt computed">${fmt(d.totalCurPurch)}</span></div>
+      <div class="item-col"><span class="amt computed">${fmt(d.totalCurInTax)}</span></div>
+    </div>
+
+    <div class="bir-row total">
+      <div class="item-no">51</div>
+      <div class="item-label">Total Available Input Tax (43B + 50B)</div>
+      <div class="item-col"></div>
+      <div class="item-col"><span class="amt computed" id="i51">${fmt(d.autoCarryOver + d.totalCurInTax)}</span></div>
+    </div>
+
+    <!-- Deductions -->
+    <div class="bir-row section-head"><div class="item-no"></div><div class="item-label">LESS: ADJUSTMENT / DEDUCTIONS FROM INPUT TAX</div><div class="item-col"></div><div class="item-col"></div></div>
+
+    <div class="bir-row">
+      <div class="item-no">52</div>
+      <div class="item-label">Input Tax on Capital Goods &gt; P1M deferred for succeeding period <small>From Schedule 1</small></div>
+      <div class="item-col"></div>
+      <div class="item-col"><input class="amt manual" id="i52" type="number" value="0" step="0.01" onchange="recompute()" placeholder="0.00"></div>
+    </div>
+    <div class="bir-row">
+      <div class="item-no">53</div>
+      <div class="item-label">Input Tax Attributable to VAT Exempt Sales <small>From Schedule 2</small></div>
+      <div class="item-col"></div>
+      <div class="item-col"><input class="amt manual" id="i53" type="number" value="0" step="0.01" onchange="recompute()" placeholder="0.00"></div>
+    </div>
+    <div class="bir-row">
+      <div class="item-no">54</div>
+      <div class="item-label">VAT Refund / TCC Claimed</div>
+      <div class="item-col"></div>
+      <div class="item-col"><input class="amt manual" id="i54" type="number" value="0" step="0.01" onchange="recompute()" placeholder="0.00"></div>
+    </div>
+    <div class="bir-row">
+      <div class="item-no">55</div>
+      <div class="item-label">Input VAT on Unpaid Payables</div>
+      <div class="item-col"></div>
+      <div class="item-col"><input class="amt manual" id="i55" type="number" value="0" step="0.01" onchange="recompute()" placeholder="0.00"></div>
+    </div>
+    <div class="bir-row">
+      <div class="item-no">56</div>
+      <div class="item-label">Others</div>
+      <div class="item-col"></div>
+      <div class="item-col"><input class="amt manual" id="i56" type="number" value="0" step="0.01" onchange="recompute()" placeholder="0.00"></div>
+    </div>
+    <div class="bir-row total">
+      <div class="item-no">57</div>
+      <div class="item-label">Total Deductions from Input Tax (52B to 56B)</div>
+      <div class="item-col"></div>
+      <div class="item-col"><span class="amt computed" id="i57">0.00</span></div>
+    </div>
+    <div class="bir-row">
+      <div class="item-no">58</div>
+      <div class="item-label">Add: Input VAT on Settled Unpaid Payables Previously Deducted</div>
+      <div class="item-col"></div>
+      <div class="item-col"><input class="amt manual" id="i58" type="number" value="0" step="0.01" onchange="recompute()" placeholder="0.00"></div>
+    </div>
+    <div class="bir-row total">
+      <div class="item-no">59</div>
+      <div class="item-label">Adjusted Deductions from Input Tax (57B + 58B)</div>
+      <div class="item-col"></div>
+      <div class="item-col"><span class="amt computed" id="i59">0.00</span></div>
+    </div>
+    <div class="bir-row total">
+      <div class="item-no">60</div>
+      <div class="item-label" style="font-weight:700;">Total Allowable Input Tax (51B – 59B)</div>
+      <div class="item-col"></div>
+      <div class="item-col"><span class="amt computed" id="i60">${fmt(d.autoCarryOver + d.totalCurInTax)}</span></div>
+    </div>
+
+    <!-- Item 61 -->
+    <div class="bir-row" id="row61" style="min-height:48px;">
+      <div class="item-no" style="font-size:13px;font-weight:900;background:#0d1b3e;color:white;">61</div>
+      <div class="item-label" style="font-weight:700;font-size:13px;">Net VAT Payable / (Excess Input Tax) (37B – 60B)</div>
+      <div class="item-col"></div>
+      <div class="item-col"><span class="amt" id="i61" style="font-size:15px;font-weight:900;">${fmt(d.i34B - d.autoCarryOver - d.totalCurInTax)}</span></div>
+    </div>
+  </div>
+
+  <!-- PART II: TAX PAYABLE -->
+  <div class="bir-form">
+    <div class="bir-header">💰 Part II — Total Tax Payable</div>
+    <div class="bir-row">
+      <div class="item-no">15</div>
+      <div class="item-label">Net VAT Payable / (Excess Input Tax) <small>From Part IV, Item 61</small></div>
+      <div class="item-col wide"><span class="amt computed" id="i15">${fmt(d.i34B - d.autoCarryOver - d.totalCurInTax)}</span></div>
+    </div>
+    <div class="bir-row section-head"><div class="item-no"></div><div class="item-label">Less: Tax Credits / Payments</div><div class="item-col wide"></div></div>
+    <div class="bir-row">
+      <div class="item-no">16</div>
+      <div class="item-label">Creditable VAT Withheld <small>From Schedule 3 — ₱ ${fmt(d.totalCWT)} auto-computed</small></div>
+      <div class="item-col wide"><span class="amt computed" id="i16">${fmt(d.totalCWT)}</span></div>
+    </div>
+    <div class="bir-row">
+      <div class="item-no">17</div>
+      <div class="item-label">Advance VAT Payments</div>
+      <div class="item-col wide"><input class="amt manual" id="i17" type="number" value="0" step="0.01" onchange="recompute()" placeholder="0.00"></div>
+    </div>
+    <div class="bir-row">
+      <div class="item-no">18</div>
+      <div class="item-label">VAT paid in return previously filed (Amended return)</div>
+      <div class="item-col wide"><input class="amt manual" id="i18" type="number" value="0" step="0.01" onchange="recompute()" placeholder="0.00"></div>
+    </div>
+    <div class="bir-row">
+      <div class="item-no">19</div>
+      <div class="item-label">Other Credits / Payment</div>
+      <div class="item-col wide"><input class="amt manual" id="i19" type="number" value="0" step="0.01" onchange="recompute()" placeholder="0.00"></div>
+    </div>
+    <div class="bir-row total">
+      <div class="item-no">20</div>
+      <div class="item-label">Total Tax Credits / Payment (16 to 19)</div>
+      <div class="item-col wide"><span class="amt computed" id="i20">${fmt(d.totalCWT)}</span></div>
+    </div>
+    <div class="bir-row total">
+      <div class="item-no">21</div>
+      <div class="item-label">Tax Still Payable / (Excess Credits) (15 – 20)</div>
+      <div class="item-col wide"><span class="amt computed" id="i21">${fmt(d.i34B - d.autoCarryOver - d.totalCurInTax - d.totalCWT)}</span></div>
+    </div>
+    <div class="bir-row section-head"><div class="item-no"></div><div class="item-label">Add: Penalties</div><div class="item-col wide"></div></div>
+    <div class="bir-row">
+      <div class="item-no">22</div>
+      <div class="item-label">Surcharge</div>
+      <div class="item-col wide"><input class="amt manual" id="i22" type="number" value="0" step="0.01" onchange="recompute()" placeholder="0.00"></div>
+    </div>
+    <div class="bir-row">
+      <div class="item-no">23</div>
+      <div class="item-label">Interest</div>
+      <div class="item-col wide"><input class="amt manual" id="i23" type="number" value="0" step="0.01" onchange="recompute()" placeholder="0.00"></div>
+    </div>
+    <div class="bir-row">
+      <div class="item-no">24</div>
+      <div class="item-label">Compromise</div>
+      <div class="item-col wide"><input class="amt manual" id="i24" type="number" value="0" step="0.01" onchange="recompute()" placeholder="0.00"></div>
+    </div>
+    <div class="bir-row total">
+      <div class="item-no">25</div>
+      <div class="item-label">Total Penalties (22 to 24)</div>
+      <div class="item-col wide"><span class="amt computed" id="i25">0.00</span></div>
+    </div>
+    <div class="bir-row" id="row26" style="min-height:48px;">
+      <div class="item-no" style="font-size:13px;font-weight:900;background:#0d1b3e;color:white;">26</div>
+      <div class="item-label" style="font-weight:700;font-size:13px;">TOTAL AMOUNT PAYABLE / (Excess Credits) (21 + 25)</div>
+      <div class="item-col wide"><span class="amt" id="i26" style="font-size:15px;font-weight:900;"></span></div>
+    </div>
+  </div>
+
+  <!-- SCHEDULE 3 -->
+  <div class="bir-form">
+    <div class="bir-header">📋 Part V — Schedule 3: Creditable VAT Withheld</div>
+    <div style="padding:12px;">
+      ${d.sched3Rows.length === 0
+        ? `<div class="alert alert-info">No creditable VAT withheld found for this period. Check your CWT account mapping in Setup → VAT Mapping.</div>`
+        : `<table class="sched-table">
+            <thead><tr>
+              <th>Period</th><th>Withholding Agent (Customer)</th><th>Income Payment</th><th>CWT Amount</th><th>Type</th>
+            </tr></thead>
+            <tbody>${d.sched3Rows.map(r => `<tr>
+              <td>${escHtml(r.period)}</td>
+              <td>${escHtml(r.name)}</td>
+              <td class="num">${fmt(r.income)}</td>
+              <td class="num">${fmt(r.cwt)}</td>
+              <td><span style="font-size:9px;background:#0d1b3e;color:white;padding:1px 5px;border-radius:3px;">${escHtml(r.type)}</span></td>
+            </tr>`).join('')}</tbody>
+            <tfoot><tr>
+              <td colspan="3" style="font-weight:700;">TOTAL (→ Item 16)</td>
+              <td class="num">${fmt(d.totalCWT)}</td><td></td>
+            </tr></tfoot>
+          </table>`}
+    </div>
+  </div>
+
+  <!-- NOTES -->
+  <div class="alert alert-info no-print" style="font-size:11px;">
+    ℹ️ <strong>Yellow fields</strong> require manual input. <strong>White fields</strong> are auto-computed from Manager.io transactions.
+    Figures are based on the standard BIR tax codes. Verify all amounts before filing.
+    ${!d.vm.sales_taxable ? '<br>⚠️ <strong>Standard tax codes not found.</strong> Go to Setup → Tax Codes and create the missing standard tax codes.' : ''}
+  </div>
+  `;
+
+  // Store computed data for recompute()
+  window._vatData = d;
+  recompute();
+}
+
+// ── RECOMPUTE (triggered by manual input changes) ─────────────
+function recompute() {
+  const g = id => parseFloat(document.getElementById(id)?.value || document.getElementById(id)?.textContent?.replace(/,/g,'') || 0) || 0;
+  const s = id => { const el = document.getElementById(id); if (el) el.textContent = fmt(window._v[id] || 0); };
+
+  const d = window._vatData;
+  if (!d) return;
+
+  const i34B = d.i34B;
+  const i35  = g('i35'), i36 = g('i36');
+  const i37  = i34B - i35 + i36;
+
+  const i38 = g('i38'), i39 = g('i39'), i40 = g('i40'), i41 = g('i41'), i42 = g('i42');
+  const i43 = i38 + i39 + i40 + i41 + i42;
+
+  const i51 = i43 + d.totalCurInTax;
+
+  const i52 = g('i52'), i53 = g('i53'), i54 = g('i54'), i55 = g('i55'), i56 = g('i56');
+  const i57 = i52 + i53 + i54 + i55 + i56;
+  const i58 = g('i58');
+  const i59 = i57 + i58;
+  const i60 = i51 - i59;
+  const i61 = i37 - i60;
+
+  const i16 = d.totalCWT;
+  const i17 = g('i17'), i18 = g('i18'), i19 = g('i19');
+  const i20 = i16 + i17 + i18 + i19;
+  const i21 = i61 - i20;
+
+  const i22 = g('i22'), i23 = g('i23'), i24 = g('i24');
+  const i25 = i22 + i23 + i24;
+  const i26 = i21 + i25;
+
+  window._v = { i37, i43, i51, i57, i59, i60, i61, i15: i61, i16, i20, i21, i25, i26 };
+
+  const set = (id, val) => { const el = document.getElementById(id); if (!el) return; if (el.tagName === 'INPUT') return; el.textContent = fmt(val); };
+  set('i37', i37); set('i43', i43); set('i51', i51);
+  set('i57', i57); set('i59', i59); set('i60', i60);
+  set('i61', i61); set('i15', i61);
+  set('i16', i16); set('i20', i20); set('i21', i21); set('i25', i25); set('i26', i26);
+
+  // Color coding for Item 61
+  const el61 = document.getElementById('i61');
+  const row61 = document.getElementById('row61');
+  if (el61 && row61) {
+    el61.className = 'amt ' + (i61 > 0 ? 'payable' : i61 < 0 ? 'refund' : 'computed');
+    row61.className = 'bir-row ' + (i61 > 0 ? 'payable' : i61 < 0 ? 'refund' : 'total');
+  }
+
+  // Color coding for Item 26
+  const el26 = document.getElementById('i26');
+  const row26 = document.getElementById('row26');
+  if (el26 && row26) {
+    el26.className = 'amt ' + (i26 > 0 ? 'payable' : i26 < 0 ? 'refund' : 'computed');
+    row26.className = 'bir-row ' + (i26 > 0 ? 'payable' : i26 < 0 ? 'refund' : 'total');
+  }
+
+}
+
+// ── HELPER RENDERERS ──────────────────────────────────────────
+function bRow(n1, l1, v1, n2, l2, v2) {
+  return `<div class="bir-row">
+    <div class="item-no">${n1}</div>
+    <div class="item-label" style="width:30%;">${l1}: <strong>${v1}</strong></div>
+    <div class="item-no">${n2}</div>
+    <div class="item-label">${l2}: <strong>${v2}</strong></div>
+  </div>`;
+}
+
+function bRowFull(n, label, val) {
+  return `<div class="bir-row">
+    <div class="item-no">${n}</div>
+    <div class="item-label">${label}: <strong>${val}</strong></div>
+  </div>`;
+}
+
+function amtRow2(n, label, colA, colB, clsA, clsB) {
+  return `<div class="bir-row">
+    <div class="item-no">${n}</div>
+    <div class="item-label">${label}</div>
+    <div class="item-col"><span class="amt ${clsA}">${fmt(colA)}</span></div>
+    <div class="item-col"><span class="amt ${clsB}">${fmt(colB)}</span></div>
+  </div>`;
+}
+
+function amtRow1A(n, label, val, cls) {
+  return `<div class="bir-row">
+    <div class="item-no">${n}</div>
+    <div class="item-label">${label}</div>
+    <div class="item-col"><span class="amt ${cls}">${fmt(val)}</span></div>
+    <div class="item-col"></div>
+  </div>`;
+}
+</script>
+</body>
+</html>

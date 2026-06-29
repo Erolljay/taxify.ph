@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SAWT – Summary Alphalist of Withholding Taxes</title>
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    body { background: white; overflow: auto; height: auto; }
+    #app-header { display: none; }
+    .report-wrap { max-width: 1100px; margin: 0 auto; padding: 16px; }
+    @media print {
+      .filter-bar, .btn, .no-print { display: none !important; }
+    }
+  </style>
+</head>
+<body>
+<div class="report-wrap">
+  <div class="page-header no-print">
+    <div>
+      <div class="page-title">📑 SAWT — Summary Alphalist of Withholding Taxes</div>
+      <div class="page-subtitle">Attachment to BIR Forms 1701Q/1702Q/2550Q — EWT withheld by customers on our sales invoices/receipts</div>
+    </div>
+  </div>
+  <div id="biz-selector-wrap" class="no-print"></div>
+  <div class="tab-bar no-print" id="sawt-tabs">
+    <button class="tab-btn active" data-tab="report">📑 SAWT Report</button>
+    <button class="tab-btn" data-tab="customers">👤 Customers</button>
+  </div>
+  <div id="tab-report" class="tab-panel active">
+    <div id="filter-area" class="no-print"></div>
+    <div id="report-output"></div>
+  </div>
+  <div id="tab-customers" class="tab-panel no-print"></div>
+</div>
+<script>const REPORT_ID = "f6a7b8c9-d0e1-4234-f567-a8b9c0d1e2f3";</script>
+<script src="shared.js"></script>
+<script src="custom-fields.js"></script>
+<script src="ewt-helpers.js"></script>
+<script src="tax-codes.js"></script>
+<script src="sawt-report.js"></script>
+<script>
+  document.addEventListener('DOMContentLoaded', () => initSAWTReport());
+</script>
+</body>
+</html>

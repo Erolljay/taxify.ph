@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Summary List of Purchases (SLP)</title>
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    body { background: white; overflow: auto; height: auto; }
+    #app-header { display: none; }
+    .report-wrap { max-width: 1100px; margin: 0 auto; padding: 16px; }
+    @media print {
+      .filter-bar, .btn, .no-print { display: none !important; }
+    }
+  </style>
+</head>
+<body>
+<div class="report-wrap">
+  <div class="page-header no-print">
+    <div>
+      <div class="page-title">📊 Summary List of Purchases (SLP)</div>
+      <div class="page-subtitle">BIR-required Alphalist — Purchase Invoices</div>
+    </div>
+  </div>
+  <div id="biz-selector-wrap" class="no-print"></div>
+  <div class="tab-bar no-print" id="sl-tabs">
+    <button class="tab-btn active" data-tab="report">📊 SLP Report</button>
+    <button class="tab-btn" data-tab="suppliers">🏭 Suppliers</button>
+  </div>
+  <div id="tab-report" class="tab-panel active">
+    <div id="filter-area" class="no-print"></div>
+    <div id="report-output"></div>
+  </div>
+  <div id="tab-suppliers" class="tab-panel no-print"></div>
+</div>
+<script>const REPORT_ID = "d4e5f6a7-b8c9-4012-d345-e6f7a8b9c0d1";</script>
+<script src="shared.js"></script>
+<script src="custom-fields.js"></script>
+<script src="tax-codes.js"></script>
+<script src="sls-report.js"></script>
+<script>
+  document.addEventListener('DOMContentLoaded', () => initSLReport('slp'));
+</script>
+</body>
+</html>

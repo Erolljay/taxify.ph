@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Batch Import — Sales Invoices</title>
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    body { background: white; overflow: auto; height: auto; }
+    #app-header { display: none; }
+    .report-wrap { max-width: 1200px; margin: 0 auto; padding: 16px; }
+    .bi-table { width: 100%; border-collapse: collapse; font-size: 11.5px; }
+    .bi-table th { background: #0d1b3e; color: white; padding: 6px 8px; text-align: left; position: sticky; top: 0; }
+    .bi-table td { padding: 5px 8px; border-bottom: 1px solid #f0f0f0; white-space: nowrap; }
+    .bi-table tr.row-error { background: #fef2f2; }
+    .bi-table tr.row-warn  { background: #fffbeb; }
+    .bi-table tr.row-ok    { background: #f0fdf4; }
+    .bi-err { color: #c0392b; font-size: 10.5px; }
+    .bi-wrap { max-height: 480px; overflow: auto; border: 1px solid #e5e7eb; border-radius: 6px; }
+    .bi-stat { display: inline-block; margin-right: 16px; font-size: 12px; }
+    .bi-stat b { font-size: 15px; }
+  </style>
+</head>
+<body>
+<div class="report-wrap">
+  <div class="page-header no-print">
+    <div>
+      <div class="page-title">📤 Batch Import — Sales Invoices</div>
+      <div class="page-subtitle">Fill a simple Excel sheet, then post Sales Invoices (and same-day Receipts) directly to Manager</div>
+    </div>
+  </div>
+  <div id="biz-selector-wrap" class="no-print"></div>
+
+  <div class="filter-bar no-print" style="margin-bottom:14px;">
+    <button class="btn btn-outline" id="bi-template">📥 Download Template</button>
+    <input type="file" id="bi-file" accept=".xlsx,.xls" style="display:none;">
+    <button class="btn btn-outline" id="bi-upload-btn">📂 Choose File</button>
+    <span id="bi-filename" style="font-size:12px;color:#6b7280;"></span>
+    <div class="filter-sep"></div>
+    <button class="btn btn-primary" id="bi-validate" style="display:none;">🔍 Validate</button>
+    <button class="btn btn-primary" id="bi-post" style="display:none;">🚀 Post to Manager</button>
+  </div>
+
+  <div class="alert alert-info" style="margin-bottom:14px;">
+    ℹ️ This tool posts <strong>directly to Manager</strong> via its API — no manual upload needed. Each row's Customer
+    name is matched against existing contacts; if it looks like a possible duplicate, the preview lets you pick the
+    matching contact (or confirm it's new) right there. The Sales Invoice is then created, then (for rows marked
+    "Paid Same Day") a matching Receipt that settles it. Review the row-by-row results after posting — if a row
+    fails, fix the source data and click "Post to Manager" again to retry just the failed rows.
+  </div>
+
+  <div id="bi-output"></div>
+</div>
+
+<script>const REPORT_ID = "1a2b3c4d-5e6f-4789-9abc-d1e2f3a4b5c6"; const BI_TXN_TYPE = "Sale";</script>
+<script src="shared.js"></script>
+<script src="tax-codes.js"></script>
+<script src="batch-import.js"></script>
+<script>
+  document.addEventListener('DOMContentLoaded', () => initBatchImport());
+</script>
+</body>
+</html>

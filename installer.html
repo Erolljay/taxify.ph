@@ -1,0 +1,468 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tallo CPA — Extension Installer</title>
+  <style>
+    :root {
+      --navy: #0d1b3e; --navy-light: #1a2f5e;
+      --accent: #c0392b; --green: #27ae60;
+      --border: #dde3ec; --bg: #f4f6f9;
+      --text: #1a1a2e; --muted: #6b7280;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Segoe UI', system-ui, sans-serif; font-size: 13px; background: var(--bg); color: var(--text); min-height: 100vh; }
+
+    header {
+      background: var(--navy);
+      border-bottom: 2px solid var(--accent);
+      padding: 14px 24px;
+      display: flex; align-items: center; gap: 12px;
+      color: white;
+    }
+    header .logo { font-size: 16px; font-weight: 700; }
+    header .sub  { font-size: 11px; color: #94a3c4; }
+
+    .container { max-width: 780px; margin: 32px auto; padding: 0 16px; }
+
+    .card {
+      background: white; border: 1px solid var(--border);
+      border-radius: 10px; padding: 22px; margin-bottom: 18px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.05);
+    }
+    .card-title {
+      font-size: 13px; font-weight: 700; color: var(--navy);
+      margin-bottom: 14px; padding-bottom: 10px;
+      border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; gap: 6px;
+    }
+
+    .form-group { margin-bottom: 13px; }
+    .form-label { font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.4px; display: block; margin-bottom: 5px; }
+    .form-input, .form-select {
+      width: 100%; padding: 8px 10px; border: 1.5px solid var(--border);
+      border-radius: 6px; font-size: 13px; font-family: inherit; background: white;
+    }
+    .form-input:focus, .form-select:focus { outline: none; border-color: #3498db; box-shadow: 0 0 0 3px rgba(52,152,219,0.1); }
+    .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    .hint { font-size: 11px; color: var(--muted); margin-top: 4px; }
+
+    .btn {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 9px 16px; border-radius: 6px; font-size: 12px;
+      font-weight: 600; cursor: pointer; border: none; font-family: inherit;
+      transition: background 0.15s;
+    }
+    .btn-primary { background: var(--navy); color: white; }
+    .btn-primary:hover { background: var(--navy-light); }
+    .btn-success { background: var(--green); color: white; }
+    .btn-success:hover { background: #219a52; }
+    .btn-outline { background: white; color: var(--navy); border: 1.5px solid var(--border); }
+    .btn-outline:hover { border-color: var(--navy); }
+    .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    .btn-group { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+
+    .alert { padding: 10px 14px; border-radius: 7px; font-size: 12px; margin-bottom: 12px; display: flex; gap: 8px; align-items: flex-start; }
+    .alert-info    { background: #eff6ff; border: 1px solid #bfdbfe; color: #1e40af; }
+    .alert-warn    { background: #fffbeb; border: 1px solid #fde68a; color: #92400e; }
+    .alert-error   { background: #fef2f2; border: 1px solid #fecaca; color: #991b1b; }
+    .alert-success { background: #f0fdf4; border: 1px solid #bbf7d0; color: #14532d; }
+
+    .business-list { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+    .business-item {
+      display: flex; align-items: center; gap: 10px;
+      padding: 10px 12px; border: 1.5px solid var(--border);
+      border-radius: 7px; background: #fafbfc;
+    }
+    .business-item.installed { border-color: #86efac; background: #f0fdf4; }
+    .business-item.failed    { border-color: #fca5a5; background: #fef2f2; }
+    .business-item.installing { border-color: #93c5fd; background: #eff6ff; }
+    .business-item input[type=checkbox] { width: 15px; height: 15px; accent-color: var(--navy); flex-shrink: 0; }
+    .business-name { flex: 1; font-weight: 600; }
+    .business-status { font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 4px; }
+    .status-ok   { background: #dcfce7; color: #15803d; }
+    .status-err  { background: #fee2e2; color: #b91c1c; }
+    .status-run  { background: #dbeafe; color: #1d4ed8; }
+    .status-none { background: #f1f5f9; color: #64748b; }
+
+    .progress-log {
+      background: #0f172a; color: #94a3b8; font-family: 'Courier New', monospace;
+      font-size: 11px; padding: 14px; border-radius: 7px; max-height: 200px;
+      overflow-y: auto; margin-top: 14px; line-height: 1.6;
+    }
+    .log-ok   { color: #4ade80; }
+    .log-err  { color: #f87171; }
+    .log-info { color: #93c5fd; }
+
+    .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid rgba(255,255,255,0.3); border-top-color: white; border-radius: 50%; animation: spin 0.7s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .select-row { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; }
+    .select-row a { font-size: 11px; color: #3498db; cursor: pointer; text-decoration: underline; }
+
+    table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    th { background: var(--navy); color: white; padding: 8px 12px; text-align: left; font-size: 11px; }
+    td { padding: 7px 12px; border-bottom: 1px solid #f0f0f0; vertical-align: middle; }
+    tr:nth-child(even) { background: #fafbfc; }
+    code { background: #f1f5f9; padding: 2px 6px; border-radius: 4px; font-family: monospace; font-size: 11px; }
+  </style>
+</head>
+<body>
+
+<header>
+  <div>
+    <div class="logo">🇵🇭 Tallo CPA — BIR Tax App Installer</div>
+    <div class="sub">Installs the extension across multiple Manager.io businesses via API</div>
+  </div>
+</header>
+
+<div class="container">
+
+  <!-- STEP 1: CONNECTION -->
+  <div class="card">
+    <div class="card-title">🔌 Step 1 — Connect to Manager.io</div>
+
+    <div class="alert alert-info">
+      ℹ️ This installer uses the Manager.io <strong>API4</strong>. You need an <strong>access token</strong>
+      from Manager → <em>Settings → Access tokens → New access token</em>. This is different from the old API Keys.
+    </div>
+
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Manager Server URL</label>
+        <input class="form-input" id="server-url" placeholder="https://yourserver.manager.io"
+          value="">
+        <div class="hint">For cloud: https://app.manager.io — For server: your local/VPS URL</div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Access Token</label>
+        <input class="form-input" id="api-key" type="password" placeholder="Paste your access token here">
+        <div class="hint">From Manager → Settings → Access tokens → New access token</div>
+      </div>
+    </div>
+
+    <div class="btn-group">
+      <button class="btn btn-primary" onclick="connectAndLoad()">🔍 Connect &amp; Load Businesses</button>
+    </div>
+    <div id="connect-status"></div>
+  </div>
+
+  <!-- STEP 2: EXTENSION CONFIG -->
+  <div class="card">
+    <div class="card-title">⚙️ Step 2 — Extension Configuration</div>
+
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Extension Name (shown in sidebar)</label>
+        <input class="form-input" id="ext-name" value="Tallo CPA – BIR Tax">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Extension UUID (DO NOT CHANGE after first install)</label>
+        <input class="form-input" id="ext-uuid" value="7a3f9e2d-5b8c-4e1a-9d6f-2c4a7b8e3f1d"
+          style="font-family:monospace;font-size:11px;">
+        <div class="hint">Must match the UUID in index.html</div>
+      </div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Extension URL (GitHub Pages)</label>
+      <input class="form-input" id="ext-url" value="https://erolljay.github.io/tallocpa-taxapp/">
+      <div class="hint">Must be HTTPS. This is where your index.html is hosted.</div>
+    </div>
+
+    <details style="margin-top:12px;">
+      <summary style="cursor:pointer;font-size:11px;font-weight:600;color:var(--muted);">📋 View raw PUT /api4/extension payload</summary>
+      <pre id="payload-preview" style="background:#f1f5f9;padding:12px;border-radius:6px;font-size:11px;margin-top:8px;overflow-x:auto;"></pre>
+    </details>
+  </div>
+
+  <!-- STEP 3: SELECT BUSINESSES -->
+  <div class="card" id="businesses-card" style="display:none;">
+    <div class="card-title">🏢 Step 3 — Select Businesses to Install</div>
+
+    <div class="select-row">
+      <a onclick="selectAll(true)">Select All</a>
+      <a onclick="selectAll(false)">Deselect All</a>
+      <span id="sel-count" style="font-size:11px;color:var(--muted);margin-left:auto;"></span>
+    </div>
+
+    <div class="business-list" id="business-list"></div>
+
+    <div class="btn-group" style="margin-top:16px;">
+      <button class="btn btn-success" id="btn-install" onclick="installAll()">
+        ⚡ Install on Selected Businesses
+      </button>
+      <button class="btn btn-outline" onclick="checkInstalled()">
+        🔎 Check Installation Status
+      </button>
+    </div>
+    <div class="progress-log" id="log" style="display:none;"></div>
+  </div>
+
+  <!-- REFERENCE -->
+  <div class="card">
+    <div class="card-title">📖 API Reference — PUT /api4/extension</div>
+    <table>
+      <thead>
+        <tr><th>Parameter</th><th>Value</th><th>Notes</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>key</code></td><td>Extension UUID v4</td><td>Stable — never change after first install</td></tr>
+        <tr><td><code>value.name</code></td><td>Display name</td><td>Shown as sidebar button label</td></tr>
+        <tr><td><code>value.source</code></td><td><code>1</code></td><td>Always 1 for custom extensions</td></tr>
+        <tr><td><code>value.endpoint</code></td><td>GitHub Pages URL</td><td>Must be HTTPS</td></tr>
+        <tr><td><code>value.placement</code></td><td><code>/</code></td><td>Puts it in the left sidebar</td></tr>
+        <tr><td><code>business</code></td><td>Exact business name</td><td>Case-sensitive — from /api4/businesses</td></tr>
+      </tbody>
+    </table>
+
+    <div style="margin-top:14px;">
+      <div class="card-title" style="font-size:12px;margin-bottom:8px;">Headers required</div>
+      <pre style="background:#f1f5f9;padding:10px;border-radius:6px;font-size:11px;">Authorization: Bearer &lt;your-access-token&gt;
+Content-Type: application/json
+Accept: application/json</pre>
+    </div>
+
+    <div style="margin-top:14px;">
+      <div class="card-title" style="font-size:12px;margin-bottom:8px;">GET /api4/businesses — response shape</div>
+      <pre style="background:#f1f5f9;padding:10px;border-radius:6px;font-size:11px;">{
+  "businesses": [
+    { "name": "ABC Corporation", "_links": { "self": { "href": "..." } } },
+    { "name": "Juan Dela Cruz Trading", "_links": { ... } }
+  ]
+}</pre>
+    </div>
+
+    <div style="margin-top:14px;">
+      <div class="card-title" style="font-size:12px;margin-bottom:8px;">To REMOVE an extension</div>
+      <pre style="background:#f1f5f9;padding:10px;border-radius:6px;font-size:11px;">DELETE /api4/extension?key=&lt;uuid&gt;&amp;business=&lt;name&gt;
+Headers: Authorization: Bearer &lt;token&gt;</pre>
+    </div>
+  </div>
+
+</div><!-- /container -->
+
+<script>
+  let businesses = [];
+
+  // ── UPDATE PAYLOAD PREVIEW ──────────────────────────────────
+  function updatePayloadPreview() {
+    const payload = {
+      key: document.getElementById('ext-uuid').value,
+      value: {
+        name: document.getElementById('ext-name').value,
+        source: 1,
+        endpoint: document.getElementById('ext-url').value,
+        placement: '/'
+      },
+      business: '<Business Name>'
+    };
+    document.getElementById('payload-preview').textContent = JSON.stringify(payload, null, 2);
+  }
+  ['ext-name','ext-uuid','ext-url'].forEach(id =>
+    document.getElementById(id).addEventListener('input', updatePayloadPreview)
+  );
+  updatePayloadPreview();
+
+  // ── API HELPER ──────────────────────────────────────────────
+  async function managerApi(method, path, body = null) {
+    const url    = document.getElementById('server-url').value.replace(/\/$/, '');
+    const apiKey = document.getElementById('api-key').value.trim();
+    const opts   = {
+      method,
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      },
+    };
+    if (body) opts.body = JSON.stringify(body);
+    const res = await fetch(`${url}${path}`, opts);
+    if (!res.ok) {
+      const txt = await res.text().catch(() => '');
+      throw new Error(`HTTP ${res.status}: ${txt.slice(0, 120)}`);
+    }
+    const text = await res.text();
+    return text ? JSON.parse(text) : {};
+  }
+
+  // ── CONNECT & LOAD ──────────────────────────────────────────
+  async function connectAndLoad() {
+    const statusEl = document.getElementById('connect-status');
+    statusEl.innerHTML = '<div class="alert alert-info" style="margin-top:10px;">⏳ Connecting…</div>';
+
+    try {
+      const res = await managerApi('GET', '/api4/businesses');
+      businesses = res.businesses || [];
+
+      if (businesses.length === 0) {
+        statusEl.innerHTML = '<div class="alert alert-warn" style="margin-top:10px;">⚠️ Connected but no businesses found. Check your API key permissions.</div>';
+        return;
+      }
+
+      statusEl.innerHTML = `<div class="alert alert-success" style="margin-top:10px;">
+        ✅ Connected — found <strong>${businesses.length}</strong> business${businesses.length > 1 ? 'es' : ''}.
+      </div>`;
+
+      renderBusinessList();
+      document.getElementById('businesses-card').style.display = '';
+
+    } catch (err) {
+      statusEl.innerHTML = `<div class="alert alert-error" style="margin-top:10px;">
+        ❌ ${escHtml(err.message)}<br>
+        <small>Check: correct URL, API key is account-level, CORS allowed (for cloud use the Manager cloud URL).</small>
+      </div>`;
+    }
+  }
+
+  // ── RENDER BUSINESS LIST ────────────────────────────────────
+  function renderBusinessList() {
+    const list = document.getElementById('business-list');
+    list.innerHTML = businesses.map((b, i) => `
+      <div class="business-item" id="biz-${i}">
+        <input type="checkbox" id="chk-${i}" checked onchange="updateSelCount()">
+        <label class="business-name" for="chk-${i}">${escHtml(b.name)}</label>
+        <span class="business-status status-none" id="status-${i}">Not installed</span>
+      </div>
+    `).join('');
+    updateSelCount();
+  }
+
+  function selectAll(val) {
+    businesses.forEach((_, i) => {
+      const chk = document.getElementById(`chk-${i}`);
+      if (chk) chk.checked = val;
+    });
+    updateSelCount();
+  }
+
+  function updateSelCount() {
+    const total = businesses.length;
+    const sel   = businesses.filter((_, i) => document.getElementById(`chk-${i}`)?.checked).length;
+    document.getElementById('sel-count').textContent = `${sel} of ${total} selected`;
+  }
+
+  // ── CHECK INSTALLATION STATUS ───────────────────────────────
+  async function checkInstalled() {
+    const logEl = document.getElementById('log');
+    logEl.style.display = '';
+    logEl.innerHTML = '';
+
+    log('info', 'Checking installation status for all businesses…');
+
+    for (let i = 0; i < businesses.length; i++) {
+      const name = businesses[i].name;
+      const item = document.getElementById(`biz-${i}`);
+      const statusEl = document.getElementById(`status-${i}`);
+
+      try {
+        // GET the extension key to see if installed
+        const res = await managerApi('GET', `/api4/extension?key=${encodeURIComponent(document.getElementById('ext-uuid').value)}&business=${encodeURIComponent(name)}`);
+        if (res && res.endpoint) {
+          item.className = 'business-item installed';
+          statusEl.className = 'business-status status-ok';
+          statusEl.textContent = '✓ Installed';
+          log('ok', `${name} — already installed`);
+        } else {
+          statusEl.className = 'business-status status-none';
+          statusEl.textContent = 'Not installed';
+          log('info', `${name} — not installed`);
+        }
+      } catch {
+        statusEl.className = 'business-status status-none';
+        statusEl.textContent = 'Unknown';
+        log('info', `${name} — status unknown`);
+      }
+    }
+
+    log('ok', 'Status check complete.');
+  }
+
+  // ── INSTALL ALL SELECTED ────────────────────────────────────
+  async function installAll() {
+    const btn   = document.getElementById('btn-install');
+    const logEl = document.getElementById('log');
+    logEl.style.display = '';
+    logEl.innerHTML = '';
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span> Installing…';
+
+    const extUuid = document.getElementById('ext-uuid').value.trim();
+    const extName = document.getElementById('ext-name').value.trim();
+    const extUrl  = document.getElementById('ext-url').value.trim();
+
+    if (!extUuid || !extName || !extUrl) {
+      log('err', 'Extension config is incomplete. Fill in all fields in Step 2.');
+      btn.disabled = false;
+      btn.innerHTML = '⚡ Install on Selected Businesses';
+      return;
+    }
+
+    let ok = 0, fail = 0;
+
+    for (let i = 0; i < businesses.length; i++) {
+      const chk = document.getElementById(`chk-${i}`);
+      if (!chk?.checked) continue;
+
+      const name    = businesses[i].name;
+      const item    = document.getElementById(`biz-${i}`);
+      const statusEl = document.getElementById(`status-${i}`);
+
+      item.className     = 'business-item installing';
+      statusEl.className = 'business-status status-run';
+      statusEl.textContent = '⏳ Installing…';
+      log('info', `Installing on: ${name}…`);
+
+      const payload = {
+        key: extUuid,
+        value: {
+          name: extName,
+          source: 1,
+          endpoint: extUrl,
+          placement: '/',
+        },
+        business: name,
+      };
+
+      try {
+        await managerApi('PUT', '/api4/extension', payload);
+        item.className     = 'business-item installed';
+        statusEl.className = 'business-status status-ok';
+        statusEl.textContent = '✓ Installed';
+        log('ok', `✓ ${name} — installed successfully`);
+        ok++;
+      } catch (err) {
+        item.className     = 'business-item failed';
+        statusEl.className = 'business-status status-err';
+        statusEl.textContent = '✗ Failed';
+        log('err', `✗ ${name} — ${err.message}`);
+        fail++;
+      }
+
+      // Small delay to avoid hammering the server
+      await sleep(200);
+    }
+
+    log('ok', `Done. ${ok} installed, ${fail} failed.`);
+    btn.disabled = false;
+    btn.innerHTML = '⚡ Install on Selected Businesses';
+  }
+
+  // ── LOG ─────────────────────────────────────────────────────
+  function log(type, msg) {
+    const el = document.getElementById('log');
+    const ts = new Date().toLocaleTimeString('en-PH');
+    const cls = type === 'ok' ? 'log-ok' : type === 'err' ? 'log-err' : 'log-info';
+    el.innerHTML += `<span class="${cls}">[${ts}] ${escHtml(msg)}</span>\n`;
+    el.scrollTop = el.scrollHeight;
+  }
+
+  function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+  function escHtml(s) {
+    return String(s || '')
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+</script>
+</body>
+</html>

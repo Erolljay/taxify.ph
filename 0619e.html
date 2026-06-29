@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>0619-E — Monthly Remittance Form of Creditable Income Taxes Withheld (Expanded)</title>
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    body { background: white; overflow: auto; height: auto; }
+    #app-header { display: none; }
+    .report-wrap { max-width: 1100px; margin: 0 auto; padding: 16px; }
+    .form-title { text-align:center; margin-bottom:12px; }
+    .form-title h2 { margin:0; font-size:16px; }
+    .form-title .sub { font-size:11px; color:#6b7280; }
+    .return-line-label small { color:#9ca3af; }
+    @media print {
+      .filter-bar, .btn, .no-print { display: none !important; }
+    }
+  </style>
+</head>
+<body>
+<div class="report-wrap">
+  <div class="page-header no-print">
+    <div>
+      <div class="page-title">🧾 BIR Form 0619-E</div>
+      <div class="page-subtitle">Monthly Remittance Form of Creditable Income Taxes Withheld (Expanded)</div>
+    </div>
+  </div>
+  <div id="biz-selector-wrap" class="no-print"></div>
+  <div class="tab-bar no-print" id="me-tabs">
+    <button class="tab-btn active" data-tab="report">🧾 0619-E Report</button>
+    <button class="tab-btn" data-tab="taxcodes">🗂 Tax Codes</button>
+  </div>
+  <div id="tab-report" class="tab-panel active">
+    <div id="filter-area" class="no-print"></div>
+    <div id="report-output"></div>
+  </div>
+  <div id="tab-taxcodes" class="tab-panel no-print">
+    <div id="taxcodes-output"><div class="alert alert-info">Loading tax code mapping…</div></div>
+  </div>
+</div>
+<script>const REPORT_ID = "a1b2c3d4-0003-4000-8000-000000000001";</script>
+<script src="shared.js"></script>
+<script src="ewt-helpers.js"></script>
+<script src="tax-codes.js"></script>
+<script src="ewt-taxcodes-tab.js"></script>
+<script src="0619e-report.js"></script>
+<script>
+  document.addEventListener('DOMContentLoaded', () => init0619EReport());
+</script>
+</body>
+</html>

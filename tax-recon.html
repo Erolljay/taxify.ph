@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tax Reconciliation Report</title>
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    body { background: white; overflow: auto; height: auto; }
+    #app-header { display: none; }
+    .report-wrap { max-width: 1100px; margin: 0 auto; padding: 16px; }
+    .form-title { text-align:center; margin-bottom:12px; }
+    .form-title h2 { margin:0; font-size:16px; }
+    .form-title .sub { font-size:11px; color:#6b7280; }
+    @media print {
+      .filter-bar, .btn, .no-print { display: none !important; }
+    }
+  </style>
+</head>
+<body>
+<div class="report-wrap">
+  <div class="page-header no-print">
+    <div>
+      <div class="page-title">🧮 Tax Reconciliation Report</div>
+      <div class="page-subtitle">Cross-checks reconstructed P&amp;L figures against other filed BIR returns</div>
+    </div>
+  </div>
+  <div id="biz-selector-wrap" class="no-print"></div>
+  <div id="filter-area" class="no-print"></div>
+  <div id="report-output">
+    <div class="alert alert-info">Select a quarter and click <strong>Generate</strong> to run the reconciliation.</div>
+  </div>
+</div>
+<script src="shared.js"></script>
+<script src="custom-fields.js"></script>
+<script src="tax-codes.js"></script>
+<script src="pnl-helpers.js"></script>
+<script src="tax-recon-report.js"></script>
+<script>
+  document.addEventListener('DOMContentLoaded', async () => {
+    await initTaxReconReport();
+  });
+</script>
+</body>
+</html>
