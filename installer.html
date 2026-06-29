@@ -38,16 +38,6 @@
       display: flex; align-items: center; gap: 6px;
     }
 
-    .form-group { margin-bottom: 13px; }
-    .form-label { font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.4px; display: block; margin-bottom: 5px; }
-    .form-input, .form-select {
-      width: 100%; padding: 8px 10px; border: 1.5px solid var(--border);
-      border-radius: 6px; font-size: 13px; font-family: inherit; background: white;
-    }
-    .form-input:focus, .form-select:focus { outline: none; border-color: #3498db; box-shadow: 0 0 0 3px rgba(52,152,219,0.1); }
-    .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
-    .hint { font-size: 11px; color: var(--muted); margin-top: 4px; }
-
     .btn {
       display: inline-flex; align-items: center; gap: 6px;
       padding: 9px 16px; border-radius: 6px; font-size: 12px;
@@ -62,7 +52,6 @@
     .btn-danger:hover { background: #a93226; }
     .btn-outline { background: white; color: var(--navy); border: 1.5px solid var(--border); }
     .btn-outline:hover { border-color: var(--navy); }
-    .btn-outline-sm { padding: 4px 10px; font-size: 11px; }
     .btn:disabled { opacity: 0.4; cursor: not-allowed; }
     .btn-group { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
 
@@ -116,44 +105,16 @@
 <header>
   <div>
     <div class="logo">🇵🇭 Taxify it! — Admin Installer</div>
-    <div class="sub">Install / uninstall the Taxify it! extension across Manager.io businesses</div>
+    <div class="sub">Install / uninstall the Taxify it! extension across businesses</div>
   </div>
 </header>
 
 <div class="container">
 
-  <!-- STEP 1: CONNECTION -->
-  <div class="card">
-    <div class="card-title">🔌 Step 1 — Connect to Manager.io</div>
-
-    <div class="alert alert-info">
-      ℹ️ This installer uses the Manager.io <strong>API4</strong>. You need an <strong>access token</strong>
-      from Manager → <em>Settings → Access tokens → New access token</em>. This is different from the old API Keys.
-    </div>
-
-    <div class="form-row">
-      <div class="form-group">
-        <label class="form-label">Manager Server URL</label>
-        <input class="form-input" id="server-url" placeholder="https://yourserver.manager.io"
-          value="">
-        <div class="hint">For cloud: https://app.manager.io — For server: your local/VPS URL</div>
-      </div>
-      <div class="form-group">
-        <label class="form-label">Access Token</label>
-        <input class="form-input" id="api-key" type="password" placeholder="Paste your access token here">
-        <div class="hint">From Manager → Settings → Access tokens → New access token</div>
-      </div>
-    </div>
-
-    <div class="btn-group">
-      <button class="btn btn-primary" onclick="connectAndLoad()">🔍 Connect &amp; Load Businesses</button>
-    </div>
-    <div id="connect-status"></div>
-  </div>
-
-  <!-- STEP 2: SELECT BUSINESSES -->
-  <div class="card" id="businesses-card" style="display:none;">
-    <div class="card-title">🏢 Step 2 — Select Businesses</div>
+  <!-- BUSINESSES -->
+  <div class="card" id="businesses-card">
+    <div class="card-title">🏢 Select Businesses</div>
+    <div id="load-status"><div class="alert alert-info">⏳ Loading businesses…</div></div>
 
     <div class="select-row">
       <a onclick="selectAll(true)">Select All</a>
@@ -191,11 +152,12 @@
         <tr><td>Placement</td><td><code id="ref-placement"></code></td></tr>
       </tbody>
     </table>
-    <div class="hint" style="margin-top:8px;">These values are fixed for this installer — they are not editable here because the UUID must never change after first install.</div>
+    <div class="hint" style="margin-top:8px;font-size:11px;color:var(--muted);">These values are fixed for this installer — they are not editable here because the UUID must never change after first install.</div>
   </div>
 
 </div><!-- /container -->
 
+<script src="shared.js"></script>
 <script>
   let businesses = [];
 
@@ -212,56 +174,23 @@
   document.getElementById('ref-url').textContent = TAXIFY_EXT.url;
   document.getElementById('ref-placement').textContent = TAXIFY_EXT.placement;
 
-  // ── API HELPER ──────────────────────────────────────────────
-  async function managerApi(method, path, body = null) {
-    const url    = document.getElementById('server-url').value.replace(/\/$/, '');
-    const apiKey = document.getElementById('api-key').value.trim();
-    const opts   = {
-      method,
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-      },
-    };
-    if (body) opts.body = JSON.stringify(body);
-    const res = await fetch(`${url}${path}`, opts);
-    if (!res.ok) {
-      const txt = await res.text().catch(() => '');
-      throw new Error(`HTTP ${res.status}: ${txt.slice(0, 120)}`);
-    }
-    const text = await res.text();
-    return text ? JSON.parse(text) : {};
-  }
-
-  // ── CONNECT & LOAD ──────────────────────────────────────────
-  async function connectAndLoad() {
-    const statusEl = document.getElementById('connect-status');
-    statusEl.innerHTML = '<div class="alert alert-info" style="margin-top:10px;">⏳ Connecting…</div>';
-
+  // ── LOAD BUSINESSES (via Manager postMessage bridge) ────────
+  async function loadAllBusinesses() {
+    const statusEl = document.getElementById('load-status');
     try {
-      const res = await managerApi('GET', '/api4/businesses');
-      businesses = res.businesses || [];
-
-      if (businesses.length === 0) {
-        statusEl.innerHTML = '<div class="alert alert-warn" style="margin-top:10px;">⚠️ Connected but no businesses found. Check your API key permissions.</div>';
+      const res = await apiRequest('GET', '/api4/businesses');
+      businesses = res?.businesses || [];
+      if (!businesses.length) {
+        statusEl.innerHTML = '<div class="alert alert-warn">⚠️ No businesses found.</div>';
         return;
       }
-
-      statusEl.innerHTML = `<div class="alert alert-success" style="margin-top:10px;">
-        ✅ Connected — found <strong>${businesses.length}</strong> business${businesses.length > 1 ? 'es' : ''}.
-      </div>`;
-
+      statusEl.innerHTML = `<div class="alert alert-success">✅ Found <strong>${businesses.length}</strong> business${businesses.length > 1 ? 'es' : ''}.</div>`;
       renderBusinessList();
-      document.getElementById('businesses-card').style.display = '';
-
     } catch (err) {
-      statusEl.innerHTML = `<div class="alert alert-error" style="margin-top:10px;">
-        ❌ ${escHtml(err.message)}<br>
-        <small>Check: correct URL, API key is account-level, CORS allowed (for cloud use the Manager cloud URL).</small>
-      </div>`;
+      statusEl.innerHTML = `<div class="alert alert-error">❌ ${escHtml(err.message)}</div>`;
     }
   }
+  loadAllBusinesses();
 
   // ── RENDER BUSINESS LIST ────────────────────────────────────
   function renderBusinessList() {
@@ -270,7 +199,7 @@
       <div class="business-item" id="biz-${i}">
         <input type="checkbox" id="chk-${i}" checked onchange="updateSelCount()">
         <label class="business-name" for="chk-${i}">${escHtml(b.name)}</label>
-        <span class="business-status status-none" id="status-${i}">Not installed</span>
+        <span class="business-status status-none" id="status-${i}">Unknown</span>
       </div>
     `).join('');
     updateSelCount();
@@ -290,6 +219,13 @@
     document.getElementById('sel-count').textContent = `${sel} of ${total} selected`;
   }
 
+  // ── FIND OUR EXTENSION ON A BUSINESS ────────────────────────
+  async function findTaxifyExtension(name) {
+    const res = await apiRequest('GET', '/api4/extension-batch?business=' + encodeURIComponent(name) + '&Skip=0&PageSize=200');
+    const items = res?.items || [];
+    return items.find(it => it.key === TAXIFY_EXT.uuid) || null;
+  }
+
   // ── CHECK INSTALLATION STATUS ───────────────────────────────
   async function checkInstalled() {
     const logEl = document.getElementById('log');
@@ -304,8 +240,8 @@
       const statusEl = document.getElementById(`status-${i}`);
 
       try {
-        const res = await managerApi('GET', `/api4/extension?key=${encodeURIComponent(TAXIFY_EXT.uuid)}&business=${encodeURIComponent(name)}`);
-        if (res && res.endpoint) {
+        const found = await findTaxifyExtension(name);
+        if (found) {
           item.className = 'business-item installed';
           statusEl.className = 'business-status status-ok';
           statusEl.textContent = '✓ Installed';
@@ -316,11 +252,11 @@
           statusEl.textContent = 'Not installed';
           log('info', `${name} — not installed`);
         }
-      } catch {
+      } catch (err) {
         item.className = 'business-item';
         statusEl.className = 'business-status status-none';
         statusEl.textContent = 'Unknown';
-        log('info', `${name} — status unknown`);
+        log('info', `${name} — status unknown (${err.message})`);
       }
     }
 
@@ -351,19 +287,16 @@
       statusEl.textContent = '⏳ Installing…';
       log('info', `Installing Taxify it! on: ${name}…`);
 
-      const payload = {
-        key: TAXIFY_EXT.uuid,
-        value: {
-          name: TAXIFY_EXT.name,
-          source: 1,
-          endpoint: TAXIFY_EXT.url,
-          placement: TAXIFY_EXT.placement,
-        },
-        business: name,
-      };
-
       try {
-        await managerApi('PUT', '/api4/extension', payload);
+        await apiRequest('POST', '/api4/extension', {
+          business: name,
+          value: {
+            Name: TAXIFY_EXT.name,
+            Source: 0,
+            Endpoint: TAXIFY_EXT.url,
+            Placement: TAXIFY_EXT.placement,
+          },
+        });
         item.className     = 'business-item installed';
         statusEl.className = 'business-status status-ok';
         statusEl.textContent = '✓ Installed';
@@ -410,7 +343,7 @@
       log('info', `Uninstalling Taxify it! from: ${name}…`);
 
       try {
-        await managerApi('DELETE', `/api4/extension?key=${encodeURIComponent(TAXIFY_EXT.uuid)}&business=${encodeURIComponent(name)}`);
+        await apiRequest('DELETE', '/api4/extension?business=' + encodeURIComponent(name) + '&key=' + encodeURIComponent(TAXIFY_EXT.uuid));
         item.className     = 'business-item';
         statusEl.className = 'business-status status-none';
         statusEl.textContent = 'Not installed';
@@ -442,11 +375,6 @@
   }
 
   function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
-
-  function escHtml(s) {
-    return String(s || '')
-      .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-  }
 </script>
 </body>
 </html>
