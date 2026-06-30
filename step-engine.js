@@ -524,9 +524,19 @@ const StepEngine = (function () {
       fetchAllBatch('/api4/bank-or-cash-account-batch', state.biz).catch(() => []),
       fetchAllBatch('/api4/balance-sheet-account-batch', state.biz).catch(() => []),
       fetchAllBatch('/api4/profit-and-loss-statement-account-batch', state.biz).catch(() => []),
-    ]).then(([bankAccts, bsAccts, plAccts]) => {
-      const allAccts = [...bsAccts, ...plAccts]
-        .filter(a => a && a.name)
+    ]).then(([bankAcctsRaw, bsAcctsRaw, plAcctsRaw]) => {
+      // Batch items aren't flat {key, name} objects — the actual account
+      // data is nested under it.item / it.value (same shape pnl-helpers.js
+      // unwraps), with it.key as a fallback when the nested object has none.
+      const unwrap = it => {
+        const a = (it && (it.item || it.value)) || it;
+        if (!a) return null;
+        return { ...a, key: a.key || (it && it.key) };
+      };
+      const bankAccts = bankAcctsRaw.map(unwrap).filter(a => a && a.name && a.key);
+      const allAccts = [...bsAcctsRaw, ...plAcctsRaw]
+        .map(unwrap)
+        .filter(a => a && a.name && a.key)
         .sort((a, b) => a.name.localeCompare(b.name));
       const today = new Date().toISOString().slice(0, 10);
       const reference = `VAT ${state.period ? `${state.period.ptype === 'monthly' ? monthName(state.period.period) : 'Q' + state.period.period} ${state.period.year}` : ''}`.trim();
@@ -546,7 +556,7 @@ const StepEngine = (function () {
       }
 
       const acctOpts = sel => allAccts.map(a => `<option value="${a.key}"${a.key === sel ? ' selected' : ''}>${escHtml(a.name)}</option>`).join('');
-      const bankOpts = bankAccts.filter(a => a && a.name).map(a => `<option value="${a.key}">${escHtml(a.name)}</option>`).join('');
+      const bankOpts = bankAccts.map(a => `<option value="${a.key}">${escHtml(a.name)}</option>`).join('');
 
       const rowHtml = (r, i) => `
         <tr data-row="${i}">
