@@ -277,6 +277,14 @@ const StepEngine = (function () {
     renderFinalFooter(body, panel.closest('.tfy-step-wrap').parentElement, state, step);
   }
 
+  // Iframe creation (and therefore each report's own API calls to Manager)
+  // is deferred until the step is actually shown for the first time, rather
+  // than happening eagerly for every step at mount() time. Two reasons:
+  // (1) a 'period'-gated step built eagerly would read state.period before
+  // the user ever reached the 'period' step and chose one, so its iframe
+  // would load with no period query string at all; (2) building every
+  // report iframe in a multi-step workflow up front fires all of their
+  // Manager API calls at once, which is enough concurrent load to time out.
   function mountIframeStep(body, panel, state, step) {
     const mountEl = document.createElement('div');
     mountEl.className = 'tfy-iframe-mount';
@@ -286,6 +294,16 @@ const StepEngine = (function () {
     footer.className = 'tfy-step-footer';
     body.appendChild(footer);
 
+    if (!state._onShow) state._onShow = {};
+    let mounted = false;
+    state._onShow[step.key] = () => {
+      if (mounted) return;
+      mounted = true;
+      mountIframeStepContent(mountEl, footer, body, panel, state, step);
+    };
+  }
+
+  function mountIframeStepContent(mountEl, footer, body, panel, state, step) {
     let file = step.file;
     if (step.usesPeriod) {
       const qs = periodQueryString(state, step);
