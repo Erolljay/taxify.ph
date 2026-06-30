@@ -725,6 +725,7 @@ const StepEngine = (function () {
         <p style="font-size:11pt;margin-top:24pt;">Contents: Cover Sheet, BIR Form 2550Q, SLS, SLP, SAWT.</p>`;
       document.body.appendChild(cover);
       let first = true;
+      const skipped = [];
       try {
         first = await addCanvasPages(pdf, cover, pageW, pageH, first);
       } finally {
@@ -773,6 +774,11 @@ const StepEngine = (function () {
         try {
           if (!doc.body.offsetWidth || !doc.body.offsetHeight) continue;
           first = await addCanvasPages(pdf, doc.body, pageW, pageH, first);
+        } catch (e) {
+          // Don't let one report's rendering quirk abort the whole export —
+          // note it and keep going so the rest of the working paper still
+          // downloads.
+          skipped.push(targetStep.label || targetStepKey);
         } finally {
           hiddenEls.forEach(({ el, prev }) => { el.style.display = prev; });
           if (bodyEl) bodyEl.style.display = prevDisplay;
@@ -780,7 +786,9 @@ const StepEngine = (function () {
       }
 
       pdf.save(`VAT-working-paper-${state.biz}-${state.period ? state.period.year : ''}.pdf`);
-      if (statusEl) statusEl.textContent = '✅ PDF downloaded.';
+      if (statusEl) statusEl.textContent = skipped.length
+        ? `⚠️ PDF downloaded, but couldn't render: ${skipped.join(', ')}.`
+        : '✅ PDF downloaded.';
     } catch (e) {
       if (statusEl) statusEl.textContent = `❌ ${e.message}`;
     }
@@ -791,7 +799,24 @@ const StepEngine = (function () {
   // squeezing everything into one shrunk, cropped screenshot. Returns the
   // updated `isFirst` flag for the caller's next element.
   async function addCanvasPages(pdf, el, pageW, pageH, isFirst) {
-    const canvas = await window.html2canvas(el, { scale: 2, useCORS: true, backgroundColor: '#ffffff' });
+    const canvas = await window.html2canvas(el, {
+      scale: 2,
+      useCORS: true,
+      backgroundColor: '#ffffff',
+      // html2canvas's CSS parser throws "Error parsing CSS component
+      // value, unexpected EOF" on some browsers' native <select> rendering
+      // (a known html2canvas bug, not our CSS). Selects aren't interactive
+      // in a printed PDF anyway, so swap each one for plain text showing
+      // its selected option before the page is rasterized.
+      onclone: (clonedDoc) => {
+        clonedDoc.querySelectorAll('select').forEach(sel => {
+          const span = clonedDoc.createElement('span');
+          span.textContent = sel.options[sel.selectedIndex] ? sel.options[sel.selectedIndex].text : '';
+          span.style.cssText = sel.getAttribute('style') || '';
+          sel.replaceWith(span);
+        });
+      },
+    });
     if (!canvas.width || !canvas.height) return isFirst; // nothing rendered, skip
     const imgW = pageW;
     const pxPerPt = canvas.width / pageW; // canvas pixels per PDF pt at this scale
