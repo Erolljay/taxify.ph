@@ -21,13 +21,10 @@
 
 <div id="install-list"></div>
 
-<!-- Extension UUID: 9f1c2e4a-6b3d-4f8e-a2c5-7d9e0f1a2b3c  DO NOT CHANGE -->
 <script src="shared.js"></script>
 <script>
-  // Fixed Taxify it! extension identity — DO NOT CHANGE the uuid after first install.
   const TAXIFY_EXT = {
     name: 'Taxify it!',
-    uuid: '9f1c2e4a-6b3d-4f8e-a2c5-7d9e0f1a2b3c',
     url:  'https://erolljay.github.io/taxify.ph/taxify.html',
     placement: 'summary-view',
   };
@@ -41,7 +38,7 @@
     try {
       const res = await apiRequest('GET', '/api4/extension-batch?business=' + encodeURIComponent(b) + '&Skip=0&PageSize=200');
       const items = (res?.items || []).map(it => ({ key: it.key, value: it.item || {} }));
-      _installed = items.find(it => it.key === TAXIFY_EXT.uuid) || null;
+      _installed = items.find(it => (it.value.Endpoint || it.value.endpoint) === TAXIFY_EXT.url) || null;
     } catch (e) {
       _installed = null;
     }
@@ -52,7 +49,7 @@
     let badge, action;
     if (_installed) {
       badge = '<span style="font-size:10px;background:#d1fae5;color:#065f46;padding:2px 8px;border-radius:10px;">Installed</span>';
-      action = `<button class="secondary" data-action="uninstall" style="font-size:11px;">Uninstall</button>`;
+      action = `<button class="secondary" data-action="uninstall" data-key="${escHtml(_installed.key)}" style="font-size:11px;">Uninstall</button>`;
     } else {
       badge = '<span style="font-size:10px;background:#fee2e2;color:#991b1b;padding:2px 8px;border-radius:10px;">Not installed</span>';
       action = `<button class="secondary" data-action="install" style="font-size:11px;">Install</button>`;
@@ -80,7 +77,7 @@
           value: { Name: TAXIFY_EXT.name, Source: 0, Endpoint: TAXIFY_EXT.url, Placement: TAXIFY_EXT.placement },
         });
       } else {
-        await apiRequest('DELETE', '/api4/extension?business=' + encodeURIComponent(b) + '&key=' + encodeURIComponent(TAXIFY_EXT.uuid));
+        await apiRequest('DELETE', '/api4/extension?business=' + encodeURIComponent(b) + '&key=' + encodeURIComponent(btn.dataset.key));
       }
       await renderInstallList(b);
     } catch (err) {
