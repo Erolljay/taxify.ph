@@ -736,8 +736,21 @@ const StepEngine = (function () {
         const targetIframe = targetStep && state.iframes[targetStep.iframeId];
         const doc = targetIframe && targetIframe.contentDocument;
         if (!doc || !doc.body) continue;
-        await addCanvasPage(pdf, doc.body, pageW, pageH, first);
-        first = false;
+
+        // Inactive steps' body wrappers are display:none, which collapses
+        // their iframe to zero size — html2canvas would then hand jsPDF a
+        // 0x0 canvas, crashing inside jsPDF's internal scale() call. Force
+        // the wrapper visible (off-screen) just long enough to capture it.
+        const bodyEl = state.bodyEls[targetStepKey];
+        const prevDisplay = bodyEl ? bodyEl.style.display : null;
+        if (bodyEl) bodyEl.style.display = '';
+        try {
+          if (!doc.body.offsetWidth || !doc.body.offsetHeight) continue;
+          await addCanvasPage(pdf, doc.body, pageW, pageH, first);
+          first = false;
+        } finally {
+          if (bodyEl) bodyEl.style.display = prevDisplay;
+        }
       }
 
       pdf.save(`VAT-working-paper-${state.biz}-${state.period ? state.period.year : ''}.pdf`);
@@ -749,6 +762,7 @@ const StepEngine = (function () {
 
   async function addCanvasPage(pdf, el, pageW, pageH, isFirst) {
     const canvas = await window.html2canvas(el, { scale: 1.5, useCORS: true });
+    if (!canvas.width || !canvas.height) return; // nothing rendered, skip the page
     const imgW = pageW;
     const imgH = canvas.height * imgW / canvas.width;
     if (!isFirst) pdf.addPage();
