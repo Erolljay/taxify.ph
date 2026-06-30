@@ -106,8 +106,13 @@
         <select id="f-year"></select>
         <div class="filter-sep"></div>
         <button class="btn btn-primary" id="btn-gen">⚡ Generate</button>
-        <button class="btn btn-outline" id="btn-print" style="display:none" onclick="window.print()">🖨 Print / PDF</button>
       </div>
+    </div>
+    <!-- Kept outside filter-bar-wrap so it still works when embedded by the
+         VAT wizard, which hides the filter bar but should still let the
+         preparer print/save the return as a PDF for client approval. -->
+    <div class="no-print" style="margin-bottom:14px;">
+      <button class="btn btn-outline" id="btn-print" style="display:none" onclick="window.print()">🖨 Print / Save as PDF (for client approval)</button>
     </div>
 
     <!-- Output -->

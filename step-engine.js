@@ -733,7 +733,24 @@ const StepEngine = (function () {
 
       for (const targetStepKey of step.pdfBundle) {
         const targetStep = state.workflow.steps.find(s => s.key === targetStepKey);
-        const targetIframe = targetStep && state.iframes[targetStep.iframeId];
+        if (!targetStep) continue;
+
+        // A bundled step the user never actually opened has no iframe at
+        // all — mountIframeStep only creates it lazily on first show. Force
+        // that mount now so every bundled report ends up in the PDF, not
+        // just whichever ones happened to already be visited.
+        if (!state.iframes[targetStep.iframeId] && state._onShow && state._onShow[targetStepKey]) {
+          state._onShow[targetStepKey]();
+        }
+        const targetIframe = state.iframes[targetStep.iframeId];
+        if (targetIframe && !targetIframe.dataset.tfyLoaded) {
+          await new Promise(resolve => {
+            const done = () => { targetIframe.dataset.tfyLoaded = '1'; resolve(); };
+            if (targetIframe.contentDocument && targetIframe.contentDocument.readyState === 'complete') return done();
+            targetIframe.addEventListener('load', done, { once: true });
+            setTimeout(done, 8000); // don't hang the whole PDF on one slow report
+          });
+        }
         const doc = targetIframe && targetIframe.contentDocument;
         if (!doc || !doc.body) continue;
 
