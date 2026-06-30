@@ -525,7 +525,9 @@ const StepEngine = (function () {
       fetchAllBatch('/api4/balance-sheet-account-batch', state.biz).catch(() => []),
       fetchAllBatch('/api4/profit-and-loss-statement-account-batch', state.biz).catch(() => []),
     ]).then(([bankAccts, bsAccts, plAccts]) => {
-      const allAccts = [...bsAccts, ...plAccts].sort((a, b) => a.name.localeCompare(b.name));
+      const allAccts = [...bsAccts, ...plAccts]
+        .filter(a => a && a.name)
+        .sort((a, b) => a.name.localeCompare(b.name));
       const today = new Date().toISOString().slice(0, 10);
       const reference = `VAT ${state.period ? `${state.period.ptype === 'monthly' ? monthName(state.period.period) : 'Q' + state.period.period} ${state.period.year}` : ''}`.trim();
 
@@ -544,7 +546,7 @@ const StepEngine = (function () {
       }
 
       const acctOpts = sel => allAccts.map(a => `<option value="${a.key}"${a.key === sel ? ' selected' : ''}>${escHtml(a.name)}</option>`).join('');
-      const bankOpts = bankAccts.map(a => `<option value="${a.key}">${escHtml(a.name)}</option>`).join('');
+      const bankOpts = bankAccts.filter(a => a && a.name).map(a => `<option value="${a.key}">${escHtml(a.name)}</option>`).join('');
 
       const rowHtml = (r, i) => `
         <tr data-row="${i}">
