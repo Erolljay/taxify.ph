@@ -184,6 +184,15 @@ const StepEngine = (function () {
     state.doneCache[stepKey] = done;
     renderRail(container, state);
     refreshStepFooter(container, state, stepKey);
+
+    if (done) {
+      const idx = state.workflow.steps.findIndex(s => s.key === stepKey);
+      if (idx === state.activeIndex && idx < state.workflow.steps.length - 1) {
+        state.activeIndex = idx + 1;
+        renderRail(container, state);
+        showActiveStep(container, state);
+      }
+    }
   }
 
   function refreshStepFooter(container, state, stepKey) {
