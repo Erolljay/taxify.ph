@@ -252,8 +252,10 @@ const StepEngine = (function () {
       <div class="tfy-step-header-title">${TYPE_ICON[step.type] || ''} ${escHtml(step.label)}</div>
       ${step.help ? `<div class="tfy-step-header-help">${step.help}</div>` : ''}`;
 
-    if (step.type === 'review' || step.type === 'download' || step.type === 'final') {
+    if (step.type === 'review' || step.type === 'download' || (step.type === 'final' && step.file)) {
       mountIframeStep(body, panel, state, step);
+    } else if (step.type === 'final') {
+      mountBundleFinalStep(body, panel, state, step);
     } else if (step.type === 'validate') {
       mountValidateStep(body, panel, state, step);
     } else if (step.type === 'instruction') {
@@ -263,6 +265,16 @@ const StepEngine = (function () {
     } else if (step.type === 'payment') {
       mountPaymentStep(body, panel, state, step);
     }
+  }
+
+  // A 'final' step with no file/iframeId of its own (e.g. a working-paper
+  // bundle step that only re-triggers downloads from earlier steps) — no
+  // iframe to mount, just the final footer.
+  function mountBundleFinalStep(body, panel, state, step) {
+    const footer = document.createElement('div');
+    footer.className = 'tfy-step-footer';
+    body.appendChild(footer);
+    renderFinalFooter(body, panel.closest('.tfy-step-wrap').parentElement, state, step);
   }
 
   function mountIframeStep(body, panel, state, step) {

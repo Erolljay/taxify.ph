@@ -87,7 +87,7 @@
 
   <!-- RETURN TAB -->
   <div id="tab-return" class="no-print-wrap">
-    <div class="no-print" style="margin-bottom:14px;">
+    <div class="no-print" style="margin-bottom:14px;" id="filter-bar-wrap">
       <div class="filter-bar">
         <label>View</label>
         <select id="f-ptype">
@@ -262,6 +262,19 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('f-mwrap').style.display = isM ? '' : 'none';
   });
 
+  // Tab switching — wired up before the Manager connection attempt below so
+  // the Tax Codes tab stays usable even if that connection times out.
+  document.querySelectorAll('.tab-bar .tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.tab-bar .tab-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      const tab = btn.dataset.tab;
+      document.getElementById('tab-return').style.display    = tab === 'return'   ? '' : 'none';
+      document.getElementById('tab-taxcodes').style.display   = tab === 'taxcodes' ? '' : 'none';
+      if (tab === 'taxcodes') loadTaxCodesTab();
+    });
+  });
+
   // Detect the active business from Manager
   try {
     App.currentBusiness = await getReportBusiness(document.getElementById('biz-selector-wrap'));
@@ -295,19 +308,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   }
   if (qYear) ySel.value = qYear;
-  if (qPeriod || qYear) generate();
-
-  // Tab switching
-  document.querySelectorAll('.tab-bar .tab-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      document.querySelectorAll('.tab-bar .tab-btn').forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-      const tab = btn.dataset.tab;
-      document.getElementById('tab-return').style.display    = tab === 'return'   ? '' : 'none';
-      document.getElementById('tab-taxcodes').style.display   = tab === 'taxcodes' ? '' : 'none';
-      if (tab === 'taxcodes') loadTaxCodesTab();
-    });
-  });
+  if (qPeriod || qYear) {
+    // Embedded by a wizard step that already collected the period via its
+    // own "Choose filing period" step — hide this page's own filter bar so
+    // there's only one period picker visible to the user.
+    document.getElementById('filter-bar-wrap').style.display = 'none';
+    generate();
+  }
 });
 
 // ── GENERATE ──────────────────────────────────────────────────
