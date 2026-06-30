@@ -445,9 +445,26 @@ const StepEngine = (function () {
       const year = parseInt(body.querySelector('#tfy-year').value, 10);
       state.period = { ptype, period, year };
       savePeriod(state.biz, state.workflow.key, state.period);
+      refreshPeriodIframes(state);
       const root = panel.closest('.tfy-step-wrap').parentElement;
       setStepDone(root, state, step.key, true);
     };
+  }
+
+  // Reloads any already-created report iframe whose step uses the period —
+  // without this, changing the period after a report has already been
+  // opened once would leave that iframe showing stale figures forever,
+  // since getOrCreateIframe() only ever sets src the first time.
+  function refreshPeriodIframes(state) {
+    state.workflow.steps.forEach(s => {
+      if (!s.usesPeriod || !s.iframeId) return;
+      const iframe = state.iframes[s.iframeId];
+      if (!iframe) return;
+      const params = new URLSearchParams({ biz: state.biz });
+      const qs = periodQueryString(state, s);
+      if (qs) new URLSearchParams(qs).forEach((v, k) => params.set(k, v));
+      iframe.src = s.file + (s.file.includes('?') ? '&' : '?') + params.toString();
+    });
   }
 
   // ── Payment step: posts the VAT due/carryover into Manager. ────────────
@@ -503,60 +520,143 @@ const StepEngine = (function () {
     Promise.all([
       fetchAllBatch('/api4/bank-or-cash-account-batch', state.biz).catch(() => []),
       fetchAllBatch('/api4/balance-sheet-account-batch', state.biz).catch(() => []),
-    ]).then(([bankAccts, bsAccts]) => {
-      const acctOpts = list => list.map(a => `<option value="${a.key}">${escHtml(a.name)}</option>`).join('');
+      fetchAllBatch('/api4/profit-and-loss-statement-account-batch', state.biz).catch(() => []),
+    ]).then(([bankAccts, bsAccts, plAccts]) => {
+      const allAccts = [...bsAccts, ...plAccts].sort((a, b) => a.name.localeCompare(b.name));
+      const today = new Date().toISOString().slice(0, 10);
+      const reference = `VAT ${state.period ? `${state.period.ptype === 'monthly' ? monthName(state.period.period) : 'Q' + state.period.period} ${state.period.year}` : ''}`.trim();
+
+      // Pre-fill the editable line rows with the same clearing entries the
+      // engine would compute on its own; the user can edit, retitle, add,
+      // or remove rows before posting — accounts aren't pre-selected since
+      // we don't know which ones map to "Output VAT" / "Input Tax" /
+      // "Creditable WV" for this business.
+      const initialRows = [
+        { desc: 'Clear Output VAT', debit: outputTax, credit: 0 },
+      ];
+      if (inputUsed > 0.005) initialRows.push({ desc: 'Apply Input Tax', debit: 0, credit: inputUsed });
+      if (cwtUsed > 0.005) initialRows.push({ desc: 'Apply Creditable WV', debit: 0, credit: cwtUsed });
+      if (!isPayable) {
+        // No cash leg — debits must equal credits within the entry itself.
+      }
+
+      const acctOpts = sel => allAccts.map(a => `<option value="${a.key}"${a.key === sel ? ' selected' : ''}>${escHtml(a.name)}</option>`).join('');
+      const bankOpts = bankAccts.map(a => `<option value="${a.key}">${escHtml(a.name)}</option>`).join('');
+
+      const rowHtml = (r, i) => `
+        <tr data-row="${i}">
+          <td><select class="tfy-je-acct">${acctOpts(r.account)}</select></td>
+          <td><input type="text" class="tfy-je-desc" value="${escHtml(r.desc || '')}"></td>
+          <td><input type="number" step="0.01" class="tfy-je-debit" value="${r.debit ? r.debit.toFixed(2) : ''}"></td>
+          <td><input type="number" step="0.01" class="tfy-je-credit" value="${r.credit ? r.credit.toFixed(2) : ''}"></td>
+          <td><button type="button" class="btn btn-outline tfy-je-remove" style="padding:2px 8px;">✕</button></td>
+        </tr>`;
+
       body.innerHTML = `
         <div class="alert ${isPayable ? 'alert-warn' : 'alert-success'}" style="margin-bottom:10px;">
           Output VAT: <strong>${fmtMoney(outputTax)}</strong> &nbsp;|&nbsp;
           Input tax applied: <strong>${fmtMoney(inputUsed)}</strong> &nbsp;|&nbsp;
           CWT/other credits applied: <strong>${fmtMoney(cwtUsed)}</strong> &nbsp;|&nbsp;
-          ${isPayable ? `Net VAT payable: <strong>${fmtMoney(netCash)}</strong>` : `No cash due this quarter.`}
-        </div>
-        <div class="filter-bar" style="flex-wrap:wrap;">
-          <label>Output Tax (Payable) account</label>
-          <select id="tfy-acct-output">${acctOpts(bsAccts)}</select>
-        </div>
-        <div class="filter-bar" style="flex-wrap:wrap;margin-top:6px;">
-          <label>Prepaid Tax Asset — Input Tax account</label>
-          <select id="tfy-acct-input">${acctOpts(bsAccts)}</select>
-        </div>
-        <div class="filter-bar" style="flex-wrap:wrap;margin-top:6px;">
-          <label>Prepaid Tax Asset — Creditable WV account</label>
-          <select id="tfy-acct-cwt">${acctOpts(bsAccts)}</select>
+          ${isPayable ? `Net VAT payable: <strong>${fmtMoney(netCash)}</strong> (posted as a Payment)` : `No cash due — posted as a Journal Entry.`}
         </div>
         ${isPayable ? `
-        <div class="filter-bar" style="flex-wrap:wrap;margin-top:6px;">
+        <div class="filter-bar" style="flex-wrap:wrap;margin-bottom:10px;">
           <label>Pay from (Bank/Cash)</label>
-          <select id="tfy-acct-bank">${acctOpts(bankAccts)}</select>
+          <select id="tfy-acct-bank">${bankOpts}</select>
         </div>` : ''}
+        <table class="tax-codes-table" id="tfy-je-table">
+          <thead><tr><th>Account</th><th>Description</th><th style="width:110px;">Debit</th><th style="width:110px;">Credit</th><th style="width:30px;"></th></tr></thead>
+          <tbody>${initialRows.map(rowHtml).join('')}</tbody>
+          <tfoot><tr>
+            <td colspan="2" style="text-align:right;font-weight:700;">Total</td>
+            <td id="tfy-je-total-debit" class="num" style="font-weight:700;"></td>
+            <td id="tfy-je-total-credit" class="num" style="font-weight:700;"></td>
+            <td></td>
+          </tr></tfoot>
+        </table>
+        <button type="button" class="btn btn-outline" id="tfy-je-add" style="margin-top:8px;">+ Add line</button>
+        <div id="tfy-je-balance" style="margin-top:8px;font-size:12px;"></div>
         <div class="tfy-step-footer">
           <button class="btn btn-primary" id="tfy-post">${isPayable ? 'Record VAT payment' : 'Record VAT closing entry'}</button>
           <span id="tfy-post-status" style="font-size:12px;color:#6b7280;margin-left:8px;"></span>
         </div>`;
 
+      const tbody = body.querySelector('#tfy-je-table tbody');
+
+      function addRow(r) {
+        const i = tbody.children.length;
+        tbody.insertAdjacentHTML('beforeend', rowHtml(r || {}, i));
+      }
+
+      function readRows() {
+        return Array.from(tbody.querySelectorAll('tr')).map(tr => ({
+          account: tr.querySelector('.tfy-je-acct').value,
+          desc: tr.querySelector('.tfy-je-desc').value.trim(),
+          debit: parseFloat(tr.querySelector('.tfy-je-debit').value) || 0,
+          credit: parseFloat(tr.querySelector('.tfy-je-credit').value) || 0,
+        })).filter(r => r.debit > 0.005 || r.credit > 0.005);
+      }
+
+      function recalcTotals() {
+        const rows = readRows();
+        const totalDebit = rows.reduce((a, r) => a + r.debit, 0);
+        const totalCredit = rows.reduce((a, r) => a + r.credit, 0);
+        body.querySelector('#tfy-je-total-debit').textContent = fmtMoney(totalDebit);
+        body.querySelector('#tfy-je-total-credit').textContent = fmtMoney(totalCredit);
+        const balanceEl = body.querySelector('#tfy-je-balance');
+        const diff = totalDebit - totalCredit;
+        if (isPayable) {
+          // For a Payment, the lines' net (debit − credit) is what's drawn
+          // from the bank/cash account — it should equal the net VAT due.
+          const ok = Math.abs(diff - netCash) < 0.01;
+          balanceEl.innerHTML = ok
+            ? `✅ Net of lines (${fmtMoney(diff)}) matches the amount to be paid from the bank/cash account.`
+            : `⚠️ Net of lines (${fmtMoney(diff)}) should equal the net VAT payable (${fmtMoney(netCash)}).`;
+        } else {
+          const ok = Math.abs(diff) < 0.01;
+          balanceEl.innerHTML = ok
+            ? `✅ Entry is balanced.`
+            : `⚠️ Debits and credits must be equal to post a journal entry (currently off by ${fmtMoney(diff)}).`;
+        }
+        return { totalDebit, totalCredit, diff };
+      }
+
+      tbody.addEventListener('input', recalcTotals);
+      tbody.addEventListener('click', (e) => {
+        if (e.target.classList.contains('tfy-je-remove')) {
+          e.target.closest('tr').remove();
+          recalcTotals();
+        }
+      });
+      body.querySelector('#tfy-je-add').onclick = () => { addRow(); recalcTotals(); };
+      recalcTotals();
+
       body.querySelector('#tfy-post').onclick = async () => {
         const statusEl = body.querySelector('#tfy-post-status');
+        const rows = readRows();
+        if (!rows.length) { statusEl.textContent = '❌ Add at least one line.'; return; }
+        if (rows.some(r => !r.account)) { statusEl.textContent = '❌ Every line needs an account.'; return; }
+
         statusEl.textContent = 'Posting…';
         try {
-          const outputAcct = body.querySelector('#tfy-acct-output').value;
-          const inputAcct = body.querySelector('#tfy-acct-input').value;
-          const cwtAcct = body.querySelector('#tfy-acct-cwt').value;
-          const today = new Date().toISOString().slice(0, 10);
-          const reference = `VAT ${state.period ? `${state.period.ptype === 'monthly' ? monthName(state.period.period) : 'Q' + state.period.period} ${state.period.year}` : ''}`.trim();
-
           if (isPayable) {
             const bankAcct = body.querySelector('#tfy-acct-bank').value;
-            const lines = [{ account: outputAcct, lineDescription: 'Clear Output VAT', amount: outputTax }];
-            if (inputUsed > 0.005) lines.push({ account: inputAcct, lineDescription: 'Apply Input Tax', amount: -inputUsed });
-            if (cwtUsed > 0.005) lines.push({ account: cwtAcct, lineDescription: 'Apply Creditable WV', amount: -cwtUsed });
+            const lines = rows.map(r => ({
+              account: r.account,
+              lineDescription: r.desc || undefined,
+              amount: r.debit - r.credit,
+            }));
             await apiRequest('PUT', '/api4/payment', {
               key: crypto.randomUUID(),
               value: { date: today, reference, paidFrom: bankAcct, description: `VAT payment — ${reference}`, lines },
             });
           } else {
-            const lines = [{ account: outputAcct, debit: outputTax, credit: 0 }];
-            if (inputUsed > 0.005) lines.push({ account: inputAcct, debit: 0, credit: inputUsed });
-            if (cwtUsed > 0.005) lines.push({ account: cwtAcct, debit: 0, credit: cwtUsed });
+            const lines = rows.map(r => ({
+              account: r.account,
+              lineDescription: r.desc || undefined,
+              debit: r.debit,
+              credit: r.credit,
+            }));
             await apiRequest('PUT', '/api4/journal-entry', {
               key: crypto.randomUUID(),
               value: { date: today, reference, narration: `VAT close — ${reference}`, lines },
