@@ -28,7 +28,8 @@ var businessSelect = document.getElementById('business');
     }
     businessSelect.innerHTML = '<option value="">-- select a business --</option>' +
       names.map(function(n){ return '<option value="'+escHtml(n)+'">'+escHtml(n)+'</option>'; }).join('');
-    if (names.length) businessSelect.value = names[0];
+    var ctxBiz = (typeof getPageContextBusiness === 'function') ? await getPageContextBusiness() : null;
+    businessSelect.value = (ctxBiz && names.indexOf(ctxBiz) !== -1) ? ctxBiz : (names[0] || '');
     businessSelect.dispatchEvent(new Event('change'));
   } catch(e) {
     businessSelect.innerHTML = '<option value="">(could not load)</option>';

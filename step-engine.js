@@ -34,7 +34,31 @@ const StepEngine = (function () {
     steps.forEach(s => markDone(biz, workflowKey, s.key, false));
   }
 
-  const TYPE_ICON = { review: '📊', validate: '🔎', download: '📥', final: '🏁' };
+  const TYPE_ICON = { review: '📊', validate: '🔎', download: '📥', final: '🏁', instruction: 'ℹ️', period: '📅', payment: '💳' };
+
+  function periodStorageKey(biz, workflowKey) {
+    return `taxify:period:${biz}:${workflowKey}`;
+  }
+  function loadPeriod(biz, workflowKey) {
+    try { return JSON.parse(localStorage.getItem(periodStorageKey(biz, workflowKey)) || 'null'); }
+    catch (e) { return null; }
+  }
+  function savePeriod(biz, workflowKey, period) {
+    localStorage.setItem(periodStorageKey(biz, workflowKey), JSON.stringify(period));
+  }
+
+  // Builds the query string a downstream report iframe reads to pre-fill
+  // and auto-run its own period filter (see sls-report.js / sawt-report.js /
+  // 2550q.html), so the period chosen in the workflow's 'period' step
+  // cascades into every later step without the user re-picking it.
+  function periodQueryString(state, step) {
+    const p = state.period;
+    if (!p) return '';
+    const params = new URLSearchParams({ ptype: p.ptype, year: p.year });
+    if (p.ptype !== 'annual') params.set('period', p.period);
+    if (step.formParam) params.set('form', step.formParam);
+    return params.toString();
+  }
 
   function mount(container, workflow, biz) {
     const state = {
@@ -43,6 +67,7 @@ const StepEngine = (function () {
       doneCache: {},     // stepKey -> bool (mirrors localStorage)
       bodyEls: {},        // stepKey -> the persistent <div class="tfy-step-body"> for that step
       iframes: {},        // iframeId -> <iframe> (shared across steps that reuse the same report file)
+      period: loadPeriod(biz, workflow.key),
     };
 
     workflow.steps.forEach(s => { state.doneCache[s.key] = isDone(biz, workflow.key, s.key); });
@@ -222,6 +247,12 @@ const StepEngine = (function () {
       mountIframeStep(body, panel, state, step);
     } else if (step.type === 'validate') {
       mountValidateStep(body, panel, state, step);
+    } else if (step.type === 'instruction') {
+      mountInstructionStep(body, panel, state, step);
+    } else if (step.type === 'period') {
+      mountPeriodStep(body, panel, state, step);
+    } else if (step.type === 'payment') {
+      mountPaymentStep(body, panel, state, step);
     }
   }
 
@@ -234,7 +265,12 @@ const StepEngine = (function () {
     footer.className = 'tfy-step-footer';
     body.appendChild(footer);
 
-    const iframe = getOrCreateIframe(state, mountEl, step.iframeId, step.file);
+    let file = step.file;
+    if (step.usesPeriod) {
+      const qs = periodQueryString(state, step);
+      if (qs) file = file + (file.includes('?') ? '&' : '?') + qs;
+    }
+    const iframe = getOrCreateIframe(state, mountEl, step.iframeId, file);
 
     if (step.type === 'review') {
       footer.innerHTML = `<button class="btn btn-primary" id="tfy-continue">Continue →</button>`;
@@ -277,6 +313,8 @@ const StepEngine = (function () {
     const footer = body.querySelector('.tfy-step-footer');
     footer.innerHTML = `
       ${step.bundle ? `<button class="btn btn-success" id="tfy-download-all">⬇ Download all (${step.bundle.length} files)</button>` : ''}
+      ${step.pdfBundle ? `<button class="btn btn-success" id="tfy-download-pdf">⬇ Download working paper (PDF)</button>
+        <span id="tfy-pdf-status" style="font-size:12px;color:#6b7280;margin-left:8px;"></span>` : ''}
       <button class="btn btn-primary" id="tfy-finish" style="margin-left:6px;">Mark workflow complete ✓</button>`;
     if (step.bundle) {
       footer.querySelector('#tfy-download-all').onclick = () => {
@@ -293,7 +331,253 @@ const StepEngine = (function () {
         });
       };
     }
+    if (step.pdfBundle) {
+      footer.querySelector('#tfy-download-pdf').onclick = () => buildWorkingPaperPdf(state, step, footer.querySelector('#tfy-pdf-status'));
+    }
     footer.querySelector('#tfy-finish').onclick = () => setStepDone(root, state, step.key, true);
+  }
+
+  // ── Instruction step: static guidance with a Continue button. ──────────
+  function mountInstructionStep(body, panel, state, step) {
+    const footer = document.createElement('div');
+    body.innerHTML = `<div class="alert alert-warn" style="margin-bottom:12px;">${step.body || ''}</div>`;
+    footer.className = 'tfy-step-footer';
+    body.appendChild(footer);
+    footer.innerHTML = `<button class="btn btn-primary" id="tfy-continue">I've checked this — Continue →</button>`;
+    footer.querySelector('#tfy-continue').onclick = () => {
+      const root = panel.closest('.tfy-step-wrap').parentElement;
+      setStepDone(root, state, step.key, true);
+    };
+  }
+
+  // ── Period step: monthly/quarterly + month-or-quarter + year picker. ───
+  // The chosen value is stored on state.period and persisted per (biz,
+  // workflow), and picked up by any later step with usesPeriod:true via
+  // periodQueryString() to pre-fill and auto-run that step's own report.
+  function mountPeriodStep(body, panel, state, step) {
+    const now = new Date();
+    const curQ = Math.ceil((now.getMonth() + 1) / 3);
+    const curY = now.getFullYear();
+    const years = [curY - 2, curY - 1, curY, curY + 1];
+    const saved = state.period || { ptype: 'quarterly', period: curQ, year: curY };
+
+    body.innerHTML = `
+      <div class="filter-bar">
+        <label>Period type</label>
+        <select id="tfy-ptype">
+          <option value="quarterly"${saved.ptype === 'quarterly' ? ' selected' : ''}>Quarterly</option>
+          <option value="monthly"${saved.ptype === 'monthly' ? ' selected' : ''}>Monthly</option>
+        </select>
+        <span id="tfy-qwrap" style="${saved.ptype === 'monthly' ? 'display:none;' : ''}">
+          <label>Quarter</label>
+          <select id="tfy-quarter">
+            ${[1,2,3,4].map(q => `<option value="${q}"${q === saved.period && saved.ptype === 'quarterly' ? ' selected' : ''}>Q${q}</option>`).join('')}
+          </select>
+        </span>
+        <span id="tfy-mwrap" style="${saved.ptype === 'quarterly' ? 'display:none;' : ''}">
+          <label>Month</label>
+          <select id="tfy-month">
+            ${[0,1,2,3,4,5,6,7,8,9,10,11].map(m => `<option value="${m}"${m === saved.period && saved.ptype === 'monthly' ? ' selected' : ''}>${monthName(m)}</option>`).join('')}
+          </select>
+        </span>
+        <label>Year</label>
+        <select id="tfy-year">
+          ${years.map(y => `<option value="${y}"${y === saved.year ? ' selected' : ''}>${y}</option>`).join('')}
+        </select>
+      </div>
+      <div class="tfy-step-footer">
+        <button class="btn btn-primary" id="tfy-continue">Use this period →</button>
+      </div>`;
+
+    body.querySelector('#tfy-ptype').addEventListener('change', function () {
+      const isM = this.value === 'monthly';
+      body.querySelector('#tfy-qwrap').style.display = isM ? 'none' : '';
+      body.querySelector('#tfy-mwrap').style.display = isM ? '' : 'none';
+    });
+
+    body.querySelector('#tfy-continue').onclick = () => {
+      const ptype = body.querySelector('#tfy-ptype').value;
+      const period = parseInt(body.querySelector(ptype === 'monthly' ? '#tfy-month' : '#tfy-quarter').value, 10);
+      const year = parseInt(body.querySelector('#tfy-year').value, 10);
+      state.period = { ptype, period, year };
+      savePeriod(state.biz, state.workflow.key, state.period);
+      const root = panel.closest('.tfy-step-wrap').parentElement;
+      setStepDone(root, state, step.key, true);
+    };
+  }
+
+  // ── Payment step: posts the VAT due/carryover into Manager. ────────────
+  // Reads the net VAT figures the 2550Q step already computed (window._v
+  // inside that iframe — i37 = output tax for the quarter, i61 = net VAT
+  // payable after credits; i61 > 0 means cash is due, i61 <= 0 means the
+  // balance carries over as input tax credit). Posts a Payment (clearing the
+  // output/input tax accounts, cash out of the chosen bank/cash account) when
+  // i61 > 0, or a Journal Entry (clearing output/input tax into a carryover
+  // asset account) when i61 <= 0.
+  function mountPaymentStep(body, panel, state, step) {
+    const root = panel.closest('.tfy-step-wrap').parentElement;
+    body.innerHTML = `<div class="spinner-wrap"><div class="spinner"></div><span>Reading VAT return totals…</span></div>`;
+
+    const sourceStep = state.workflow.steps.find(s => s.key === step.sourceStepKey);
+    const sourceIframe = sourceStep && state.iframes[sourceStep.iframeId];
+    const win = sourceIframe && sourceIframe.contentWindow;
+    const v = win && win._v;
+
+    if (!v || v.i37 == null || v.i60 == null) {
+      body.innerHTML = `<div class="alert alert-warn">⚠️ Open and generate the 2550Q step first so this step can read the computed VAT totals.</div>`;
+      return;
+    }
+
+    // i37 = output tax for the quarter. i60 = total available input tax
+    // credit (this quarter + carried-over). i20/i25 = CWT and other credits
+    // applied against VAT due (Schedule 3 / SAWT). Any unused input tax
+    // simply stays in the Input Tax asset account as next quarter's
+    // carryover — no entry is needed for it.
+    const outputTax = v.i37;
+    const inputUsed = Math.min(v.i60, outputTax);
+    const remainingAfterInput = Math.max(outputTax - inputUsed, 0);
+    const cwtPool = (v.i20 || 0) + (v.i25 || 0);
+    const cwtUsed = Math.min(cwtPool, remainingAfterInput);
+    const netCash = outputTax - inputUsed - cwtUsed;
+    const isPayable = netCash > 0.005;
+
+    Promise.all([
+      fetchAllBatch('/api4/bank-or-cash-account-batch', state.biz).catch(() => []),
+      fetchAllBatch('/api4/balance-sheet-account-batch', state.biz).catch(() => []),
+    ]).then(([bankAccts, bsAccts]) => {
+      const acctOpts = list => list.map(a => `<option value="${a.key}">${escHtml(a.name)}</option>`).join('');
+      body.innerHTML = `
+        <div class="alert ${isPayable ? 'alert-warn' : 'alert-success'}" style="margin-bottom:10px;">
+          Output VAT: <strong>${fmtMoney(outputTax)}</strong> &nbsp;|&nbsp;
+          Input tax applied: <strong>${fmtMoney(inputUsed)}</strong> &nbsp;|&nbsp;
+          CWT/other credits applied: <strong>${fmtMoney(cwtUsed)}</strong> &nbsp;|&nbsp;
+          ${isPayable ? `Net VAT payable: <strong>${fmtMoney(netCash)}</strong>` : `No cash due this quarter.`}
+        </div>
+        <div class="filter-bar" style="flex-wrap:wrap;">
+          <label>Output Tax (Payable) account</label>
+          <select id="tfy-acct-output">${acctOpts(bsAccts)}</select>
+        </div>
+        <div class="filter-bar" style="flex-wrap:wrap;margin-top:6px;">
+          <label>Prepaid Tax Asset — Input Tax account</label>
+          <select id="tfy-acct-input">${acctOpts(bsAccts)}</select>
+        </div>
+        <div class="filter-bar" style="flex-wrap:wrap;margin-top:6px;">
+          <label>Prepaid Tax Asset — Creditable WV account</label>
+          <select id="tfy-acct-cwt">${acctOpts(bsAccts)}</select>
+        </div>
+        ${isPayable ? `
+        <div class="filter-bar" style="flex-wrap:wrap;margin-top:6px;">
+          <label>Pay from (Bank/Cash)</label>
+          <select id="tfy-acct-bank">${acctOpts(bankAccts)}</select>
+        </div>` : ''}
+        <div class="tfy-step-footer">
+          <button class="btn btn-primary" id="tfy-post">${isPayable ? 'Record VAT payment' : 'Record VAT closing entry'}</button>
+          <span id="tfy-post-status" style="font-size:12px;color:#6b7280;margin-left:8px;"></span>
+        </div>`;
+
+      body.querySelector('#tfy-post').onclick = async () => {
+        const statusEl = body.querySelector('#tfy-post-status');
+        statusEl.textContent = 'Posting…';
+        try {
+          const outputAcct = body.querySelector('#tfy-acct-output').value;
+          const inputAcct = body.querySelector('#tfy-acct-input').value;
+          const cwtAcct = body.querySelector('#tfy-acct-cwt').value;
+          const today = new Date().toISOString().slice(0, 10);
+          const reference = `VAT ${state.period ? `${state.period.ptype === 'monthly' ? monthName(state.period.period) : 'Q' + state.period.period} ${state.period.year}` : ''}`.trim();
+
+          if (isPayable) {
+            const bankAcct = body.querySelector('#tfy-acct-bank').value;
+            const lines = [{ account: outputAcct, lineDescription: 'Clear Output VAT', amount: outputTax }];
+            if (inputUsed > 0.005) lines.push({ account: inputAcct, lineDescription: 'Apply Input Tax', amount: -inputUsed });
+            if (cwtUsed > 0.005) lines.push({ account: cwtAcct, lineDescription: 'Apply Creditable WV', amount: -cwtUsed });
+            await apiRequest('PUT', '/api4/payment', {
+              key: crypto.randomUUID(),
+              value: { date: today, reference, paidFrom: bankAcct, description: `VAT payment — ${reference}`, lines },
+            });
+          } else {
+            const lines = [{ account: outputAcct, debit: outputTax, credit: 0 }];
+            if (inputUsed > 0.005) lines.push({ account: inputAcct, debit: 0, credit: inputUsed });
+            if (cwtUsed > 0.005) lines.push({ account: cwtAcct, debit: 0, credit: cwtUsed });
+            await apiRequest('PUT', '/api4/journal-entry', {
+              key: crypto.randomUUID(),
+              value: { date: today, reference, narration: `VAT close — ${reference}`, lines },
+            });
+          }
+          statusEl.textContent = '✅ Posted.';
+          setStepDone(root, state, step.key, true);
+        } catch (e) {
+          statusEl.textContent = `❌ ${e.message}`;
+        }
+      };
+    });
+  }
+
+  function fmtMoney(n) {
+    return (n < 0 ? '-' : '') + '₱' + Math.abs(n).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+
+  // ── PDF working paper: merges a cover sheet + each bundled iframe's
+  // visible content into one downloadable PDF, client-side. ──────────────
+  function loadScriptOnce(src) {
+    if (document.querySelector(`script[data-tfy-src="${src}"]`)) return Promise.resolve();
+    return new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = src;
+      s.dataset.tfySrc = src;
+      s.onload = resolve;
+      s.onerror = () => reject(new Error('Failed to load ' + src));
+      document.head.appendChild(s);
+    });
+  }
+
+  async function buildWorkingPaperPdf(state, step, statusEl) {
+    if (statusEl) statusEl.textContent = 'Preparing PDF…';
+    try {
+      await loadScriptOnce('https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js');
+      await loadScriptOnce('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js');
+      const { jsPDF } = window.jspdf;
+      const pdf = new jsPDF({ unit: 'pt', format: 'a4' });
+      const pageW = pdf.internal.pageSize.getWidth();
+      const pageH = pdf.internal.pageSize.getHeight();
+
+      const cover = document.createElement('div');
+      cover.style.cssText = `width:595pt;padding:60pt;font-family:Arial,sans-serif;background:#fff;color:#000;`;
+      cover.innerHTML = `
+        <h1 style="font-size:22pt;">VAT Quarterly Filing — Working Paper</h1>
+        <p style="font-size:12pt;">Business: <strong>${escHtml(state.biz)}</strong></p>
+        <p style="font-size:12pt;">Period: <strong>${state.period ? (state.period.ptype === 'monthly' ? monthName(state.period.period) : 'Q' + state.period.period) + ' ' + state.period.year : '—'}</strong></p>
+        <p style="font-size:12pt;">Prepared: <strong>${new Date().toLocaleString()}</strong></p>
+        <p style="font-size:11pt;margin-top:24pt;">Contents: Cover Sheet, BIR Form 2550Q, SLS, SLP, SAWT.</p>`;
+      document.body.appendChild(cover);
+      let first = true;
+      try {
+        await addCanvasPage(pdf, cover, pageW, pageH, first); first = false;
+      } finally {
+        cover.remove();
+      }
+
+      for (const targetStepKey of step.pdfBundle) {
+        const targetStep = state.workflow.steps.find(s => s.key === targetStepKey);
+        const targetIframe = targetStep && state.iframes[targetStep.iframeId];
+        const doc = targetIframe && targetIframe.contentDocument;
+        if (!doc || !doc.body) continue;
+        await addCanvasPage(pdf, doc.body, pageW, pageH, first);
+        first = false;
+      }
+
+      pdf.save(`VAT-working-paper-${state.biz}-${state.period ? state.period.year : ''}.pdf`);
+      if (statusEl) statusEl.textContent = '✅ PDF downloaded.';
+    } catch (e) {
+      if (statusEl) statusEl.textContent = `❌ ${e.message}`;
+    }
+  }
+
+  async function addCanvasPage(pdf, el, pageW, pageH, isFirst) {
+    const canvas = await window.html2canvas(el, { scale: 1.5, useCORS: true });
+    const imgW = pageW;
+    const imgH = canvas.height * imgW / canvas.width;
+    if (!isFirst) pdf.addPage();
+    pdf.addImage(canvas.toDataURL('image/jpeg', 0.92), 'JPEG', 0, 0, imgW, Math.min(imgH, pageH));
   }
 
   function mountValidateStep(body, panel, state, step) {

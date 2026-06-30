@@ -115,6 +115,25 @@ async function initSAWTReport() {
 
   document.getElementById('sawt-gen').addEventListener('click', () => generateSAWT(biz, setup, outputEl));
 
+  // Pre-fill from URL query params (?form=&ptype=&period=&year=) when embedded
+  // by a workflow step that already collected the form/period, and auto-run.
+  const qs = new URLSearchParams(location.search);
+  const qForm = qs.get('form');
+  if (qForm) document.getElementById('sawt-form').value = qForm;
+  const qPtype = qs.get('ptype');
+  if (qPtype) {
+    document.getElementById('sawt-ptype').value = qPtype;
+    syncPeriodWidgets();
+    const qYear = qs.get('year');
+    if (qYear) document.getElementById('sawt-year').value = qYear;
+    const qPeriod = qs.get('period');
+    if (qPeriod != null) {
+      if (qPtype === 'monthly') document.getElementById('sawt-month').value = qPeriod;
+      else if (qPtype === 'quarterly') document.getElementById('sawt-quarter').value = qPeriod;
+    }
+    document.getElementById('sawt-gen').click();
+  }
+
   // Customers quick-edit tab — mirrors QAP's Suppliers tab
   let customerController = null;
   document.getElementById('sawt-tabs')?.addEventListener('click', e => {

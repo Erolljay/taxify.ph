@@ -79,6 +79,24 @@ async function initSLReport(type) {
 
   document.getElementById('sl-gen').addEventListener('click', () => generateSL(type, biz, setup, outputEl));
 
+  // Pre-fill the period from URL query params (?ptype=&period=&year=) when the
+  // page is embedded by a workflow step that already collected the period, and
+  // auto-run the report so the embedding step doesn't need a second click.
+  const qs = new URLSearchParams(location.search);
+  const qPtype = qs.get('ptype');
+  if (qPtype) {
+    document.getElementById('sl-ptype').value = qPtype;
+    document.getElementById('sl-ptype').dispatchEvent(new Event('change'));
+    const qYear = qs.get('year');
+    if (qYear) document.getElementById('sl-year').value = qYear;
+    const qPeriod = qs.get('period');
+    if (qPeriod != null) {
+      if (qPtype === 'monthly') document.getElementById('sl-month').value = qPeriod;
+      else if (qPtype === 'quarterly') document.getElementById('sl-quarter').value = qPeriod;
+    }
+    document.getElementById('sl-gen').click();
+  }
+
   // Customers/Suppliers quick-edit tab
   const partyType = isSLS ? 'customer' : 'supplier';
   const partyTab  = isSLS ? 'customers' : 'suppliers';
