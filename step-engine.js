@@ -711,12 +711,12 @@ const StepEngine = (function () {
       await loadScriptOnce('https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js');
       await loadScriptOnce('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js');
       const { jsPDF } = window.jspdf;
-      const pdf = new jsPDF({ unit: 'pt', format: 'a4' });
+      const pdf = new jsPDF({ unit: 'pt', format: 'a4', orientation: 'landscape' });
       const pageW = pdf.internal.pageSize.getWidth();
       const pageH = pdf.internal.pageSize.getHeight();
 
       const cover = document.createElement('div');
-      cover.style.cssText = `width:595pt;padding:60pt;font-family:Arial,sans-serif;background:#fff;color:#000;`;
+      cover.style.cssText = `width:842pt;padding:60pt;font-family:Arial,sans-serif;background:#fff;color:#000;`;
       cover.innerHTML = `
         <h1 style="font-size:22pt;">VAT Quarterly Filing — Working Paper</h1>
         <p style="font-size:12pt;">Business: <strong>${escHtml(state.biz)}</strong></p>
