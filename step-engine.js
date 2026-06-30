@@ -726,7 +726,7 @@ const StepEngine = (function () {
       document.body.appendChild(cover);
       let first = true;
       try {
-        await addCanvasPage(pdf, cover, pageW, pageH, first); first = false;
+        first = await addCanvasPages(pdf, cover, pageW, pageH, first);
       } finally {
         cover.remove();
       }
@@ -761,11 +761,20 @@ const StepEngine = (function () {
         const bodyEl = state.bodyEls[targetStepKey];
         const prevDisplay = bodyEl ? bodyEl.style.display : null;
         if (bodyEl) bodyEl.style.display = '';
+
+        // Match what the report's own "Print / PDF" button would produce:
+        // hide its on-screen-only chrome (filter bars, tab buttons, etc. —
+        // every report already marks these with class="no-print" for
+        // window.print()) instead of screenshotting the live app UI.
+        const hiddenEls = Array.from(doc.querySelectorAll('.no-print'))
+          .map(el => ({ el, prev: el.style.display }));
+        hiddenEls.forEach(({ el }) => { el.style.display = 'none'; });
+
         try {
           if (!doc.body.offsetWidth || !doc.body.offsetHeight) continue;
-          await addCanvasPage(pdf, doc.body, pageW, pageH, first);
-          first = false;
+          first = await addCanvasPages(pdf, doc.body, pageW, pageH, first);
         } finally {
+          hiddenEls.forEach(({ el, prev }) => { el.style.display = prev; });
           if (bodyEl) bodyEl.style.display = prevDisplay;
         }
       }
@@ -777,13 +786,35 @@ const StepEngine = (function () {
     }
   }
 
-  async function addCanvasPage(pdf, el, pageW, pageH, isFirst) {
-    const canvas = await window.html2canvas(el, { scale: 1.5, useCORS: true });
-    if (!canvas.width || !canvas.height) return; // nothing rendered, skip the page
+  // Renders el at print resolution and splits it across as many A4 pages as
+  // its content actually needs — like a real print job — instead of
+  // squeezing everything into one shrunk, cropped screenshot. Returns the
+  // updated `isFirst` flag for the caller's next element.
+  async function addCanvasPages(pdf, el, pageW, pageH, isFirst) {
+    const canvas = await window.html2canvas(el, { scale: 2, useCORS: true, backgroundColor: '#ffffff' });
+    if (!canvas.width || !canvas.height) return isFirst; // nothing rendered, skip
     const imgW = pageW;
-    const imgH = canvas.height * imgW / canvas.width;
-    if (!isFirst) pdf.addPage();
-    pdf.addImage(canvas.toDataURL('image/jpeg', 0.92), 'JPEG', 0, 0, imgW, Math.min(imgH, pageH));
+    const pxPerPt = canvas.width / pageW; // canvas pixels per PDF pt at this scale
+    const pageHpx = pageH * pxPerPt;
+    const totalPages = Math.max(1, Math.ceil(canvas.height / pageHpx));
+
+    for (let p = 0; p < totalPages; p++) {
+      const sliceTopPx = p * pageHpx;
+      const sliceHpx = Math.min(pageHpx, canvas.height - sliceTopPx);
+      const sliceCanvas = document.createElement('canvas');
+      sliceCanvas.width = canvas.width;
+      sliceCanvas.height = sliceHpx;
+      const ctx = sliceCanvas.getContext('2d');
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, sliceCanvas.width, sliceCanvas.height);
+      ctx.drawImage(canvas, 0, sliceTopPx, canvas.width, sliceHpx, 0, 0, canvas.width, sliceHpx);
+
+      if (!isFirst) pdf.addPage();
+      isFirst = false;
+      const sliceHpt = sliceHpx / pxPerPt;
+      pdf.addImage(sliceCanvas.toDataURL('image/jpeg', 0.95), 'JPEG', 0, 0, imgW, sliceHpt);
+    }
+    return isFirst;
   }
 
   function mountValidateStep(body, panel, state, step) {
