@@ -27,7 +27,12 @@ async function apiRequest(method, path, body = null) {
     window.addEventListener('message', handler);
     const msg = { type: 'api-request', method, path, requestId };
     if (body) msg.body = body;
-    window.parent.postMessage(msg, '*');
+    // Use window.top, not window.parent: when this page is embedded as a
+    // nested iframe (e.g. a report opened inside the step-engine workflow,
+    // itself inside taxify.html, itself inside Manager), window.parent is
+    // just the wizard page, which doesn't relay this bridge — window.top is
+    // always Manager regardless of nesting depth.
+    window.top.postMessage(msg, '*');
   });
 }
 
@@ -89,11 +94,21 @@ function getPageContextBusiness() {
       }
     }
     window.addEventListener('message', handler);
-    window.parent.postMessage({ type: 'page-request', requestId }, '*');
+    window.top.postMessage({ type: 'page-request', requestId }, '*');
   });
 }
 
 async function getReportBusiness(containerEl) {
+  // When embedded inside the Taxify workflow wizard, the business is already
+  // known (the user picked it before entering the workflow) and passed along
+  // as a query param — skip Manager's own page-context lookup and the
+  // multi-business picker entirely in that case.
+  const qBiz = new URLSearchParams(location.search).get('biz');
+  if (qBiz) {
+    App.currentBusiness = qBiz;
+    return qBiz;
+  }
+
   const ctxBiz = await getPageContextBusiness();
   if (ctxBiz) {
     App.currentBusiness = ctxBiz;

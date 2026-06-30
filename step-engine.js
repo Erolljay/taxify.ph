@@ -305,10 +305,15 @@ const StepEngine = (function () {
 
   function mountIframeStepContent(mountEl, footer, body, panel, state, step) {
     let file = step.file;
+    // Always pass the already-known business along — the wizard already has
+    // it from when the user picked a business before entering the workflow,
+    // so the embedded report shouldn't ask again.
+    const params = new URLSearchParams({ biz: state.biz });
     if (step.usesPeriod) {
       const qs = periodQueryString(state, step);
-      if (qs) file = file + (file.includes('?') ? '&' : '?') + qs;
+      if (qs) new URLSearchParams(qs).forEach((v, k) => params.set(k, v));
     }
+    file = file + (file.includes('?') ? '&' : '?') + params.toString();
     const iframe = getOrCreateIframe(state, mountEl, step.iframeId, file);
 
     if (step.type === 'review') {
