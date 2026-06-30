@@ -569,11 +569,13 @@ const StepEngine = (function () {
           CWT/other credits applied: <strong>${fmtMoney(cwtUsed)}</strong> &nbsp;|&nbsp;
           ${isPayable ? `Net VAT payable: <strong>${fmtMoney(netCash)}</strong> (posted as a Payment)` : `No cash due — posted as a Journal Entry.`}
         </div>
-        ${isPayable ? `
         <div class="filter-bar" style="flex-wrap:wrap;margin-bottom:10px;">
+          <label>Date</label>
+          <input type="date" id="tfy-je-date" value="${today}">
+          ${isPayable ? `
           <label>Pay from (Bank/Cash)</label>
-          <select id="tfy-acct-bank">${bankOpts}</select>
-        </div>` : ''}
+          <select id="tfy-acct-bank">${bankOpts}</select>` : ''}
+        </div>
         <table class="tax-codes-table" id="tfy-je-table">
           <thead><tr><th>Account</th><th>Description</th><th style="width:110px;">Debit</th><th style="width:110px;">Credit</th><th style="width:30px;"></th></tr></thead>
           <tbody>${initialRows.map(rowHtml).join('')}</tbody>
@@ -644,6 +646,8 @@ const StepEngine = (function () {
       body.querySelector('#tfy-post').onclick = async () => {
         const statusEl = body.querySelector('#tfy-post-status');
         const rows = readRows();
+        const postDate = body.querySelector('#tfy-je-date').value;
+        if (!postDate) { statusEl.textContent = '❌ Pick a date.'; return; }
         if (!rows.length) { statusEl.textContent = '❌ Add at least one line.'; return; }
         if (rows.some(r => !r.account)) { statusEl.textContent = '❌ Every line needs an account.'; return; }
 
@@ -658,7 +662,7 @@ const StepEngine = (function () {
             }));
             await apiRequest('PUT', '/api4/payment', {
               key: crypto.randomUUID(),
-              value: { date: today, reference, paidFrom: bankAcct, description: `VAT payment — ${reference}`, lines },
+              value: { date: postDate, reference, paidFrom: bankAcct, description: `VAT payment — ${reference}`, lines },
             });
           } else {
             const lines = rows.map(r => ({
@@ -669,7 +673,7 @@ const StepEngine = (function () {
             }));
             await apiRequest('PUT', '/api4/journal-entry', {
               key: crypto.randomUUID(),
-              value: { date: today, reference, narration: `VAT close — ${reference}`, lines },
+              value: { date: postDate, reference, narration: `VAT close — ${reference}`, lines },
             });
           }
           statusEl.textContent = '✅ Posted.';
