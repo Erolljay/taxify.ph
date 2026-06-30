@@ -357,8 +357,6 @@ const StepEngine = (function () {
     const footer = body.querySelector('.tfy-step-footer');
     footer.innerHTML = `
       ${step.bundle ? `<button class="btn btn-success" id="tfy-download-all">⬇ Download all (${step.bundle.length} files)</button>` : ''}
-      ${step.pdfBundle ? `<button class="btn btn-success" id="tfy-download-pdf">⬇ Download working paper (PDF)</button>
-        <span id="tfy-pdf-status" style="font-size:12px;color:#6b7280;margin-left:8px;"></span>` : ''}
       <button class="btn btn-primary" id="tfy-finish" style="margin-left:6px;">Mark workflow complete ✓</button>`;
     if (step.bundle) {
       footer.querySelector('#tfy-download-all').onclick = () => {
@@ -374,9 +372,6 @@ const StepEngine = (function () {
           });
         });
       };
-    }
-    if (step.pdfBundle) {
-      footer.querySelector('#tfy-download-pdf').onclick = () => buildWorkingPaperPdf(state, step, footer.querySelector('#tfy-pdf-status'));
     }
     footer.querySelector('#tfy-finish').onclick = () => setStepDone(root, state, step.key, true);
   }
@@ -689,157 +684,6 @@ const StepEngine = (function () {
 
   function fmtMoney(n) {
     return (n < 0 ? '-' : '') + '₱' + Math.abs(n).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  }
-
-  // ── PDF working paper: merges a cover sheet + each bundled iframe's
-  // visible content into one downloadable PDF, client-side. ──────────────
-  function loadScriptOnce(src) {
-    if (document.querySelector(`script[data-tfy-src="${src}"]`)) return Promise.resolve();
-    return new Promise((resolve, reject) => {
-      const s = document.createElement('script');
-      s.src = src;
-      s.dataset.tfySrc = src;
-      s.onload = resolve;
-      s.onerror = () => reject(new Error('Failed to load ' + src));
-      document.head.appendChild(s);
-    });
-  }
-
-  async function buildWorkingPaperPdf(state, step, statusEl) {
-    if (statusEl) statusEl.textContent = 'Preparing PDF…';
-    try {
-      await loadScriptOnce('https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js');
-      await loadScriptOnce('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js');
-      const { jsPDF } = window.jspdf;
-      const pdf = new jsPDF({ unit: 'pt', format: 'a4', orientation: 'landscape' });
-      const pageW = pdf.internal.pageSize.getWidth();
-      const pageH = pdf.internal.pageSize.getHeight();
-
-      const cover = document.createElement('div');
-      cover.style.cssText = `width:842pt;padding:60pt;font-family:Arial,sans-serif;background:#fff;color:#000;`;
-      cover.innerHTML = `
-        <h1 style="font-size:22pt;">VAT Quarterly Filing — Working Paper</h1>
-        <p style="font-size:12pt;">Business: <strong>${escHtml(state.biz)}</strong></p>
-        <p style="font-size:12pt;">Period: <strong>${state.period ? (state.period.ptype === 'monthly' ? monthName(state.period.period) : 'Q' + state.period.period) + ' ' + state.period.year : '—'}</strong></p>
-        <p style="font-size:12pt;">Prepared: <strong>${new Date().toLocaleString()}</strong></p>
-        <p style="font-size:11pt;margin-top:24pt;">Contents: Cover Sheet, BIR Form 2550Q, SLS, SLP, SAWT.</p>`;
-      document.body.appendChild(cover);
-      let first = true;
-      const skipped = [];
-      try {
-        first = await addCanvasPages(pdf, cover, pageW, pageH, first);
-      } finally {
-        cover.remove();
-      }
-
-      for (const targetStepKey of step.pdfBundle) {
-        const targetStep = state.workflow.steps.find(s => s.key === targetStepKey);
-        if (!targetStep) continue;
-
-        // A bundled step the user never actually opened has no iframe at
-        // all — mountIframeStep only creates it lazily on first show. Force
-        // that mount now so every bundled report ends up in the PDF, not
-        // just whichever ones happened to already be visited.
-        if (!state.iframes[targetStep.iframeId] && state._onShow && state._onShow[targetStepKey]) {
-          state._onShow[targetStepKey]();
-        }
-        const targetIframe = state.iframes[targetStep.iframeId];
-        if (targetIframe && !targetIframe.dataset.tfyLoaded) {
-          await new Promise(resolve => {
-            const done = () => { targetIframe.dataset.tfyLoaded = '1'; resolve(); };
-            if (targetIframe.contentDocument && targetIframe.contentDocument.readyState === 'complete') return done();
-            targetIframe.addEventListener('load', done, { once: true });
-            setTimeout(done, 8000); // don't hang the whole PDF on one slow report
-          });
-        }
-        const doc = targetIframe && targetIframe.contentDocument;
-        if (!doc || !doc.body) continue;
-
-        // Inactive steps' body wrappers are display:none, which collapses
-        // their iframe to zero size — html2canvas would then hand jsPDF a
-        // 0x0 canvas, crashing inside jsPDF's internal scale() call. Force
-        // the wrapper visible (off-screen) just long enough to capture it.
-        const bodyEl = state.bodyEls[targetStepKey];
-        const prevDisplay = bodyEl ? bodyEl.style.display : null;
-        if (bodyEl) bodyEl.style.display = '';
-
-        // Match what the report's own "Print / PDF" button would produce:
-        // hide its on-screen-only chrome (filter bars, tab buttons, etc. —
-        // every report already marks these with class="no-print" for
-        // window.print()) instead of screenshotting the live app UI.
-        const hiddenEls = Array.from(doc.querySelectorAll('.no-print'))
-          .map(el => ({ el, prev: el.style.display }));
-        hiddenEls.forEach(({ el }) => { el.style.display = 'none'; });
-
-        try {
-          if (!doc.body.offsetWidth || !doc.body.offsetHeight) continue;
-          first = await addCanvasPages(pdf, doc.body, pageW, pageH, first);
-        } catch (e) {
-          // Don't let one report's rendering quirk abort the whole export —
-          // note it and keep going so the rest of the working paper still
-          // downloads.
-          skipped.push(targetStep.label || targetStepKey);
-        } finally {
-          hiddenEls.forEach(({ el, prev }) => { el.style.display = prev; });
-          if (bodyEl) bodyEl.style.display = prevDisplay;
-        }
-      }
-
-      pdf.save(`VAT-working-paper-${state.biz}-${state.period ? state.period.year : ''}.pdf`);
-      if (statusEl) statusEl.textContent = skipped.length
-        ? `⚠️ PDF downloaded, but couldn't render: ${skipped.join(', ')}.`
-        : '✅ PDF downloaded.';
-    } catch (e) {
-      if (statusEl) statusEl.textContent = `❌ ${e.message}`;
-    }
-  }
-
-  // Renders el at print resolution and splits it across as many A4 pages as
-  // its content actually needs — like a real print job — instead of
-  // squeezing everything into one shrunk, cropped screenshot. Returns the
-  // updated `isFirst` flag for the caller's next element.
-  async function addCanvasPages(pdf, el, pageW, pageH, isFirst) {
-    const canvas = await window.html2canvas(el, {
-      scale: 2,
-      useCORS: true,
-      backgroundColor: '#ffffff',
-      // html2canvas's CSS parser throws "Error parsing CSS component
-      // value, unexpected EOF" on some browsers' native <select> rendering
-      // (a known html2canvas bug, not our CSS). Selects aren't interactive
-      // in a printed PDF anyway, so swap each one for plain text showing
-      // its selected option before the page is rasterized.
-      onclone: (clonedDoc) => {
-        clonedDoc.querySelectorAll('select').forEach(sel => {
-          const span = clonedDoc.createElement('span');
-          span.textContent = sel.options[sel.selectedIndex] ? sel.options[sel.selectedIndex].text : '';
-          span.style.cssText = sel.getAttribute('style') || '';
-          sel.replaceWith(span);
-        });
-      },
-    });
-    if (!canvas.width || !canvas.height) return isFirst; // nothing rendered, skip
-    const imgW = pageW;
-    const pxPerPt = canvas.width / pageW; // canvas pixels per PDF pt at this scale
-    const pageHpx = pageH * pxPerPt;
-    const totalPages = Math.max(1, Math.ceil(canvas.height / pageHpx));
-
-    for (let p = 0; p < totalPages; p++) {
-      const sliceTopPx = p * pageHpx;
-      const sliceHpx = Math.min(pageHpx, canvas.height - sliceTopPx);
-      const sliceCanvas = document.createElement('canvas');
-      sliceCanvas.width = canvas.width;
-      sliceCanvas.height = sliceHpx;
-      const ctx = sliceCanvas.getContext('2d');
-      ctx.fillStyle = '#ffffff';
-      ctx.fillRect(0, 0, sliceCanvas.width, sliceCanvas.height);
-      ctx.drawImage(canvas, 0, sliceTopPx, canvas.width, sliceHpx, 0, 0, canvas.width, sliceHpx);
-
-      if (!isFirst) pdf.addPage();
-      isFirst = false;
-      const sliceHpt = sliceHpx / pxPerPt;
-      pdf.addImage(sliceCanvas.toDataURL('image/jpeg', 0.95), 'JPEG', 0, 0, imgW, sliceHpt);
-    }
-    return isFirst;
   }
 
   function mountValidateStep(body, panel, state, step) {
