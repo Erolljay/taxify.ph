@@ -482,15 +482,18 @@ const StepEngine = (function () {
   // always find nothing.
   function mountPaymentStep(body, panel, state, step) {
     if (!state._onShow) state._onShow = {};
-    let mounted = false;
+    let posted = false;
     state._onShow[step.key] = () => {
-      if (mounted) return;
-      mounted = true;
-      mountPaymentStepContent(body, panel, state, step);
+      // Re-attempt on every show (not just the first) until either the
+      // source step's VAT totals become readable or the user posts —
+      // the 2550Q iframe is itself lazy-mounted and its computation is
+      // async, so the totals may simply not exist yet on an earlier visit.
+      if (posted) return;
+      mountPaymentStepContent(body, panel, state, step, () => { posted = true; });
     };
   }
 
-  function mountPaymentStepContent(body, panel, state, step) {
+  function mountPaymentStepContent(body, panel, state, step, onPosted) {
     const root = panel.closest('.tfy-step-wrap').parentElement;
     body.innerHTML = `<div class="spinner-wrap"><div class="spinner"></div><span>Reading VAT return totals…</span></div>`;
 
@@ -500,7 +503,7 @@ const StepEngine = (function () {
     const v = win && win._v;
 
     if (!v || v.i37 == null || v.i60 == null) {
-      body.innerHTML = `<div class="alert alert-warn">⚠️ Open and generate the 2550Q step first so this step can read the computed VAT totals.</div>`;
+      body.innerHTML = `<div class="alert alert-warn">⚠️ Open and generate the 2550Q step first so this step can read the computed VAT totals.<br><br>Once you've opened that step and it finishes generating, come back here — this will retry automatically.</div>`;
       return;
     }
 
@@ -663,6 +666,7 @@ const StepEngine = (function () {
             });
           }
           statusEl.textContent = '✅ Posted.';
+          onPosted();
           setStepDone(root, state, step.key, true);
         } catch (e) {
           statusEl.textContent = `❌ ${e.message}`;
