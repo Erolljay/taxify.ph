@@ -458,7 +458,22 @@ const StepEngine = (function () {
   // output/input tax accounts, cash out of the chosen bank/cash account) when
   // i61 > 0, or a Journal Entry (clearing output/input tax into a carryover
   // asset account) when i61 <= 0.
+  // Deferred until the step is actually shown — like the iframe steps, this
+  // is mounted once for every step at workflow-build time, but the 2550Q
+  // step's iframe (which this reads window._v from) is itself only created
+  // lazily when that step is first shown, so reading it eagerly here would
+  // always find nothing.
   function mountPaymentStep(body, panel, state, step) {
+    if (!state._onShow) state._onShow = {};
+    let mounted = false;
+    state._onShow[step.key] = () => {
+      if (mounted) return;
+      mounted = true;
+      mountPaymentStepContent(body, panel, state, step);
+    };
+  }
+
+  function mountPaymentStepContent(body, panel, state, step) {
     const root = panel.closest('.tfy-step-wrap').parentElement;
     body.innerHTML = `<div class="spinner-wrap"><div class="spinner"></div><span>Reading VAT return totals…</span></div>`;
 
