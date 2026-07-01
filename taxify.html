@@ -19,10 +19,8 @@
 
     .tfy-main { flex:1; min-width:0; padding:24px 28px; }
 
-    .tfy-category-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:14px; }
-    .tfy-category-card { display:flex; flex-direction:column; align-items:center; gap:8px; padding:24px 12px; border:1px solid #e5e7eb; border-radius:10px; background:#fff; cursor:pointer; font-size:13px; font-weight:600; color:#1a2f5e; }
-    .tfy-category-card:hover { border-color:#1a2f5e; }
-    .tfy-category-icon { font-size:28px; }
+    .tfy-di-panel { margin-top:14px; }
+    .tfy-di-iframe { width:100%; height:720px; border:1px solid #e5e7eb; border-radius:6px; }
 
     .tfy-step-wrap { display:flex; gap:16px; align-items:flex-start; }
     .tfy-step-rail { width:220px; flex-shrink:0; display:flex; flex-direction:column; gap:4px; }
@@ -88,7 +86,7 @@
   <nav class="tfy-sidenav">
     <div class="tfy-sidenav-biz" id="tfy-biz-name">Detecting business…</div>
     <div class="tfy-sidenav-nav">
-      <button type="button" class="tfy-nav-item active" data-nav="dashboard">Dashboard</button>
+      <button type="button" class="tfy-nav-item active" data-nav="data-intake">📥 Data Intake</button>
       <button type="button" class="tfy-nav-item" data-nav="vat">VAT</button>
       <button type="button" class="tfy-nav-item" data-nav="expanded">Expanded Withholding Tax</button>
       <button type="button" class="tfy-nav-item" data-nav="compensation">Withholding Tax on Compensation</button>
@@ -107,6 +105,18 @@
 
     <!-- ── DEADLINE TRACKER MODE ──────────────────────────────── -->
     <div id="deadlines-mode" hidden></div>
+
+    <!-- ── DATA INTAKE MODE (Batch Upload: Sales / Purchases / Payroll) ── -->
+    <div id="data-intake-mode" hidden>
+      <div class="tabs">
+        <button type="button" class="tab active" data-di-tab="sales">Sales</button>
+        <button type="button" class="tab" data-di-tab="purchases">Purchases</button>
+        <button type="button" class="tab" data-di-tab="payroll">Payroll</button>
+      </div>
+      <div class="tfy-di-panel" data-di-panel="sales"></div>
+      <div class="tfy-di-panel" data-di-panel="purchases" hidden></div>
+      <div class="tfy-di-panel" data-di-panel="payroll" hidden></div>
+    </div>
 
     <!-- ── USER MODE ────────────────────────────────────────────── -->
     <div id="user-mode"></div>

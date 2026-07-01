@@ -1,8 +1,5 @@
 /* ============================================================
    Taxify it! — workflow definitions consumed by StepEngine.
-   Categories are keyed the same way REPORTS[].req is in reports.js, so
-   the User-mode landing screen and these step sequences both read from
-   that single source of truth instead of duplicating report metadata.
 
    VAT is fully fleshed out per spec. The other categories are intentionally
    thin (review the relevant reports, then file) until their own step-by-step
@@ -341,14 +338,3 @@ const WORKFLOWS = {
     ],
   },
 };
-
-// Category cards shown on the User-mode landing screen. `req` matches
-// REPORTS[].req so future filtering by registered tax type can reuse it;
-// `income` groups individual/nonindividual under one card, picked by
-// setup.classification at render time.
-const WORKFLOW_CATEGORIES = [
-  { key: 'vat',           label: 'Value Added Tax',            icon: '🧾', req: 'vat' },
-  { key: 'expanded',      label: 'Expanded Withholding Tax',    icon: '📑', req: 'expanded' },
-  { key: 'compensation',  label: 'Compensation (Payroll)',      icon: '👥', req: 'compensation' },
-  { key: 'income',        label: 'Income Tax',                  icon: '💰', req: 'income' },
-];

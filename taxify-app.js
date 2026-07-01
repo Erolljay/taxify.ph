@@ -14,20 +14,22 @@ let _settingsActivated = false;
 
 function goToNav(key) {
   document.querySelectorAll('.tfy-nav-item').forEach(b => b.classList.toggle('active', b.dataset.nav === key));
-  const isSettings  = key === 'settings';
-  const isDeadlines = key === 'deadlines';
-  document.getElementById('settings-mode').hidden  = !isSettings;
-  document.getElementById('deadlines-mode').hidden = !isDeadlines;
-  document.getElementById('user-mode').hidden       = isSettings || isDeadlines;
+  const isSettings   = key === 'settings';
+  const isDeadlines  = key === 'deadlines';
+  const isDataIntake = key === 'data-intake';
+  document.getElementById('settings-mode').hidden     = !isSettings;
+  document.getElementById('deadlines-mode').hidden    = !isDeadlines;
+  document.getElementById('data-intake-mode').hidden  = !isDataIntake;
+  document.getElementById('user-mode').hidden         = isSettings || isDeadlines || isDataIntake;
 
   if (isSettings) {
     if (!_settingsActivated) { _settingsActivated = true; activateTab('welcome'); }
     return;
   }
-  if (isDeadlines) { renderDeadlineTracker(); return; }
+  if (isDeadlines)  { renderDeadlineTracker(); return; }
+  if (isDataIntake) { renderDataIntake(); return; }
 
-  if (key === 'dashboard') _userActiveCategory = null;
-  else if (key === 'income') _userActiveCategory = workflowKeyForIncomeTax();
+  if (key === 'income') _userActiveCategory = workflowKeyForIncomeTax();
   else _userActiveCategory = key; // vat / expanded / compensation / others
   renderUserMode();
 }
@@ -699,22 +701,7 @@ function workflowKeyForIncomeTax() {
 function renderUserMode() {
   const root = document.getElementById('user-mode');
   if (_userActiveCategory === 'others') { renderOthersScreen(root); return; }
-  if (_userActiveCategory) { renderWorkflowScreen(root, _userActiveCategory); return; }
-  renderCategoryCards(root);
-}
-
-function renderCategoryCards(root) {
-  root.innerHTML = `
-    <div class="tfy-category-grid">
-      ${WORKFLOW_CATEGORIES.map(c => `
-        <button type="button" class="tfy-category-card" data-cat="${escHtml(c.key)}">
-          <span class="tfy-category-icon">${c.icon}</span>
-          <span class="tfy-category-label">${escHtml(c.label)}</span>
-        </button>`).join('')}
-    </div>`;
-  root.querySelectorAll('.tfy-category-card').forEach(btn => {
-    btn.addEventListener('click', () => goToNav(btn.dataset.cat));
-  });
+  renderWorkflowScreen(root, _userActiveCategory);
 }
 
 function renderOthersScreen(root) {
@@ -736,6 +723,46 @@ function renderWorkflowScreen(root, workflowKey) {
   _stepEngineHandle = StepEngine.mount(root.querySelector('#tfy-workflow-mount'), workflow, biz);
 }
 
+// ── DATA INTAKE (Batch Upload: Sales / Purchases / Payroll) ───
+// Each tab embeds the existing standalone batch-import page (already used
+// as an installable Manager placement) in a same-origin iframe, passing the
+// already-known business via ?biz= so it skips Manager's own page-context
+// lookup (see getReportBusiness() in shared.js) — same technique StepEngine
+// uses to embed report pages inside this wizard.
+const DATA_INTAKE_FILES = {
+  sales:     'batch-import-sales.html',
+  purchases: 'batch-import-purchase.html',
+  payroll:   'batch-import-payroll.html',
+};
+const _diIframes = {};
+let _diActiveTab = 'sales';
+
+function renderDataIntake() {
+  showDataIntakeTab(_diActiveTab);
+}
+
+function showDataIntakeTab(tabKey) {
+  _diActiveTab = tabKey;
+  document.querySelectorAll('#data-intake-mode .tab').forEach(t => t.classList.toggle('active', t.dataset.diTab === tabKey));
+  document.querySelectorAll('.tfy-di-panel').forEach(p => { p.hidden = p.dataset.diPanel !== tabKey; });
+  ensureDataIntakeIframe(tabKey);
+}
+
+function ensureDataIntakeIframe(tabKey) {
+  if (_diIframes[tabKey] || !biz) return;
+  const panel = document.querySelector(`.tfy-di-panel[data-di-panel="${tabKey}"]`);
+  if (!panel) return;
+  const iframe = document.createElement('iframe');
+  iframe.className = 'tfy-di-iframe';
+  iframe.src = `${DATA_INTAKE_FILES[tabKey]}?${new URLSearchParams({ biz }).toString()}`;
+  panel.appendChild(iframe);
+  _diIframes[tabKey] = iframe;
+}
+
+document.querySelectorAll('#data-intake-mode .tab').forEach(t => {
+  t.addEventListener('click', () => showDataIntakeTab(t.dataset.diTab));
+});
+
 // ── BOOTSTRAP ────────────────────────────────────────────────
 (async function init() {
   try {
@@ -747,5 +774,5 @@ function renderWorkflowScreen(root, workflowKey) {
   }
   setup = await loadSetup(biz);
   document.getElementById('tfy-biz-name').textContent = biz;
-  goToNav('dashboard');
+  goToNav('data-intake');
 })();
