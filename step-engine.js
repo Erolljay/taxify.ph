@@ -78,7 +78,7 @@ const StepEngine = (function () {
     renderRail(container, state);
     showActiveStep(container, state);
 
-    return {
+    const handle = {
       reset() {
         resetWorkflow(state.biz, workflow.key, workflow.steps);
         workflow.steps.forEach(s => { state.doneCache[s.key] = false; });
@@ -87,6 +87,8 @@ const StepEngine = (function () {
         showActiveStep(container, state);
       },
     };
+    container._tfyHandle = handle;
+    return handle;
   }
 
   function isLocked(state, idx) {
@@ -373,7 +375,55 @@ const StepEngine = (function () {
         });
       };
     }
-    footer.querySelector('#tfy-finish').onclick = () => setStepDone(root, state, step.key, true);
+    footer.querySelector('#tfy-finish').onclick = () => {
+      setStepDone(root, state, step.key, true);
+      showCompletionCelebration(root, state);
+    };
+  }
+
+  function showCompletionCelebration(root, state) {
+    const p = state.period;
+    const periodLabel = p
+      ? (p.ptype === 'monthly' ? monthName(p.period) : p.ptype === 'quarterly' ? `Q${p.period}` : 'Annual') + ' ' + p.year
+      : '';
+    const workflowLabel = state.workflow.label || 'Workflow';
+
+    const overlay = document.createElement('div');
+    overlay.id = 'tfy-completion-overlay';
+    overlay.style.cssText = `
+      position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:9999;
+      display:flex;align-items:center;justify-content:center;`;
+    overlay.innerHTML = `
+      <div style="
+        background:#fff;border-radius:16px;padding:40px 48px;max-width:480px;width:90%;
+        text-align:center;box-shadow:0 20px 60px rgba(0,0,0,0.25);position:relative;">
+        <div style="font-size:56px;line-height:1;margin-bottom:16px;">🎉</div>
+        <h2 style="margin:0 0 6px;font-size:22px;color:#111827;">Filing Complete!</h2>
+        <p style="margin:0 0 4px;font-size:15px;color:#374151;font-weight:600;">
+          ${escHtml(workflowLabel)}${periodLabel ? ` — ${escHtml(periodLabel)}` : ''}
+        </p>
+        <p style="margin:12px 0 24px;font-size:13px;color:#6b7280;line-height:1.6;">
+          Great work! Make sure you have downloaded and compiled all your
+          working papers and DAT files for this filing period before
+          starting a new one.
+        </p>
+        <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;">
+          <button id="tfy-cel-close" class="btn btn-outline" style="min-width:120px;">Close</button>
+          <button id="tfy-cel-restart" class="btn btn-primary" style="min-width:160px;">↺ Start New Period</button>
+        </div>
+      </div>`;
+
+    document.body.appendChild(overlay);
+
+    overlay.querySelector('#tfy-cel-close').onclick = () => overlay.remove();
+    overlay.querySelector('#tfy-cel-restart').onclick = () => {
+      overlay.remove();
+      // Trigger the workflow reset via the handle stored on the container
+      const handle = root._tfyHandle;
+      if (handle && handle.reset) handle.reset();
+    };
+    // Click outside to close
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
   }
 
   // ── Instruction step: static guidance with a Continue button. ──────────
