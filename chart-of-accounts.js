@@ -60,6 +60,7 @@
     return String(s != null ? s : '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   }
   function biz() {
+    if (typeof currentBiz === 'function') return currentBiz();
     var sel = document.getElementById('business');
     return sel ? sel.value : '';
   }
@@ -103,17 +104,7 @@
 
     async function refresh() {
       var business = biz();
-      if (!business) {
-        container.innerHTML = noBusinessMsg();
-        // Businesses may still be loading — retry once they arrive
-        var waited = 0;
-        var poll = setInterval(function() {
-          waited += 200;
-          if (biz()) { clearInterval(poll); refresh(); }
-          else if (waited >= 5000) clearInterval(poll);
-        }, 200);
-        return;
-      }
+      if (!business) { container.innerHTML = noBusinessMsg(); return; }
       container.innerHTML = spinner('Loading chart of accounts...');
       var loadError = '';
       try {
