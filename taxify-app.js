@@ -474,22 +474,17 @@ async function onSaveTcAccount(btn, b) {
 
 // ── DEADLINE TRACKER ───────────────────────────────────────────
 
-const COR_TAX_TYPES = [
-  { form: '0605',   name: 'Registration Fee',                   freq: 'Annual',    color: '#6366f1' },
-  { form: '1601C',  name: 'Withholding Tax on Compensation',    freq: 'Monthly',   color: '#ec4899' },
-  { form: '1601EQ', name: 'Withholding Tax – Expanded (Qtrly)', freq: 'Quarterly', color: '#f59e0b' },
-  { form: '1604C',  name: 'Withholding Tax on Compensation',    freq: 'Annual',    color: '#ec4899' },
-  { form: '1604E',  name: 'Withholding Tax – Expanded (Annual)',freq: 'Annual',    color: '#f59e0b' },
-  { form: '0619E',  name: 'Withholding Tax – Expanded (Monthly)',freq: 'Monthly',  color: '#f59e0b' },
-  { form: '1702',   name: 'Corporate Income Tax',               freq: 'Annual',    color: '#1a2f5e' },
-  { form: '1702Q',  name: 'Corporate Income Tax (Quarterly)',   freq: 'Quarterly', color: '#1a2f5e' },
-  { form: '2550Q',  name: 'Value Added Tax',                    freq: 'Quarterly', color: '#10b981' },
-  { form: '2000',   name: 'Documentary Stamp Tax',              freq: 'Per transaction', color: '#6b7280' },
-];
-
-function dtkLastDayOfMonth(year, month) { // month 1-12
-  return new Date(year, month, 0).getDate();
-}
+// Maps each BIR form to the sidenav workflow key it belongs to
+const DTK_FORM_NAV = {
+  '0619E':  'expanded',
+  '1601EQ': 'expanded',
+  '1604E':  'expanded',
+  '1601C':  'compensation',
+  '1604C':  'compensation',
+  '1702':   'income',
+  '1702Q':  'income',
+  '2550Q':  'vat',
+};
 
 function dtkDate(y, m, d) {
   return new Date(y, m - 1, d);
@@ -499,22 +494,18 @@ function dtkComputeDeadlines(refDate) {
   const y = refDate.getFullYear();
   const deadlines = [];
 
-  // Helper to push for multiple years if needed
-  const push = (form, name, freq, date, label) => {
-    deadlines.push({ form, name, freq, date, label });
+  const push = (form, name, freq, date) => {
+    deadlines.push({ form, name, freq, date, navKey: DTK_FORM_NAV[form] || null });
   };
 
-  // 0605 — Annual, Jan 31
-  for (const yr of [y - 1, y, y + 1]) push('0605', 'Registration Fee', 'Annual', dtkDate(yr, 1, 31), `Jan 31, ${yr}`);
-
   // 1604C — Annual, Jan 31
-  for (const yr of [y - 1, y, y + 1]) push('1604C', 'Withholding Tax on Compensation', 'Annual', dtkDate(yr, 1, 31), `Jan 31, ${yr} (for ${yr-1})`);
+  for (const yr of [y - 1, y, y + 1]) push('1604C', 'Withholding Tax on Compensation', `Annual (for ${yr-1})`, dtkDate(yr, 1, 31));
 
   // 1604E — Annual, March 1
-  for (const yr of [y - 1, y, y + 1]) push('1604E', 'Withholding Tax – Expanded', 'Annual', dtkDate(yr, 3, 1), `Mar 1, ${yr} (for ${yr-1})`);
+  for (const yr of [y - 1, y, y + 1]) push('1604E', 'Withholding Tax – Expanded', `Annual (for ${yr-1})`, dtkDate(yr, 3, 1));
 
-  // 1702 — Annual, April 15 (fiscal year = calendar year)
-  for (const yr of [y - 1, y, y + 1]) push('1702', 'Corporate Income Tax', 'Annual', dtkDate(yr, 4, 15), `Apr 15, ${yr} (for ${yr-1})`);
+  // 1702 — Annual, April 15
+  for (const yr of [y - 1, y, y + 1]) push('1702', 'Corporate Income Tax', `Annual (for ${yr-1})`, dtkDate(yr, 4, 15));
 
   // Monthly: 1601C and 0619E — 10th of following month; December = Jan 15
   const monthlyForms = [
@@ -528,13 +519,12 @@ function dtkComputeDeadlines(refDate) {
         if (m === 12) { dueY = yr + 1; dueM = 1; dueD = 15; }
         else { dueM = m + 1; dueD = 10; }
         const monthName = new Date(yr, m - 1, 1).toLocaleString('default', { month: 'short' });
-        push(mf.form, mf.name, `Monthly (${monthName} ${yr})`, dtkDate(dueY, dueM, dueD), `${dueM < 10 ? '0'+dueM : dueM}/${dueD < 10 ? '0'+dueD : dueD}/${dueY}`);
+        push(mf.form, mf.name, `Monthly – ${monthName} ${yr}`, dtkDate(dueY, dueM, dueD));
       }
     }
   }
 
   // Quarterly: 1601EQ — last day of month following quarter end
-  // Q1=Apr30, Q2=Jul31, Q3=Oct31, Q4=Jan31
   const qtr1601EQ = [
     { q: 'Q1', dueM: 4, dueD: 30 }, { q: 'Q2', dueM: 7, dueD: 31 },
     { q: 'Q3', dueM: 10, dueD: 31 }, { q: 'Q4', dueM: 1, dueD: 31, nextYear: true },
@@ -542,12 +532,11 @@ function dtkComputeDeadlines(refDate) {
   for (const yr of [y - 1, y, y + 1]) {
     for (const q of qtr1601EQ) {
       const dueY = q.nextYear ? yr + 1 : yr;
-      push('1601EQ', 'Withholding Tax – Expanded', `Quarterly (${q.q} ${yr})`, dtkDate(dueY, q.dueM, q.dueD), `${q.q} ${yr}`);
+      push('1601EQ', 'Withholding Tax – Expanded', `Quarterly ${q.q} ${yr}`, dtkDate(dueY, q.dueM, q.dueD));
     }
   }
 
   // Quarterly: 2550Q — 25th day following quarter close
-  // Q1=Apr25, Q2=Jul25, Q3=Oct25, Q4=Jan25
   const qtr2550Q = [
     { q: 'Q1', dueM: 4, dueD: 25 }, { q: 'Q2', dueM: 7, dueD: 25 },
     { q: 'Q3', dueM: 10, dueD: 25 }, { q: 'Q4', dueM: 1, dueD: 25, nextYear: true },
@@ -555,33 +544,37 @@ function dtkComputeDeadlines(refDate) {
   for (const yr of [y - 1, y, y + 1]) {
     for (const q of qtr2550Q) {
       const dueY = q.nextYear ? yr + 1 : yr;
-      push('2550Q', 'Value Added Tax', `Quarterly (${q.q} ${yr})`, dtkDate(dueY, q.dueM, q.dueD), `${q.q} ${yr}`);
+      push('2550Q', 'Value Added Tax', `Quarterly ${q.q} ${yr}`, dtkDate(dueY, q.dueM, q.dueD));
     }
   }
 
-  // Quarterly: 1702Q — 60 days after Q1, Q2, Q3 close (no Q4, that's annual 1702)
-  // Q1 close Mar31 + 60d = May 30; Q2 Jun30 + 60d = Aug 29; Q3 Sep30 + 60d = Nov 29
+  // Quarterly: 1702Q — 60 days after Q1/Q2/Q3 close
   const qtr1702Q = [
     { q: 'Q1', dueM: 5, dueD: 30 }, { q: 'Q2', dueM: 8, dueD: 29 }, { q: 'Q3', dueM: 11, dueD: 29 },
   ];
   for (const yr of [y - 1, y, y + 1]) {
     for (const q of qtr1702Q) {
-      push('1702Q', 'Corporate Income Tax', `Quarterly (${q.q} ${yr})`, dtkDate(yr, q.dueM, q.dueD), `${q.q} ${yr}`);
+      push('1702Q', 'Corporate Income Tax', `Quarterly ${q.q} ${yr}`, dtkDate(yr, q.dueM, q.dueD));
     }
   }
 
-  // Deduplicate and sort
   return deadlines.sort((a, b) => a.date - b.date);
 }
 
-let _dtkFilter = 'upcoming'; // all | overdue | due-soon | upcoming | done
+// Tracks which deadline cards the user has marked as filed / dismissed this session
+const _dtkFiled     = new Set();
+const _dtkDismissed = new Set();
+
+let _dtkFilter = 'upcoming';
+
+function dtkKey(d) { return d.form + '|' + d.date.getTime(); }
 
 function dtkStatus(date, today) {
   const diff = Math.floor((date - today) / 86400000);
   if (diff < 0) return 'overdue';
   if (diff <= 7) return 'due-soon';
   if (diff <= 30) return 'upcoming';
-  return 'done'; // far future = not highlighted
+  return 'done';
 }
 
 function dtkBadgeLabel(status, date, today) {
@@ -602,10 +595,9 @@ function renderDeadlineTracker() {
 
   const allDeadlines = dtkComputeDeadlines(today);
 
-  // Only show within reasonable window: past 30 days to future 120 days
   const windowStart = new Date(today); windowStart.setDate(windowStart.getDate() - 30);
   const windowEnd   = new Date(today); windowEnd.setDate(windowEnd.getDate() + 120);
-  const visible = allDeadlines.filter(d => d.date >= windowStart && d.date <= windowEnd);
+  const visible = allDeadlines.filter(d => d.date >= windowStart && d.date <= windowEnd && !_dtkDismissed.has(dtkKey(d)));
 
   const filterLabels = { all:'All', overdue:'Overdue', 'due-soon':'Due Soon (7d)', upcoming:'Next 30 Days', done:'Future' };
 
@@ -633,17 +625,30 @@ function renderDeadlineTracker() {
     let lastStatus = null;
     filtered.forEach(d => {
       const status = dtkStatus(d.date, today);
+      const key = dtkKey(d);
+      const filed = _dtkFiled.has(key);
       if (status !== lastStatus) {
         const sectionNames = { overdue:'🔴 Overdue', 'due-soon':'🟡 Due Soon (within 7 days)', upcoming:'🔵 Upcoming (within 30 days)', done:'⚪ Further Ahead' };
         if (_dtkFilter === 'all') html += `<div class="dtk-section-label">${sectionNames[status] || ''}</div>`;
         lastStatus = status;
       }
-      const mo = d.date.toLocaleString('default', { month: 'short' }).toUpperCase();
+      const mo  = d.date.toLocaleString('default', { month: 'short' }).toUpperCase();
       const day = d.date.getDate();
       const yr  = d.date.getFullYear();
       const badge = dtkBadgeLabel(status, d.date, today);
+
+      const filedBtn = filed
+        ? `<button class="dtk-action-btn dtk-filed-active" data-key="${escHtml(key)}" title="Click to undo">✓ Already Filed</button>`
+        : `<button class="dtk-action-btn dtk-filed-btn" data-key="${escHtml(key)}">Already Filed</button>`;
+
+      const dismissBtn = `<button class="dtk-action-btn dtk-dismiss-btn" data-key="${escHtml(key)}" title="Remove from list">✕ Remove</button>`;
+
+      const startBtn = d.navKey
+        ? `<button class="dtk-action-btn dtk-start-btn" data-nav="${escHtml(d.navKey)}">Start Filing →</button>`
+        : '';
+
       html += `
-        <div class="dtk-card ${status}">
+        <div class="dtk-card ${status}${filed ? ' dtk-card-filed' : ''}">
           <div class="dtk-date-box">
             <div class="dtk-date-month">${mo}</div>
             <div class="dtk-date-day">${day}</div>
@@ -654,17 +659,31 @@ function renderDeadlineTracker() {
             <div class="dtk-info-name">${escHtml(d.name)}</div>
             <div class="dtk-info-freq">${escHtml(d.freq)}</div>
           </div>
-          <div><span class="dtk-badge ${status}">${escHtml(badge)}</span></div>
+          <div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end;">
+            <span class="dtk-badge ${filed ? 'filed' : status}">${filed ? '✓ Filed' : escHtml(badge)}</span>
+            <div style="display:flex;gap:6px;">${filedBtn}${dismissBtn}${startBtn}</div>
+          </div>
         </div>`;
     });
   }
-
-  html += `<p style="font-size:10px;color:#9ca3af;margin-top:20px;">Deadlines computed from COR (BIR Form 2303) for OLIVE AND VINE INC. · TIN 010-787-014-000 · RDO 074 Iloilo City</p>`;
 
   root.innerHTML = `<div class="dtk-grid">${html}</div>`;
 
   root.querySelectorAll('.dtk-filter-btn').forEach(btn => {
     btn.addEventListener('click', () => { _dtkFilter = btn.dataset.filter; renderDeadlineTracker(); });
+  });
+  root.querySelectorAll('.dtk-filed-btn, .dtk-filed-active').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const k = btn.dataset.key;
+      if (_dtkFiled.has(k)) _dtkFiled.delete(k); else _dtkFiled.add(k);
+      renderDeadlineTracker();
+    });
+  });
+  root.querySelectorAll('.dtk-dismiss-btn').forEach(btn => {
+    btn.addEventListener('click', () => { _dtkDismissed.add(btn.dataset.key); renderDeadlineTracker(); });
+  });
+  root.querySelectorAll('.dtk-start-btn').forEach(btn => {
+    btn.addEventListener('click', () => goToNav(btn.dataset.nav));
   });
 }
 
