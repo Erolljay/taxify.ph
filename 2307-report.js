@@ -62,7 +62,7 @@ async function init2307Report() {
       </select>
       <label id="f2307-month-lbl" style="display:none;">Month</label>
       <select id="f2307-month" style="display:none;">
-        ${[1,2,3,4,5,6,7,8,9,10,11,12].map(m=>`<option value="${m}"${m===curM?' selected':''}>${monthName(m)}</option>`).join('')}
+        ${[1,2,3,4,5,6,7,8,9,10,11,12].map(m=>`<option value="${m}"${m===curM?' selected':''}>${monthName(m-1)}</option>`).join('')}
       </select>
       <label>Year</label>
       <select id="f2307-year">
