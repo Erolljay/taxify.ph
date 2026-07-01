@@ -946,6 +946,19 @@ const StepEngine = (function () {
     const root = panel.closest('.tfy-step-wrap').parentElement;
 
     if (result.ok) {
+      if (step.requireConfirm) {
+        // Passing the automated check only proves the data is *present*, not
+        // that a human looked it over (e.g. an employee could still be
+        // mis-classified MWE/NMWE) — so require an explicit click instead of
+        // auto-advancing like the default validate behavior below.
+        body.innerHTML = `
+          <div class="alert alert-success">✅ ${escHtml(step.passMessage || 'Check passed.')}</div>
+          <div class="tfy-step-footer">
+            <button class="btn btn-primary" id="tfy-confirm">${escHtml(step.confirmLabel || "I've reviewed this — Continue →")}</button>
+          </div>`;
+        body.querySelector('#tfy-confirm').onclick = () => setStepDone(root, state, step.key, true);
+        return;
+      }
       setStepDone(root, state, step.key, true);
       body.innerHTML = `<div class="alert alert-success">✅ ${escHtml(step.passMessage || 'Check passed.')}</div>`;
       return;

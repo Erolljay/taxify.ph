@@ -29,7 +29,6 @@
   <div class="tab-bar no-print" id="c1601-tabs">
     <button class="tab-btn active" data-tab="report">🧾 Report</button>
     <button class="tab-btn" data-tab="taxstatus">👤 Employee Tax Status</button>
-    <button class="tab-btn" data-tab="payslipitems">🗂 Payslip Items</button>
   </div>
   <div id="tab-report" class="tab-panel active">
     <div id="filter-area" class="no-print"></div>
@@ -43,13 +42,6 @@
       <div class="alert alert-info">Loading employees…</div>
     </div>
   </div>
-  <div id="tab-payslipitems" class="tab-panel no-print">
-    <p style="font-size:11px;color:#6b7280;margin-bottom:12px;">
-      Map each Manager payslip item to its BIR reporting category. This mapping drives every payroll-based
-      report (1601-C, 1604-C Alphalist, BIR Form 2316).
-    </p>
-    <div id="payslipitems-host"></div>
-  </div>
 </div>
 <script>const REPORT_ID = "a1b2c3d4-0005-4000-8000-000000000001";</script>
 <script src="shared.js"></script>
@@ -61,7 +53,6 @@
     const biz = await init1601CReport();
     if (biz) {
       try { initEmployeeTaxStatusTab(biz); } catch (e) { console.warn(e); }
-      try { window.CF.mountPayslipItems(document.getElementById('payslipitems-host')).refresh(); } catch (e) { console.warn(e); }
     }
     document.getElementById('c1601-tabs').addEventListener('click', e => {
       const btn = e.target.closest('.tab-btn'); if (!btn) return;

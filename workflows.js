@@ -31,6 +31,30 @@ async function checkPartyTIN(biz, partyType) {
   };
 }
 
+// Every employee needs a Tax Status (MWE/NMWE) before 1601-C, 1604-C
+// Alphalist, and 2316 can be computed correctly — flag anyone still blank.
+async function checkEmployeeTaxStatus(biz) {
+  const [raw, birGuids] = await Promise.all([
+    fetchAllBatch('/api4/employee-batch', biz),
+    ensureBIRFields(biz),
+  ]);
+  const taxStatusFieldId = window.CF && window.CF.EMPLOYEE_FIELDS[5].id;
+  const problems = raw
+    .map(it => {
+      const value = it.item || it.value || {};
+      const cf = parseBIRBlob((value.customFields2 && value.customFields2.strings) || {}, birGuids && birGuids.emp, 'b1r00003-');
+      return { name: value.name || value.Name || it.key, taxStatus: cf[taxStatusFieldId] || '' };
+    })
+    .filter(e => !e.taxStatus)
+    .map(e => e.name);
+  if (!problems.length) return { ok: true };
+  return {
+    ok: false,
+    message: `${problems.length} employee(s) are missing a Tax Status (MWE/NMWE).`,
+    problems,
+  };
+}
+
 const WORKFLOWS = {
 
   vat: {
@@ -235,6 +259,29 @@ const WORKFLOWS = {
     key: 'compensation',
     label: 'Compensation (Payroll)',
     steps: [
+      {
+        key: 'taxstatus-check',
+        type: 'validate',
+        label: 'Confirm employee tax status',
+        help: 'Every employee needs a Tax Status (MWE or NMWE) set before 1601-C, 1604-C Alphalist, and BIR Form 2316 can be filed correctly.',
+        check: (biz) => checkEmployeeTaxStatus(biz),
+        passMessage: "All employees have a Tax Status set. Double-check none were misidentified before continuing.",
+        requireConfirm: true,
+        confirmLabel: "I've reviewed each employee's tax status — Continue →",
+        fixLabel: 'Open Employee Tax Status tab →',
+        fixIframeId: 'payroll',
+        fixFile: findReport('1601c.html').file,
+        fixTabSelector: '[data-tab="taxstatus"]',
+      },
+      {
+        key: 'payslip-items-check',
+        type: 'instruction',
+        label: 'Confirm payslip items are mapped',
+        body: 'Payslip items (earnings, deductions, employer contributions) are configured in ' +
+          '<strong>Settings &rarr; Payslip items</strong>, not here. Before continuing, make sure every ' +
+          'payslip item used this period already has a BIR category — and, for new items, an expense/liability ' +
+          'account — mapped there.',
+      },
       {
         key: 'payroll-review',
         type: 'review',
