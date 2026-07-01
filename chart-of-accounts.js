@@ -12,6 +12,12 @@
    read-only loadChartOfAccounts()/loadAccountGroups() caches from
    pnl-helpers.js. Mapping persisted via getCoaMapping/saveCoaMapping
    (shared.js), which share Manager's 'BIR Mapping Data' field.
+
+   Operating Expenses accounts also get a BIR itemized-deduction
+   sub-category (Schedule 4 / Schedule I), read/written via
+   getDeductionOverrides/saveDeductionOverrides (deduction-helpers.js)
+   — the same store the 1701/1701Q/1702Q/1702RT reports read, so a
+   mapping saved here shows up there automatically.
    ============================================================ */
 
 (function () {
@@ -62,7 +68,8 @@
   function biz() {
     if (typeof currentBiz === 'function') return currentBiz();
     var sel = document.getElementById('business');
-    return sel ? sel.value : '';
+    if (sel) return sel.value;
+    return (typeof App !== 'undefined' && App.currentBusiness) ? App.currentBusiness : '';
   }
   function noBusinessMsg() {
     return '<p class="muted">Select a business above to build its chart of accounts.</p>';
@@ -101,6 +108,26 @@
     var coa = {};       // accountGuid -> {key,name,group,isProfitAndLossAccount}
     var groups = { pnl: [], bs: [] };
     var coaMap = {};    // accountGuid -> 'acct-bir-<category>'
+    var deductionOverrides = {}; // accountGuid -> DEDUCTION_SCHEDULE key (Operating Expenses only)
+
+    // Same override store the 1701/1701Q/1702Q/1702RT itemized-deduction
+    // schedules read via getDeductionOverrides() in deduction-helpers.js —
+    // setting it here means the report screens pick it up automatically
+    // instead of falling back to keyword auto-matching.
+    function deductionCatFor(guid, name) {
+      if (typeof autoMatchDeductionCategory !== 'function') return null;
+      return deductionOverrides[guid] || autoMatchDeductionCategory(name);
+    }
+
+    function deductionSelectHtml(guid, name) {
+      if (typeof DEDUCTION_SCHEDULE === 'undefined') return '';
+      var current = deductionCatFor(guid, name);
+      var opts = DEDUCTION_SCHEDULE.map(function (c) {
+        var sel = c.key === current ? ' selected' : '';
+        return '<option value="' + esc(c.key) + '"' + sel + '>' + esc(c.num) + ' – ' + esc(c.label) + '</option>';
+      }).join('');
+      return '<select data-role="deduction" style="width:100%;font-size:12px;">' + opts + '</select>';
+    }
 
     async function refresh() {
       var business = biz();
@@ -128,6 +155,7 @@
         coaMap = {};
         loadError += 'Mapping: ' + err.message + '. ';
       }
+      deductionOverrides = (typeof getDeductionOverrides === 'function') ? getDeductionOverrides(business) : {};
       console.log('[COA] loaded', Object.keys(coa).length, 'accounts;', groups.pnl.length, 'P&L groups;', groups.bs.length, 'balance-sheet groups.');
       render(loadError);
     }
@@ -189,10 +217,14 @@
         var sel = c.id === cat.id ? ' selected' : '';
         return '<option value="' + esc(c.id) + '"' + sel + '>' + esc(c.label) + '</option>';
       }).join('');
+      var deductionCell = cat.id === 'acct-bir-opex'
+        ? '<td style="padding:6px 8px;">' + deductionSelectHtml(acct.key, acct.name) + '</td>'
+        : '';
       return '<tr data-key="' + esc(acct.key) + '" style="border-bottom:.5px solid #f3f4f6;">' +
         '<td style="padding:6px 8px;"><input data-role="name" type="text" value="' + esc(acct.name) + '" style="font-size:12px;width:100%;border:1px solid #e5e7eb;border-radius:4px;padding:3px 6px;" /></td>' +
         '<td style="padding:6px 8px;font-size:12px;color:#6b7280;">' + esc(groupNameFor(acct.group, acct.isProfitAndLossAccount)) + '</td>' +
         '<td style="padding:6px 8px;"><select data-role="cat" style="width:100%;font-size:12px;">' + catOpts + '</select></td>' +
+        deductionCell +
         '<td style="padding:6px 8px;"><button class="btn btn-primary btn-sm" data-action="coa-save-row" style="font-size:11px;">Save</button></td>' +
         '</tr>';
     }
@@ -200,6 +232,9 @@
     // Blank, not-yet-created row appended by "+ Add Account" — saved/created
     // by saveRow() the same pass as existing edits when "Save All" is clicked.
     function newAccountRowHtml(cat) {
+      var deductionCell = cat.id === 'acct-bir-opex'
+        ? '<td style="padding:6px 8px;">' + deductionSelectHtml('', '') + '</td>'
+        : '';
       return '<tr data-new="true" data-cat="' + esc(cat.id) + '" style="border-bottom:.5px solid #f3f4f6;background:#f8fafc;">' +
         '<td style="padding:6px 8px;"><input data-role="name" type="text" placeholder="Account name" style="font-size:12px;width:100%;border:1px solid #e5e7eb;border-radius:4px;padding:3px 6px;" /></td>' +
         '<td style="padding:6px 8px;">' +
@@ -207,6 +242,7 @@
           '<input data-role="newgroupname" type="text" placeholder="New group name" style="font-size:12px;width:100%;border:1px solid #d1d5db;border-radius:4px;padding:3px 6px;margin-top:4px;display:none;" />' +
         '</td>' +
         '<td style="padding:6px 8px;font-size:12px;color:#6b7280;">' + esc(cat.label) + '</td>' +
+        deductionCell +
         '<td style="padding:6px 8px;"><button data-action="coa-remove-row" style="font-size:11px;border:1px solid #d1d5db;border-radius:4px;background:#fff;cursor:pointer;padding:3px 8px;">✕</button></td>' +
         '</tr>';
     }
@@ -231,13 +267,18 @@
         '<button data-action="coa-save-all" data-table="' + tableId + '" style="font-size:11px;padding:3px 12px;border:1px solid #1a56db;border-radius:5px;background:#1a56db;color:#fff;cursor:pointer;">Save All</button>' +
         '</h3>';
       var rows = accts.map(function (a) { return categoryRow(cat, a); }).join('');
-      var emptyMsg = !accts.length ? '<tr><td colspan="4" style="padding:6px 8px;"><span class="muted">No accounts mapped to ' + esc(cat.label.toLowerCase()) + ' yet.</span></td></tr>' : '';
+      var isOpex = cat.id === 'acct-bir-opex';
+      var colspan = isOpex ? 5 : 4;
+      var deductionHeader = isOpex ? '<th style="text-align:left;padding:5px 8px;font-weight:500;">Itemized Deduction</th>' : '';
+      var emptyMsg = !accts.length ? '<tr><td colspan="' + colspan + '" style="padding:6px 8px;"><span class="muted">No accounts mapped to ' + esc(cat.label.toLowerCase()) + ' yet.</span></td></tr>' : '';
       return heading +
+        (isOpex ? '<p style="font-size:11px;color:#6b7280;margin:0 0 6px;">Each expense account also gets an <strong>Itemized Deduction</strong> category (BIR Schedule 4 / Schedule I), so 1701/1701Q/1702Q/1702RT pick it up automatically.</p>' : '') +
         '<div style="overflow-x:auto;margin-bottom:8px;"><table id="' + tableId + '" style="width:100%;border-collapse:collapse;">' +
         '<thead><tr style="font-size:11px;color:#9ca3af;">' +
         '<th style="text-align:left;padding:5px 8px;font-weight:500;">Account</th>' +
         '<th style="text-align:left;padding:5px 8px;font-weight:500;">Group</th>' +
         '<th style="padding:5px 8px;font-weight:500;">BIR Category</th>' +
+        deductionHeader +
         '<th></th></tr></thead><tbody>' + rows + emptyMsg + '</tbody></table></div>';
     }
 
@@ -278,9 +319,12 @@
     // edit, or creates a brand-new account (+ group, if "+ New group..." was
     // picked) for rows added via "+ Add Account". mapDirty lets Save All batch
     // the coaMap write into one call instead of one saveCoaMapping per row.
-    async function saveRow(business, row, mapDirty) {
+    // deductionDirty does the same for the Operating Expenses itemized-
+    // deduction sub-category (only present when the row has a [data-role="deduction"]
+    // select, i.e. it's in the Operating Expenses category table).
+    async function saveRow(business, row, mapDirty, deductionDirty) {
       if (row.dataset.new === 'true') {
-        await createRow(business, row, mapDirty);
+        await createRow(business, row, mapDirty, deductionDirty);
         return;
       }
 
@@ -306,6 +350,9 @@
       } else {
         delete mapDirty[guid];
       }
+
+      var deductionSel = row.querySelector('[data-role="deduction"]');
+      if (deductionSel) deductionDirty[guid] = deductionSel.value;
     }
 
     // Creates a new account (and optionally a new group) for a blank row
@@ -314,7 +361,7 @@
     // Liabilities/Equity/etc. "father" groups, or it silently lands under
     // Equity > Uncategorized -- so a real group selection (or a freshly
     // created one) is mandatory here.
-    async function createRow(business, row, mapDirty) {
+    async function createRow(business, row, mapDirty, deductionDirty) {
       var cat = catById(row.dataset.cat);
       var name = (row.querySelector('[data-role="name"]').value || '').trim();
       var groupSel = row.querySelector('[data-role="newgroup"]');
@@ -360,6 +407,9 @@
 
       invalidateCoaCache(business);
       mapDirty[acctGuid] = cat.id;
+
+      var deductionSel = row.querySelector('[data-role="deduction"]');
+      if (deductionSel) deductionDirty[acctGuid] = deductionSel.value;
     }
 
     async function onSaveRow(e) {
@@ -368,9 +418,11 @@
       var business = biz();
       if (!business) return;
 
+      var deductionDirty = {};
       try {
-        await saveRow(business, row, coaMap);
+        await saveRow(business, row, coaMap, deductionDirty);
         await saveCoaMapping(business, coaMap);
+        persistDeductionDirty(business, deductionDirty);
         flash(btn, true);
         await refresh();
       } catch (err) {
@@ -387,13 +439,15 @@
       if (!business || !table) return;
 
       var rows = table.querySelectorAll('tbody tr');
+      var deductionDirty = {};
       btn.textContent = 'Saving…';
       btn.disabled = true;
       try {
         for (var i = 0; i < rows.length; i++) {
-          await saveRow(business, rows[i], coaMap);
+          await saveRow(business, rows[i], coaMap, deductionDirty);
         }
         await saveCoaMapping(business, coaMap);
+        persistDeductionDirty(business, deductionDirty);
         flash(btn, true);
         await refresh();
       } catch (err) {
@@ -402,6 +456,12 @@
         btn.disabled = false;
         alert(err.message);
       }
+    }
+
+    function persistDeductionDirty(business, deductionDirty) {
+      if (!Object.keys(deductionDirty).length || typeof saveDeductionOverrides !== 'function') return;
+      Object.assign(deductionOverrides, deductionDirty);
+      saveDeductionOverrides(business, deductionOverrides);
     }
 
     function showToastSafe(msg) {
