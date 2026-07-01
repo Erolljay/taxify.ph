@@ -219,6 +219,7 @@ async function generate1601EQ(biz, setup, outputEl) {
     _eqPeriod = { quarter, year, start, end, label: `${quarterLabel(quarter)} ${year}` };
 
     render1601EQ(outputEl, atcRows, detail, setup, _eqPeriod);
+    window._e = { totalEwt: atcRows.reduce((a, r) => a + r.ewt, 0) };
 
     ['eq-excel','eq-dat','eq-print','eq-pdf'].forEach(id => {
       const btn = document.getElementById(id);

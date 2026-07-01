@@ -142,6 +142,7 @@ async function generate0619E(biz, setup, outputEl) {
     const period = { month, year, start, end, label: `${monthName(month)} ${year}` };
 
     render0619E(outputEl, atcRows, detail, setup, period);
+    window._e = { totalEwt: atcRows.reduce((a, r) => a + r.ewt, 0) };
 
     ['me-print','me-pdf'].forEach(id => {
       const btn = document.getElementById(id);
