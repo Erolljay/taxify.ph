@@ -14,14 +14,17 @@ let _settingsActivated = false;
 
 function goToNav(key) {
   document.querySelectorAll('.tfy-nav-item').forEach(b => b.classList.toggle('active', b.dataset.nav === key));
-  const isSettings = key === 'settings';
-  document.getElementById('settings-mode').hidden = !isSettings;
-  document.getElementById('user-mode').hidden = isSettings;
+  const isSettings  = key === 'settings';
+  const isDeadlines = key === 'deadlines';
+  document.getElementById('settings-mode').hidden  = !isSettings;
+  document.getElementById('deadlines-mode').hidden = !isDeadlines;
+  document.getElementById('user-mode').hidden       = isSettings || isDeadlines;
 
   if (isSettings) {
     if (!_settingsActivated) { _settingsActivated = true; activateTab('welcome'); }
     return;
   }
+  if (isDeadlines) { renderDeadlineTracker(); return; }
 
   if (key === 'dashboard') _userActiveCategory = null;
   else if (key === 'income') _userActiveCategory = workflowKeyForIncomeTax();
@@ -467,6 +470,202 @@ async function onSaveTcAccount(btn, b) {
     btn.disabled = false; btn.textContent = 'Save';
     alert('Failed: ' + err.message);
   }
+}
+
+// ── DEADLINE TRACKER ───────────────────────────────────────────
+
+const COR_TAX_TYPES = [
+  { form: '0605',   name: 'Registration Fee',                   freq: 'Annual',    color: '#6366f1' },
+  { form: '1601C',  name: 'Withholding Tax on Compensation',    freq: 'Monthly',   color: '#ec4899' },
+  { form: '1601EQ', name: 'Withholding Tax – Expanded (Qtrly)', freq: 'Quarterly', color: '#f59e0b' },
+  { form: '1604C',  name: 'Withholding Tax on Compensation',    freq: 'Annual',    color: '#ec4899' },
+  { form: '1604E',  name: 'Withholding Tax – Expanded (Annual)',freq: 'Annual',    color: '#f59e0b' },
+  { form: '0619E',  name: 'Withholding Tax – Expanded (Monthly)',freq: 'Monthly',  color: '#f59e0b' },
+  { form: '1702',   name: 'Corporate Income Tax',               freq: 'Annual',    color: '#1a2f5e' },
+  { form: '1702Q',  name: 'Corporate Income Tax (Quarterly)',   freq: 'Quarterly', color: '#1a2f5e' },
+  { form: '2550Q',  name: 'Value Added Tax',                    freq: 'Quarterly', color: '#10b981' },
+  { form: '2000',   name: 'Documentary Stamp Tax',              freq: 'Per transaction', color: '#6b7280' },
+];
+
+function dtkLastDayOfMonth(year, month) { // month 1-12
+  return new Date(year, month, 0).getDate();
+}
+
+function dtkDate(y, m, d) {
+  return new Date(y, m - 1, d);
+}
+
+function dtkComputeDeadlines(refDate) {
+  const y = refDate.getFullYear();
+  const deadlines = [];
+
+  // Helper to push for multiple years if needed
+  const push = (form, name, freq, date, label) => {
+    deadlines.push({ form, name, freq, date, label });
+  };
+
+  // 0605 — Annual, Jan 31
+  for (const yr of [y - 1, y, y + 1]) push('0605', 'Registration Fee', 'Annual', dtkDate(yr, 1, 31), `Jan 31, ${yr}`);
+
+  // 1604C — Annual, Jan 31
+  for (const yr of [y - 1, y, y + 1]) push('1604C', 'Withholding Tax on Compensation', 'Annual', dtkDate(yr, 1, 31), `Jan 31, ${yr} (for ${yr-1})`);
+
+  // 1604E — Annual, March 1
+  for (const yr of [y - 1, y, y + 1]) push('1604E', 'Withholding Tax – Expanded', 'Annual', dtkDate(yr, 3, 1), `Mar 1, ${yr} (for ${yr-1})`);
+
+  // 1702 — Annual, April 15 (fiscal year = calendar year)
+  for (const yr of [y - 1, y, y + 1]) push('1702', 'Corporate Income Tax', 'Annual', dtkDate(yr, 4, 15), `Apr 15, ${yr} (for ${yr-1})`);
+
+  // Monthly: 1601C and 0619E — 10th of following month; December = Jan 15
+  const monthlyForms = [
+    { form: '1601C', name: 'Withholding Tax on Compensation' },
+    { form: '0619E', name: 'Withholding Tax – Expanded' },
+  ];
+  for (const yr of [y - 1, y, y + 1]) {
+    for (let m = 1; m <= 12; m++) {
+      for (const mf of monthlyForms) {
+        let dueY = yr, dueM, dueD;
+        if (m === 12) { dueY = yr + 1; dueM = 1; dueD = 15; }
+        else { dueM = m + 1; dueD = 10; }
+        const monthName = new Date(yr, m - 1, 1).toLocaleString('default', { month: 'short' });
+        push(mf.form, mf.name, `Monthly (${monthName} ${yr})`, dtkDate(dueY, dueM, dueD), `${dueM < 10 ? '0'+dueM : dueM}/${dueD < 10 ? '0'+dueD : dueD}/${dueY}`);
+      }
+    }
+  }
+
+  // Quarterly: 1601EQ — last day of month following quarter end
+  // Q1=Apr30, Q2=Jul31, Q3=Oct31, Q4=Jan31
+  const qtr1601EQ = [
+    { q: 'Q1', dueM: 4, dueD: 30 }, { q: 'Q2', dueM: 7, dueD: 31 },
+    { q: 'Q3', dueM: 10, dueD: 31 }, { q: 'Q4', dueM: 1, dueD: 31, nextYear: true },
+  ];
+  for (const yr of [y - 1, y, y + 1]) {
+    for (const q of qtr1601EQ) {
+      const dueY = q.nextYear ? yr + 1 : yr;
+      push('1601EQ', 'Withholding Tax – Expanded', `Quarterly (${q.q} ${yr})`, dtkDate(dueY, q.dueM, q.dueD), `${q.q} ${yr}`);
+    }
+  }
+
+  // Quarterly: 2550Q — 25th day following quarter close
+  // Q1=Apr25, Q2=Jul25, Q3=Oct25, Q4=Jan25
+  const qtr2550Q = [
+    { q: 'Q1', dueM: 4, dueD: 25 }, { q: 'Q2', dueM: 7, dueD: 25 },
+    { q: 'Q3', dueM: 10, dueD: 25 }, { q: 'Q4', dueM: 1, dueD: 25, nextYear: true },
+  ];
+  for (const yr of [y - 1, y, y + 1]) {
+    for (const q of qtr2550Q) {
+      const dueY = q.nextYear ? yr + 1 : yr;
+      push('2550Q', 'Value Added Tax', `Quarterly (${q.q} ${yr})`, dtkDate(dueY, q.dueM, q.dueD), `${q.q} ${yr}`);
+    }
+  }
+
+  // Quarterly: 1702Q — 60 days after Q1, Q2, Q3 close (no Q4, that's annual 1702)
+  // Q1 close Mar31 + 60d = May 30; Q2 Jun30 + 60d = Aug 29; Q3 Sep30 + 60d = Nov 29
+  const qtr1702Q = [
+    { q: 'Q1', dueM: 5, dueD: 30 }, { q: 'Q2', dueM: 8, dueD: 29 }, { q: 'Q3', dueM: 11, dueD: 29 },
+  ];
+  for (const yr of [y - 1, y, y + 1]) {
+    for (const q of qtr1702Q) {
+      push('1702Q', 'Corporate Income Tax', `Quarterly (${q.q} ${yr})`, dtkDate(yr, q.dueM, q.dueD), `${q.q} ${yr}`);
+    }
+  }
+
+  // Deduplicate and sort
+  return deadlines.sort((a, b) => a.date - b.date);
+}
+
+let _dtkFilter = 'upcoming'; // all | overdue | due-soon | upcoming | done
+
+function dtkStatus(date, today) {
+  const diff = Math.floor((date - today) / 86400000);
+  if (diff < 0) return 'overdue';
+  if (diff <= 7) return 'due-soon';
+  if (diff <= 30) return 'upcoming';
+  return 'done'; // far future = not highlighted
+}
+
+function dtkBadgeLabel(status, date, today) {
+  const diff = Math.floor((date - today) / 86400000);
+  if (status === 'overdue') return `${Math.abs(diff)}d overdue`;
+  if (status === 'due-soon') return diff === 0 ? 'Due TODAY' : `In ${diff}d`;
+  if (status === 'upcoming') return `In ${diff}d`;
+  return 'Upcoming';
+}
+
+function renderDeadlineTracker() {
+  const root = document.getElementById('deadlines-mode');
+  if (!root) return;
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const todayStr = today.toLocaleDateString('en-PH', { weekday:'long', year:'numeric', month:'long', day:'numeric' });
+
+  const allDeadlines = dtkComputeDeadlines(today);
+
+  // Only show within reasonable window: past 30 days to future 120 days
+  const windowStart = new Date(today); windowStart.setDate(windowStart.getDate() - 30);
+  const windowEnd   = new Date(today); windowEnd.setDate(windowEnd.getDate() + 120);
+  const visible = allDeadlines.filter(d => d.date >= windowStart && d.date <= windowEnd);
+
+  const filterLabels = { all:'All', overdue:'Overdue', 'due-soon':'Due Soon (7d)', upcoming:'Next 30 Days', done:'Future' };
+
+  const counts = { all: visible.length, overdue: 0, 'due-soon': 0, upcoming: 0, done: 0 };
+  visible.forEach(d => { const s = dtkStatus(d.date, today); if (counts[s] !== undefined) counts[s]++; });
+
+  let html = `
+    <div class="dtk-header">
+      <div class="dtk-title">📅 Tax Compliance Deadlines</div>
+      <div class="dtk-today">${escHtml(todayStr)}</div>
+    </div>
+    <div class="dtk-filter-bar">
+      ${Object.entries(filterLabels).map(([k, lbl]) =>
+        `<button class="dtk-filter-btn${_dtkFilter === k ? ' active' : ''}" data-filter="${k}">${escHtml(lbl)} <span style="opacity:.7">(${counts[k] ?? 0})</span></button>`
+      ).join('')}
+    </div>`;
+
+  const filtered = _dtkFilter === 'all'
+    ? visible
+    : visible.filter(d => dtkStatus(d.date, today) === _dtkFilter);
+
+  if (!filtered.length) {
+    html += `<div class="dtk-empty">No deadlines in this view.</div>`;
+  } else {
+    let lastStatus = null;
+    filtered.forEach(d => {
+      const status = dtkStatus(d.date, today);
+      if (status !== lastStatus) {
+        const sectionNames = { overdue:'🔴 Overdue', 'due-soon':'🟡 Due Soon (within 7 days)', upcoming:'🔵 Upcoming (within 30 days)', done:'⚪ Further Ahead' };
+        if (_dtkFilter === 'all') html += `<div class="dtk-section-label">${sectionNames[status] || ''}</div>`;
+        lastStatus = status;
+      }
+      const mo = d.date.toLocaleString('default', { month: 'short' }).toUpperCase();
+      const day = d.date.getDate();
+      const yr  = d.date.getFullYear();
+      const badge = dtkBadgeLabel(status, d.date, today);
+      html += `
+        <div class="dtk-card ${status}">
+          <div class="dtk-date-box">
+            <div class="dtk-date-month">${mo}</div>
+            <div class="dtk-date-day">${day}</div>
+            <div class="dtk-date-year">${yr}</div>
+          </div>
+          <div>
+            <div class="dtk-info-form">BIR Form ${escHtml(d.form)}</div>
+            <div class="dtk-info-name">${escHtml(d.name)}</div>
+            <div class="dtk-info-freq">${escHtml(d.freq)}</div>
+          </div>
+          <div><span class="dtk-badge ${status}">${escHtml(badge)}</span></div>
+        </div>`;
+    });
+  }
+
+  html += `<p style="font-size:10px;color:#9ca3af;margin-top:20px;">Deadlines computed from COR (BIR Form 2303) for OLIVE AND VINE INC. · TIN 010-787-014-000 · RDO 074 Iloilo City</p>`;
+
+  root.innerHTML = `<div class="dtk-grid">${html}</div>`;
+
+  root.querySelectorAll('.dtk-filter-btn').forEach(btn => {
+    btn.addEventListener('click', () => { _dtkFilter = btn.dataset.filter; renderDeadlineTracker(); });
+  });
 }
 
 // ── USER MODE: CATEGORY CARDS + STEP ENGINE ────────────────────

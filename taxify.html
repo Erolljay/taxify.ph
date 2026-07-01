@@ -41,6 +41,34 @@
     .tfy-step-footer { margin-top:12px; }
     .tfy-problem-list { font-size:12px; max-height:160px; overflow:auto; margin:8px 0; }
     .spinner-wrap { display:flex; align-items:center; gap:8px; font-size:12px; color:#6b7280; }
+
+    /* ── DEADLINE TRACKER ── */
+    .dtk-header { display:flex; align-items:baseline; justify-content:space-between; margin-bottom:18px; }
+    .dtk-title { font-size:18px; font-weight:700; color:#1a2f5e; }
+    .dtk-today { font-size:12px; color:#6b7280; }
+    .dtk-filter-bar { display:flex; gap:8px; margin-bottom:16px; flex-wrap:wrap; }
+    .dtk-filter-btn { font-size:11px; padding:4px 12px; border:1px solid #d1d5db; border-radius:20px; background:#fff; cursor:pointer; font-weight:500; color:#374151; }
+    .dtk-filter-btn.active { background:#1a2f5e; color:#fff; border-color:#1a2f5e; }
+    .dtk-grid { display:flex; flex-direction:column; gap:8px; }
+    .dtk-card { display:grid; grid-template-columns:80px 1fr auto; align-items:center; gap:12px; padding:12px 16px; border-radius:10px; border:1px solid #e5e7eb; background:#fff; }
+    .dtk-card.overdue { border-left:4px solid #ef4444; background:#fff5f5; }
+    .dtk-card.due-soon { border-left:4px solid #f59e0b; background:#fffbeb; }
+    .dtk-card.upcoming { border-left:4px solid #3b82f6; background:#eff6ff; }
+    .dtk-card.done { border-left:4px solid #10b981; background:#f0fdf4; opacity:.7; }
+    .dtk-date-box { text-align:center; }
+    .dtk-date-month { font-size:10px; text-transform:uppercase; letter-spacing:.05em; color:#6b7280; font-weight:600; }
+    .dtk-date-day { font-size:22px; font-weight:800; color:#1a2f5e; line-height:1; }
+    .dtk-date-year { font-size:10px; color:#9ca3af; }
+    .dtk-info-form { font-size:12px; font-weight:700; color:#1a2f5e; }
+    .dtk-info-name { font-size:12px; color:#374151; }
+    .dtk-info-freq { font-size:10px; color:#9ca3af; margin-top:2px; }
+    .dtk-badge { font-size:10px; font-weight:600; padding:3px 10px; border-radius:20px; white-space:nowrap; }
+    .dtk-badge.overdue { background:#fee2e2; color:#991b1b; }
+    .dtk-badge.due-soon { background:#fef3c7; color:#92400e; }
+    .dtk-badge.upcoming { background:#dbeafe; color:#1e40af; }
+    .dtk-badge.done { background:#d1fae5; color:#065f46; }
+    .dtk-section-label { font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.06em; color:#9ca3af; margin:16px 0 8px; }
+    .dtk-empty { text-align:center; padding:40px; color:#9ca3af; font-size:13px; }
   </style>
 </head>
 <body>
@@ -56,6 +84,7 @@
       <button type="button" class="tfy-nav-item" data-nav="compensation">Withholding Tax on Compensation</button>
       <button type="button" class="tfy-nav-item" data-nav="income">Income Tax</button>
       <button type="button" class="tfy-nav-item" data-nav="others">Others</button>
+      <button type="button" class="tfy-nav-item" data-nav="deadlines">📅 Deadline Tracker</button>
     </div>
     <div class="tfy-sidenav-bottom">
       <button type="button" class="tfy-nav-item" data-nav="settings">⚙️ Settings</button>
@@ -65,6 +94,9 @@
   <main class="tfy-main">
 
     <div id="biz-context-wrap"></div>
+
+    <!-- ── DEADLINE TRACKER MODE ──────────────────────────────── -->
+    <div id="deadlines-mode" hidden></div>
 
     <!-- ── USER MODE ────────────────────────────────────────────── -->
     <div id="user-mode"></div>
