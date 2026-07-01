@@ -141,7 +141,15 @@ function buildReportTable(biz, container) {
   var html = '';
   Object.keys(groups).forEach(function(group) {
     var list = groups[group];
-    html += '<h3 style="margin:18px 0 6px;font-size:12px;font-weight:500;text-transform:uppercase;letter-spacing:.05em;color:#6b7280;border-bottom:.5px solid #e5e7eb;padding-bottom:4px;">'+escHtml(group)+'</h3>';
+    var installable = list.filter(function(r) {
+      return r.available && !_installed.find(function(e){ return (e.value.Endpoint || e.value.endpoint) === reportEndpoint(r); });
+    });
+    var installAllBtn = installable.length > 0
+      ? '<button class="secondary install-all-btn" data-group="'+escHtml(group)+'" style="font-size:11px;padding:3px 10px;">Install All</button>'
+      : '';
+    html += '<div style="display:flex;align-items:center;justify-content:space-between;margin:18px 0 6px;border-bottom:.5px solid #e5e7eb;padding-bottom:4px;">';
+    html += '<h3 style="margin:0;font-size:12px;font-weight:500;text-transform:uppercase;letter-spacing:.05em;color:#6b7280;">'+escHtml(group)+'</h3>';
+    html += installAllBtn + '</div>';
     html += '<table style="width:100%;border-collapse:collapse;margin-bottom:4px;">';
     html += '<thead><tr style="font-size:11px;color:#9ca3af;"><th style="text-align:left;padding:5px 8px;font-weight:500;">Report</th><th style="padding:5px 8px;font-weight:500;text-align:center;">Status</th><th style="padding:5px 8px;font-weight:500;text-align:center;">Action</th></tr></thead><tbody>';
 
@@ -169,6 +177,31 @@ function buildReportTable(biz, container) {
   container.querySelectorAll('button[data-action]').forEach(function(btn){
     btn.addEventListener('click', function(){ onReportAction(btn, biz); });
   });
+  container.querySelectorAll('.install-all-btn').forEach(function(btn){
+    btn.addEventListener('click', function(){ onInstallAllGroup(btn, biz); });
+  });
+}
+
+async function onInstallAllGroup(btn, biz) {
+  var group = btn.dataset.group;
+  btn.disabled = true;
+  btn.textContent = 'Installing…';
+  var toInstall = REPORTS.filter(function(r) {
+    return r.group === group && r.available &&
+      !_installed.find(function(e){ return (e.value.Endpoint || e.value.endpoint) === reportEndpoint(r); });
+  });
+  var failed = 0;
+  for (var i = 0; i < toInstall.length; i++) {
+    var r = toInstall[i];
+    try {
+      await apiRequest('POST', '/api4/extension', {
+        business: biz,
+        value: { Name: r.name, Source: 0, Endpoint: reportEndpoint(r), Placement: 'reports' }
+      });
+    } catch(err) { failed++; }
+  }
+  await renderReportsTab(biz);
+  if (failed) alert(failed + ' report(s) failed to install.');
 }
 
 async function onReportAction(btn, biz) {

@@ -11,7 +11,7 @@ const REPORTS = [
   // ── VALUE ADDED TAX ─────────────────────────────────────────
   {
     id: 'a1b2c3d4-0001-4000-8000-000000000001',
-    name: '2550M – VAT Monthly Declaration',
+    name: 'VT – 2550M VAT Monthly Declaration',
     file: '2550m.html',
     group: 'Value Added Tax',
     req: 'vat',
@@ -20,7 +20,7 @@ const REPORTS = [
   },
   {
     id: 'b2c3d4e5-f6a7-4890-b123-c4d5e6f7a8b9',
-    name: '2550Q – VAT Quarterly Return',
+    name: 'VT – 2550Q VAT Quarterly Return',
     file: '2550q.html',
     group: 'Value Added Tax',
     req: 'vat',
@@ -29,7 +29,7 @@ const REPORTS = [
   },
   {
     id: 'c3d4e5f6-a7b8-4901-c234-d5e6f7a8b9c0',
-    name: 'SLS – Summary List of Sales',
+    name: 'VT – SLS Summary List of Sales',
     file: 'sls.html',
     group: 'Value Added Tax',
     req: 'vat',
@@ -38,7 +38,7 @@ const REPORTS = [
   },
   {
     id: 'd4e5f6a7-b8c9-4012-d345-e6f7a8b9c0d1',
-    name: 'SLP – Summary List of Purchases',
+    name: 'VT – SLP Summary List of Purchases',
     file: 'slp.html',
     group: 'Value Added Tax',
     req: 'vat',
@@ -49,7 +49,7 @@ const REPORTS = [
   // ── PERCENTAGE TAX ───────────────────────────────────────────
   {
     id: 'a1b2c3d4-0002-4000-8000-000000000001',
-    name: '2551Q – Percentage Tax Quarterly',
+    name: 'PT – 2551Q Percentage Tax Quarterly',
     file: '2551q.html',
     group: 'Percentage Tax',
     req: 'pt',
@@ -60,7 +60,7 @@ const REPORTS = [
   // ── EXPANDED WITHHOLDING TAX ─────────────────────────────────
   {
     id: 'a1b2c3d4-0003-4000-8000-000000000001',
-    name: '0619E – EWT Monthly Remittance',
+    name: 'WE – 0619E EWT Monthly Remittance',
     file: '0619e.html',
     group: 'Expanded Withholding Tax',
     req: 'expanded',
@@ -69,7 +69,7 @@ const REPORTS = [
   },
   {
     id: 'a1b2c3d4-0003-4000-8000-000000000002',
-    name: '1601EQ – EWT Quarterly Return',
+    name: 'WE – 1601EQ EWT Quarterly Return',
     file: '1601eq.html',
     group: 'Expanded Withholding Tax',
     req: 'expanded',
@@ -78,7 +78,7 @@ const REPORTS = [
   },
   {
     id: 'e5f6a7b8-c9d0-4123-e456-f7a8b9c0d1e2',
-    name: 'QAP – Quarterly Alphalist of Payees',
+    name: 'WE – QAP Quarterly Alphalist of Payees',
     file: 'qap.html',
     group: 'Expanded Withholding Tax',
     req: 'expanded',
@@ -87,7 +87,7 @@ const REPORTS = [
   },
   {
     id: 'f6a7b8c9-d0e1-4234-f567-a8b9c0d1e2f3',
-    name: 'SAWT – Summary Alphalist of Withholding Taxes',
+    name: 'IT – SAWT Summary Alphalist of Withholding Taxes',
     file: 'sawt.html',
     group: 'Income Tax',
     req: 'expanded',
@@ -96,7 +96,7 @@ const REPORTS = [
   },
   {
     id: 'a7b8c9d0-e1f2-4345-a678-b9c0d1e2f3a4',
-    name: 'BIR Form 2307 – Certificate of Creditable WT',
+    name: 'WE – BIR Form 2307 Certificate of Creditable WT',
     file: '2307.html',
     group: 'Expanded Withholding Tax',
     req: 'expanded',
@@ -107,7 +107,7 @@ const REPORTS = [
   // ── FINAL WITHHOLDING TAX ────────────────────────────────────
   {
     id: 'a1b2c3d4-0004-4000-8000-000000000001',
-    name: '0619F – FWT Monthly Remittance',
+    name: 'FWT – 0619F FWT Monthly Remittance',
     file: '0619f.html',
     group: 'Final Withholding Tax',
     req: 'final',
@@ -116,7 +116,7 @@ const REPORTS = [
   },
   {
     id: 'a1b2c3d4-0004-4000-8000-000000000002',
-    name: '1601FQ – FWT Quarterly Return',
+    name: 'FWT – 1601FQ FWT Quarterly Return',
     file: '1601fq.html',
     group: 'Final Withholding Tax',
     req: 'final',
@@ -127,7 +127,7 @@ const REPORTS = [
   // ── COMPENSATION WITHHOLDING TAX ─────────────────────────────
   {
     id: 'a1b2c3d4-0005-4000-8000-000000000001',
-    name: '1601C – WTC Monthly Remittance',
+    name: 'WC – 1601C WTC Monthly Remittance',
     file: '1601c.html',
     group: 'Compensation (Payroll)',
     req: 'compensation',
@@ -136,7 +136,7 @@ const REPORTS = [
   },
   {
     id: 'b8c9d0e1-f2a3-4456-b789-c0d1e2f3a4b5',
-    name: 'BIR Form 2316 – Certificate of Compensation',
+    name: 'WC – BIR Form 2316 Certificate of Compensation',
     file: 'alphalist.html#2316',
     group: 'Compensation (Payroll)',
     req: 'compensation',
@@ -145,7 +145,7 @@ const REPORTS = [
   },
   {
     id: 'c9d0e1f2-a3b4-4567-c890-d1e2f3a4b5c6',
-    name: 'SSS / PhilHealth / Pag-IBIG Remittance',
+    name: 'WC – SSS PhilHealth Pag-IBIG Remittance',
     file: 'sss.html',
     group: 'Compensation (Payroll)',
     req: 'compensation',
@@ -156,7 +156,7 @@ const REPORTS = [
   // ── INCOME TAX – CORPORATION ─────────────────────────────────
   {
     id: 'a1b2c3d4-0006-4000-8000-000000000001',
-    name: '1702Q – Quarterly Income Tax Return (Corp)',
+    name: 'IT – 1702Q Quarterly Income Tax Return (Corp)',
     file: '1702q.html',
     group: 'Income Tax',
     req: 'nonindividual',
@@ -165,7 +165,7 @@ const REPORTS = [
   },
   {
     id: 'a1b2c3d4-0006-4000-8000-000000000002',
-    name: '1702RT – Annual Income Tax Return (Corp)',
+    name: 'IT – 1702RT Annual Income Tax Return (Corp)',
     file: '1702rt.html',
     group: 'Income Tax',
     req: 'nonindividual',
@@ -176,7 +176,7 @@ const REPORTS = [
   // ── INCOME TAX – INDIVIDUAL ──────────────────────────────────
   {
     id: 'a1b2c3d4-0007-4000-8000-000000000001',
-    name: '1701Q – Quarterly Income Tax Return (Indiv)',
+    name: 'IT – 1701Q Quarterly Income Tax Return (Indiv)',
     file: '1701q.html',
     group: 'Income Tax',
     req: 'individual',
@@ -185,7 +185,7 @@ const REPORTS = [
   },
   {
     id: 'a1b2c3d4-0007-4000-8000-000000000002',
-    name: '1701 – Annual Income Tax Return (Indiv)',
+    name: 'IT – 1701 Annual Income Tax Return (Indiv)',
     file: '1701.html',
     group: 'Income Tax',
     req: 'individual',
