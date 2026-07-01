@@ -299,10 +299,34 @@ const StepEngine = (function () {
     if (!state._onShow) state._onShow = {};
     let mounted = false;
     state._onShow[step.key] = () => {
-      if (mounted) return;
+      // Two steps can share one iframeId (e.g. the tax-status and report
+      // steps both live inside 1601c.html) — re-focus this step's tab every
+      // time it's shown again, not just the first time it's mounted.
+      if (mounted) {
+        if (step.focusTab) focusIframeTab(state.iframes[step.iframeId], step.focusTab);
+        return;
+      }
       mounted = true;
       mountIframeStepContent(mountEl, footer, body, panel, state, step);
     };
+  }
+
+  // Same-origin iframe embedding a tabbed report (e.g. 1601c.html) — click
+  // the tab button matching `data-tab="<tabKey>"` so a step can deep-link
+  // into one specific tab of a page shared with another step.
+  function focusIframeTab(iframe, tabKey) {
+    if (!iframe) return;
+    const tryFocus = () => {
+      const doc = iframe.contentDocument;
+      const btn = doc && doc.querySelector(`.tab-btn[data-tab="${tabKey}"]`);
+      if (!btn) return false;
+      btn.click();
+      return true;
+    };
+    if (!tryFocus()) {
+      const poll = setInterval(() => { if (tryFocus()) clearInterval(poll); }, 300);
+      setTimeout(() => clearInterval(poll), 20000);
+    }
   }
 
   function mountIframeStepContent(mountEl, footer, body, panel, state, step) {
@@ -317,13 +341,16 @@ const StepEngine = (function () {
     }
     file = file + (file.includes('?') ? '&' : '?') + params.toString();
     const iframe = getOrCreateIframe(state, mountEl, step.iframeId, file);
+    if (step.focusTab) focusIframeTab(iframe, step.focusTab);
+    const root = panel.closest('.tfy-step-wrap').parentElement;
 
     if (step.type === 'review') {
-      footer.innerHTML = `<button class="btn btn-primary" id="tfy-continue">Continue →</button>`;
-      footer.querySelector('#tfy-continue').onclick = () => {
-        const root = panel.closest('.tfy-step-wrap').parentElement;
-        setStepDone(root, state, step.key, true);
-      };
+      if (step.requireAllTaxStatus) {
+        mountTaxStatusGate(footer, iframe, root, state, step);
+      } else {
+        footer.innerHTML = `<button class="btn btn-primary" id="tfy-continue">Continue →</button>`;
+        footer.querySelector('#tfy-continue').onclick = () => setStepDone(root, state, step.key, true);
+      }
     } else if (step.type === 'download') {
       renderDownloadFooter(body, panel.closest('.tfy-step-wrap').parentElement, state, step);
       if (!state.doneCache[step.key]) {
@@ -337,6 +364,33 @@ const StepEngine = (function () {
     } else if (step.type === 'final') {
       renderFinalFooter(body, panel.closest('.tfy-step-wrap').parentElement, state, step);
     }
+  }
+
+  // Gates a 'review' step's Continue button on every employee having a Tax
+  // Status set (polls the embedded 1601c.html's own `_taxStatusState`, same-
+  // origin iframe), while still requiring the user to click Continue
+  // themselves — passing the count doesn't prove no one was misidentified.
+  function mountTaxStatusGate(footer, iframe, root, state, step) {
+    function render(ready, blanks, total) {
+      footer.innerHTML = `
+        <div class="alert ${ready ? 'alert-success' : 'alert-warn'}" style="margin-bottom:8px;">
+          ${ready
+            ? '✅ Every employee has a Tax Status. Double-check none were misidentified, then continue.'
+            : total === 0
+              ? 'Loading employees…'
+              : `⚠️ ${blanks} employee(s) still have no Tax Status set — fix them above before continuing.`}
+        </div>
+        <button class="btn btn-primary" id="tfy-continue" ${ready ? '' : 'disabled'}>Continue →</button>`;
+      footer.querySelector('#tfy-continue').onclick = () => setStepDone(root, state, step.key, true);
+    }
+    render(false, 0, 0);
+    const poll = setInterval(() => {
+      const s = iframe.contentWindow && iframe.contentWindow._taxStatusState;
+      if (!s || !Array.isArray(s.employees)) return;
+      const total = s.employees.length;
+      const blanks = s.employees.filter(e => !e.taxStatus).length;
+      render(total > 0 && blanks === 0, blanks, total);
+    }, 500);
   }
 
   function renderDownloadFooter(body, root, state, step) {
@@ -946,19 +1000,6 @@ const StepEngine = (function () {
     const root = panel.closest('.tfy-step-wrap').parentElement;
 
     if (result.ok) {
-      if (step.requireConfirm) {
-        // Passing the automated check only proves the data is *present*, not
-        // that a human looked it over (e.g. an employee could still be
-        // mis-classified MWE/NMWE) — so require an explicit click instead of
-        // auto-advancing like the default validate behavior below.
-        body.innerHTML = `
-          <div class="alert alert-success">✅ ${escHtml(step.passMessage || 'Check passed.')}</div>
-          <div class="tfy-step-footer">
-            <button class="btn btn-primary" id="tfy-confirm">${escHtml(step.confirmLabel || "I've reviewed this — Continue →")}</button>
-          </div>`;
-        body.querySelector('#tfy-confirm').onclick = () => setStepDone(root, state, step.key, true);
-        return;
-      }
       setStepDone(root, state, step.key, true);
       body.innerHTML = `<div class="alert alert-success">✅ ${escHtml(step.passMessage || 'Check passed.')}</div>`;
       return;

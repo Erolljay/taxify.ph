@@ -1,5 +1,8 @@
 /* ============================================================
    Taxify it! — workflow definitions consumed by StepEngine.
+   Categories are keyed the same way REPORTS[].req is in reports.js, so
+   the User-mode landing screen and these step sequences both read from
+   that single source of truth instead of duplicating report metadata.
 
    VAT is fully fleshed out per spec. The other categories are intentionally
    thin (review the relevant reports, then file) until their own step-by-step
@@ -24,30 +27,6 @@ async function checkPartyTIN(biz, partyType) {
   return {
     ok: false,
     message: `${problems.length} ${noun} are missing a TIN.`,
-    problems,
-  };
-}
-
-// Every employee needs a Tax Status (MWE/NMWE) before 1601-C, 1604-C
-// Alphalist, and 2316 can be computed correctly — flag anyone still blank.
-async function checkEmployeeTaxStatus(biz) {
-  const [raw, birGuids] = await Promise.all([
-    fetchAllBatch('/api4/employee-batch', biz),
-    ensureBIRFields(biz),
-  ]);
-  const taxStatusFieldId = window.CF && window.CF.EMPLOYEE_FIELDS[5].id;
-  const problems = raw
-    .map(it => {
-      const value = it.item || it.value || {};
-      const cf = parseBIRBlob((value.customFields2 && value.customFields2.strings) || {}, birGuids && birGuids.emp, 'b1r00003-');
-      return { name: value.name || value.Name || it.key, taxStatus: cf[taxStatusFieldId] || '' };
-    })
-    .filter(e => !e.taxStatus)
-    .map(e => e.name);
-  if (!problems.length) return { ok: true };
-  return {
-    ok: false,
-    message: `${problems.length} employee(s) are missing a Tax Status (MWE/NMWE).`,
     problems,
   };
 }
@@ -258,17 +237,13 @@ const WORKFLOWS = {
     steps: [
       {
         key: 'taxstatus-check',
-        type: 'validate',
+        type: 'review',
         label: 'Confirm employee tax status',
-        help: 'Every employee needs a Tax Status (MWE or NMWE) set before 1601-C, 1604-C Alphalist, and BIR Form 2316 can be filed correctly.',
-        check: (biz) => checkEmployeeTaxStatus(biz),
-        passMessage: "All employees have a Tax Status set. Double-check none were misidentified before continuing.",
-        requireConfirm: true,
-        confirmLabel: "I've reviewed each employee's tax status — Continue →",
-        fixLabel: 'Open Employee Tax Status tab →',
-        fixIframeId: 'payroll',
-        fixFile: findReport('1601c.html').file,
-        fixTabSelector: '[data-tab="taxstatus"]',
+        help: 'Every employee needs a Tax Status (MWE or NMWE) set before 1601-C, 1604-C Alphalist, and BIR Form 2316 can be filed correctly. Continue is blocked until none are blank — but please still double-check no one was misidentified.',
+        file: findReport('1601c.html').file,
+        iframeId: 'payroll',
+        focusTab: 'taxstatus',
+        requireAllTaxStatus: true,
       },
       {
         key: 'payslip-items-check',
@@ -285,6 +260,7 @@ const WORKFLOWS = {
         label: 'Review payroll withholding',
         file: findReport('1601c.html').file,
         iframeId: 'payroll',
+        focusTab: 'report',
       },
       {
         key: 'compensation-final',
@@ -292,6 +268,7 @@ const WORKFLOWS = {
         label: 'File 1601C — Monthly Remittance',
         file: findReport('1601c.html').file,
         iframeId: 'payroll',
+        focusTab: 'report',
       },
     ],
   },
@@ -338,3 +315,14 @@ const WORKFLOWS = {
     ],
   },
 };
+
+// Category cards shown on the User-mode landing screen. `req` matches
+// REPORTS[].req so future filtering by registered tax type can reuse it;
+// `income` groups individual/nonindividual under one card, picked by
+// setup.classification at render time.
+const WORKFLOW_CATEGORIES = [
+  { key: 'vat',           label: 'Value Added Tax',            icon: '🧾', req: 'vat' },
+  { key: 'expanded',      label: 'Expanded Withholding Tax',    icon: '📑', req: 'expanded' },
+  { key: 'compensation',  label: 'Compensation (Payroll)',      icon: '👥', req: 'compensation' },
+  { key: 'income',        label: 'Income Tax',                  icon: '💰', req: 'income' },
+];

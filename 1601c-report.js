@@ -42,6 +42,9 @@ async function init1601CReport() {
 // 1601-C/1604-C/2316 report — those reports now skip employees whose
 // Tax Status is blank, so this tab is how blanks get fixed.
 let _taxStatusState = { biz: null, birGuids: null, employees: [] };
+// Exposed on window (top-level `let` doesn't become a window property) so the
+// parent wizard's step engine can poll completeness from outside this iframe.
+window._taxStatusState = _taxStatusState;
 
 async function initEmployeeTaxStatusTab(biz) {
   _taxStatusState.biz = biz;
