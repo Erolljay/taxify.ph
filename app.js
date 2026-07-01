@@ -28,9 +28,18 @@ var businessSelect = document.getElementById('business');
     }
     businessSelect.innerHTML = '<option value="">-- select a business --</option>' +
       names.map(function(n){ return '<option value="'+escHtml(n)+'">'+escHtml(n)+'</option>'; }).join('');
-    var ctxBiz = (typeof getPageContextBusiness === 'function') ? await getPageContextBusiness() : null;
-    businessSelect.value = (ctxBiz && names.indexOf(ctxBiz) !== -1) ? ctxBiz : (names[0] || '');
+    // Fire immediately with the first available business so tabs don't stall
+    businessSelect.value = names[0];
     businessSelect.dispatchEvent(new Event('change'));
+    // Then refine to the page-context business (the one Manager is currently showing)
+    if (typeof getPageContextBusiness === 'function') {
+      getPageContextBusiness().then(function(ctxBiz) {
+        if (ctxBiz && names.indexOf(ctxBiz) !== -1 && businessSelect.value !== ctxBiz) {
+          businessSelect.value = ctxBiz;
+          businessSelect.dispatchEvent(new Event('change'));
+        }
+      });
+    }
   } catch(e) {
     businessSelect.innerHTML = '<option value="">(could not load)</option>';
     console.error(e);
@@ -39,7 +48,6 @@ var businessSelect = document.getElementById('business');
 
 businessSelect && businessSelect.addEventListener('change', function() {
   setupTabLoaded = false; // reset so tax codes reload for new business
-  coaTabLoaded = false;
   resetCF();
   var active = document.querySelector('.tab.active');
   if (active) activateTab(active.dataset.view);
@@ -59,7 +67,6 @@ var allViews = document.querySelectorAll('[id$="-view"]');
 var cfLoaded = {};
 var cfControllers = {};
 var setupTabLoaded = false;
-var coaTabLoaded = false;
 var coaController = null;
 
 function activateTab(view) {
@@ -72,18 +79,18 @@ function activateTab(view) {
   if (view === 'batch-import-setup') renderBatchImportSetupTab(biz);
   if (view === 'business')      lazyMountCF('business',     biz);
   if (view === 'payslip-items') lazyMountCF('payslipItems', biz);
-  if (view === 'coa')           lazyMountCoa(biz);
+  if (view === 'coa')           lazyMountCoa();
 }
 
 document.querySelectorAll('.tab').forEach(function(t){
   t.addEventListener('click', function(){ activateTab(t.dataset.view); });
 });
 
-function lazyMountCoa(biz) {
-  if (!biz || typeof COA === 'undefined') return;
-  if (coaTabLoaded) return;
-  coaTabLoaded = true;
-  coaController = COA.mount(document.getElementById('coa-view'));
+function lazyMountCoa() {
+  if (typeof COA === 'undefined') return;
+  if (!coaController) {
+    coaController = COA.mount(document.getElementById('coa-view'));
+  }
   coaController.refresh();
 }
 
@@ -141,15 +148,15 @@ function buildReportTable(biz, container) {
   var html = '';
   Object.keys(groups).forEach(function(group) {
     var list = groups[group];
-    var installable = list.filter(function(r) {
-      return r.available && !_installed.find(function(e){ return (e.value.Endpoint || e.value.endpoint) === reportEndpoint(r); });
+    var installableInGroup = list.filter(function(r) {
+      if (!r.available) return false;
+      var ep = reportEndpoint(r);
+      return !_installed.find(function(e){ return (e.value.Endpoint || e.value.endpoint) === ep; });
     });
-    var installAllBtn = installable.length > 0
-      ? '<button class="secondary install-all-btn" data-group="'+escHtml(group)+'" style="font-size:11px;padding:3px 10px;">Install All</button>'
+    var installAllBtn = installableInGroup.length > 0
+      ? '<button class="secondary" data-action="install-all-group" data-group="'+escHtml(group)+'" style="font-size:11px;margin-left:10px;">Install All</button>'
       : '';
-    html += '<div style="display:flex;align-items:center;justify-content:space-between;margin:18px 0 6px;border-bottom:.5px solid #e5e7eb;padding-bottom:4px;">';
-    html += '<h3 style="margin:0;font-size:12px;font-weight:500;text-transform:uppercase;letter-spacing:.05em;color:#6b7280;">'+escHtml(group)+'</h3>';
-    html += installAllBtn + '</div>';
+    html += '<h3 style="margin:18px 0 6px;font-size:12px;font-weight:500;text-transform:uppercase;letter-spacing:.05em;color:#6b7280;border-bottom:.5px solid #e5e7eb;padding-bottom:4px;display:flex;align-items:center;justify-content:space-between;">'+escHtml(group)+installAllBtn+'</h3>';
     html += '<table style="width:100%;border-collapse:collapse;margin-bottom:4px;">';
     html += '<thead><tr style="font-size:11px;color:#9ca3af;"><th style="text-align:left;padding:5px 8px;font-weight:500;">Report</th><th style="padding:5px 8px;font-weight:500;text-align:center;">Status</th><th style="padding:5px 8px;font-weight:500;text-align:center;">Action</th></tr></thead><tbody>';
 
@@ -175,38 +182,38 @@ function buildReportTable(biz, container) {
 
   container.innerHTML = html;
   container.querySelectorAll('button[data-action]').forEach(function(btn){
-    btn.addEventListener('click', function(){ onReportAction(btn, biz); });
-  });
-  container.querySelectorAll('.install-all-btn').forEach(function(btn){
-    btn.addEventListener('click', function(){ onInstallAllGroup(btn, biz); });
+    btn.addEventListener('click', function(){ onReportAction(btn, biz, groups); });
   });
 }
 
-async function onInstallAllGroup(btn, biz) {
-  var group = btn.dataset.group;
-  btn.disabled = true;
-  btn.textContent = 'Installing…';
-  var toInstall = REPORTS.filter(function(r) {
-    return r.group === group && r.available &&
-      !_installed.find(function(e){ return (e.value.Endpoint || e.value.endpoint) === reportEndpoint(r); });
-  });
-  var failed = 0;
-  for (var i = 0; i < toInstall.length; i++) {
-    var r = toInstall[i];
-    try {
-      await apiRequest('POST', '/api4/extension', {
-        business: biz,
-        value: { Name: r.name, Source: 0, Endpoint: reportEndpoint(r), Placement: 'reports' }
-      });
-    } catch(err) { failed++; }
-  }
-  await renderReportsTab(biz);
-  if (failed) alert(failed + ' report(s) failed to install.');
-}
-
-async function onReportAction(btn, biz) {
+async function onReportAction(btn, biz, groups) {
   var action = btn.dataset.action;
   btn.disabled = true;
+  if (action === 'install-all-group') {
+    btn.textContent = 'Installing...';
+    var groupName = btn.dataset.group;
+    var list = (groups && groups[groupName]) ? groups[groupName] : [];
+    var toInstall = list.filter(function(r) {
+      if (!r.available) return false;
+      var ep = reportEndpoint(r);
+      return !_installed.find(function(e){ return (e.value.Endpoint || e.value.endpoint) === ep; });
+    });
+    try {
+      for (var i = 0; i < toInstall.length; i++) {
+        var r = toInstall[i];
+        await apiRequest('POST', '/api4/extension', {
+          business: biz,
+          value: { Name: r.name, Source: 0, Endpoint: reportEndpoint(r), Placement: 'reports' }
+        });
+      }
+      await renderReportsTab(biz);
+    } catch(err) {
+      btn.disabled = false;
+      btn.textContent = 'Install All';
+      alert('Failed: ' + err.message);
+    }
+    return;
+  }
   btn.textContent = action === 'install' ? 'Installing...' : 'Uninstalling...';
   try {
     if (action === 'install') {
