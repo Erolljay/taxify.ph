@@ -99,10 +99,19 @@ function buildReportTable(b, container) {
 
   let html = '';
   Object.keys(groups).forEach(group => {
-    html += `<h3 style="margin:18px 0 6px;font-size:12px;font-weight:500;text-transform:uppercase;letter-spacing:.05em;color:#6b7280;border-bottom:.5px solid #e5e7eb;padding-bottom:4px;">${escHtml(group)}</h3>`;
+    const list = groups[group];
+    const installable = list.filter(r =>
+      r.available && !_installed.find(e => (e.value.Endpoint || e.value.endpoint) === reportEndpoint(r))
+    );
+    const installAllBtn = installable.length > 0
+      ? `<button class="secondary install-all-btn" data-group="${escHtml(group)}" style="font-size:11px;padding:3px 10px;">Install All</button>`
+      : '';
+    html += `<div style="display:flex;align-items:center;justify-content:space-between;margin:18px 0 6px;border-bottom:.5px solid #e5e7eb;padding-bottom:4px;">`;
+    html += `<h3 style="margin:0;font-size:12px;font-weight:500;text-transform:uppercase;letter-spacing:.05em;color:#6b7280;">${escHtml(group)}</h3>`;
+    html += installAllBtn + '</div>';
     html += '<table style="width:100%;border-collapse:collapse;margin-bottom:4px;">';
     html += '<thead><tr style="font-size:11px;color:#9ca3af;"><th style="text-align:left;padding:5px 8px;font-weight:500;">Report</th><th style="padding:5px 8px;font-weight:500;text-align:center;">Status</th><th style="padding:5px 8px;font-weight:500;text-align:center;">Action</th></tr></thead><tbody>';
-    groups[group].forEach(r => {
+    list.forEach(r => {
       const ep = reportEndpoint(r);
       const inst = _installed.find(e => (e.value.Endpoint || e.value.endpoint) === ep);
       let badge, action;
@@ -126,6 +135,30 @@ function buildReportTable(b, container) {
   container.querySelectorAll('button[data-action]').forEach(btn => {
     btn.addEventListener('click', () => onReportAction(btn, b));
   });
+  container.querySelectorAll('.install-all-btn').forEach(btn => {
+    btn.addEventListener('click', () => onInstallAllGroup(btn, b));
+  });
+}
+
+async function onInstallAllGroup(btn, b) {
+  const group = btn.dataset.group;
+  btn.disabled = true;
+  btn.textContent = 'Installing…';
+  const toInstall = REPORTS.filter(r =>
+    r.group === group && r.available &&
+    !_installed.find(e => (e.value.Endpoint || e.value.endpoint) === reportEndpoint(r))
+  );
+  let failed = 0;
+  for (const r of toInstall) {
+    try {
+      await apiRequest('POST', '/api4/extension', {
+        business: b,
+        value: { Name: r.name, Source: 0, Endpoint: reportEndpoint(r), Placement: 'reports' }
+      });
+    } catch { failed++; }
+  }
+  await renderReportsTab(b);
+  if (failed) alert(`${failed} report(s) failed to install.`);
 }
 
 async function onReportAction(btn, b) {
