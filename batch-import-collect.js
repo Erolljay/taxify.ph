@@ -81,6 +81,21 @@ function parseBiDateC(v) {
   return String(v).trim();
 }
 
+// Manager's issueDate/Date field comes back as a full ISO timestamp
+// (e.g. "2025-02-25T00:00:00") — trim it to a plain "YYYY-MM-DD" so the
+// downloaded sheet matches the Date (YYYY-MM-DD) format used by the Sales/
+// Purchase/Payroll batch templates. Sliced directly off the string (not
+// re-parsed via `new Date()`) so a timezone offset in the source string
+// can't shift the calendar date shown.
+function dateOnlyStr(d) {
+  if (!d) return '';
+  if (d instanceof Date) {
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  }
+  const m = String(d).match(/^(\d{4}-\d{2}-\d{2})/);
+  return m ? m[1] : String(d).trim();
+}
+
 // ── INVOICE / SETTLEMENT MATH ──────────────────────────────────
 // Manager has no native "balance" field on an invoice — it's derived by
 // summing the invoice's own lines, then subtracting whatever Receipts
@@ -145,7 +160,7 @@ async function buildOpenInvoiceMap(biz) {
       invoiceKey: invKey,
       partyKey,
       partyName: pd.name || partyKey,
-      date: item?.issueDate || item?.Date || '',
+      date: dateOnlyStr(item?.issueDate || item?.Date || ''),
       reference: item?.reference || item?.Reference || item?.invoiceNumber || item?.InvoiceNumber || '',
       total,
       balance: total - settled,
@@ -180,9 +195,13 @@ async function buildCollectCache(biz) {
     const d = row?.item || row?.value || row || {};
     return [(d.name || d.Name || '').trim().toLowerCase(), row?.key || row?.Key || d.key || ''];
   }).filter(([n, k]) => n && k));
+  // TEMP: hardcoded fallback for the test business, matching the same
+  // fallback batch-import.js uses for its same-day Receipt/Payment lines —
+  // replace with a per-business dynamic lookup once we find Manager's real
+  // endpoint for these control accounts.
   const controlAccountKey = (controlAccounts[0] && (controlAccounts[0].key || controlAccounts[0].Key))
     || allAccountKeyByName.get(isSale ? 'accounts receivable' : 'accounts payable')
-    || null;
+    || (isSale ? 'd1489e95-bb28-4f5d-b42e-67d3291b3893' : 'dac7ba37-0ccd-45e5-906e-548e6c50df37');
 
   _bicCache = { biz, invoiceMap, bankCashAccountList, accountKeyByName, controlAccountKey };
   return _bicCache;
