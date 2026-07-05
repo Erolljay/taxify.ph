@@ -159,8 +159,10 @@ async function buildCollectCache(biz) {
   if (_bicCache && _bicCache.biz === biz) return _bicCache;
 
   const isSale = BI_IS_SALE_C;
-  const [invoiceMap, bankCashAccounts, controlAccounts] = await Promise.all([
+  const [invoiceMap, bsAccounts, plAccounts, bankCashAccounts, controlAccounts] = await Promise.all([
     buildOpenInvoiceMap(biz),
+    fetchAllBatch('/api4/balance-sheet-account-batch', biz).catch(() => []),
+    fetchAllBatch('/api4/profit-and-loss-statement-account-batch', biz).catch(() => []),
     fetchAllBatch('/api4/bank-or-cash-account-batch', biz).catch(() => []),
     fetchAllBatch(isSale ? '/api4/accounts-receivable-control-account-batch' : '/api4/accounts-payable-control-account-batch', biz).catch(() => []),
   ]);
@@ -170,7 +172,17 @@ async function buildCollectCache(biz) {
     return { name: (d.name || d.Name || '').trim(), key: row?.key || row?.Key || d.key || '' };
   }).filter(a => a.name && a.key);
   const accountKeyByName = new Map(bankCashAccountList.map(a => [a.name.toLowerCase(), a.key]));
-  const controlAccountKey = (controlAccounts[0] && (controlAccounts[0].key || controlAccounts[0].Key)) || null;
+
+  // The AR/AP control-account-batch endpoint isn't reliable on every Manager
+  // instance (some return empty/404) — fall back to finding "Accounts
+  // Receivable"/"Accounts Payable" by name among the regular chart of accounts.
+  const allAccountKeyByName = new Map([...bsAccounts, ...plAccounts, ...bankCashAccounts].map(row => {
+    const d = row?.item || row?.value || row || {};
+    return [(d.name || d.Name || '').trim().toLowerCase(), row?.key || row?.Key || d.key || ''];
+  }).filter(([n, k]) => n && k));
+  const controlAccountKey = (controlAccounts[0] && (controlAccounts[0].key || controlAccounts[0].Key))
+    || allAccountKeyByName.get(isSale ? 'accounts receivable' : 'accounts payable')
+    || null;
 
   _bicCache = { biz, invoiceMap, bankCashAccountList, accountKeyByName, controlAccountKey };
   return _bicCache;
@@ -221,7 +233,7 @@ async function downloadOpenInvoices() {
       `1. The "Open ${BI_INVOICE_NOUN}s" sheet lists every ${BI_INVOICE_NOUN.toLowerCase()} that isn't fully settled as of today (${today.toLocaleDateString('en-PH')}), one row per invoice.`,
       `2. Only fill in the last three columns — "${BI_SETTLE_NOUN} Date", "Bank/Cash Account", and "Amount ${BI_IS_SALE_C ? 'Received' : 'Paid'}" — for rows that have actually cleared. Leave a row's Amount blank if it hasn't been collected yet; it will simply be skipped.`,
       `3. Do not edit the "Invoice ID", "Invoice Date", "${BI_PARTY_LABEL_C} Name", "Reference", "Invoice Amount", or "Balance Due" columns — the importer uses "Invoice ID" to match each row back to its invoice in Manager.`,
-      `4. "Bank/Cash Account": pick a value from the dropdown (sourced from the "Bank/Cash Accounts" sheet) or type the exact account title.`,
+      `4. "Bank/Cash Account": pick a value from the dropdown (sourced from the "Payment Accounts" sheet) or type the exact account title.`,
       `5. A partial amount is fine — the invoice stays open for the remaining balance. The amount just can't exceed the current balance due.`,
       `6. When done, go back to the app, choose "Upload" and select this same file, then click Validate before Post.`,
     ].forEach(s => { const row = instr.addRow([s]); row.font = { size: 11 }; row.alignment = { wrapText: true }; });
@@ -251,13 +263,13 @@ async function downloadOpenInvoices() {
       ws.getCell(r, 9).numFmt = '#,##0.00';
     }
 
-    // Bank/Cash Accounts reference sheet + dropdown validation
-    const bank = wb.addWorksheet('Bank/Cash Accounts');
+    // Payment Accounts reference sheet + dropdown validation
+    const bank = wb.addWorksheet('Payment Accounts');
     bank.getColumn(1).width = 40;
     bank.addRow(['Cash/Bank Account']).font = { bold: true };
     const bankNames = cache.bankCashAccountList.map(a => a.name).sort((a, b) => a.localeCompare(b));
     bankNames.forEach(n => bank.addRow([n]));
-    const bankRange = `'Bank/Cash Accounts'!$A$2:$A$${Math.max(2, bankNames.length + 1)}`;
+    const bankRange = `'Payment Accounts'!$A$2:$A$${Math.max(2, bankNames.length + 1)}`;
     for (let r = 2; r <= open.length + 1; r++) {
       ws.getCell(`H${r}`).dataValidation = {
         type: 'list',
@@ -350,7 +362,7 @@ function parseCollectRow(r, idx, cache) {
   if (!row.settleDate || isNaN(new Date(row.settleDate).getTime())) errors.push(`${BI_SETTLE_NOUN} Date is missing/invalid`);
   if (!row.account) errors.push(`Bank/Cash Account is blank`);
   else if (cache.accountKeyByName.size && !cache.accountKeyByName.has(row.account.trim().toLowerCase())) {
-    errors.push(`Bank/Cash Account "${row.account}" not found in Manager — check spelling against the Bank/Cash Accounts sheet`);
+    errors.push(`Bank/Cash Account "${row.account}" not found in Manager — check spelling against the Payment Accounts sheet`);
   }
   if (fresh.balance <= 0.005) errors.push(`This invoice is already fully settled in Manager — remove this row or re-download the file`);
   else if (row.amount - fresh.balance > 0.01) errors.push(`Amount (${fmt(row.amount)}) exceeds the current balance due (${fmt(fresh.balance)}) — check for a typo, or a ${BI_SETTLE_NOUN.toLowerCase()} already recorded elsewhere`);
