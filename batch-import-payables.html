@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Batch Collect — Payables</title>
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    body { background: white; overflow: auto; height: auto; }
+    #app-header { display: none; }
+    .report-wrap { max-width: 1200px; margin: 0 auto; padding: 16px; }
+    .bi-table { width: 100%; border-collapse: collapse; font-size: 11.5px; }
+    .bi-table th { background: #0d1b3e; color: white; padding: 6px 8px; text-align: left; position: sticky; top: 0; }
+    .bi-table td { padding: 5px 8px; border-bottom: 1px solid #f0f0f0; white-space: nowrap; }
+    .bi-table tr.row-error { background: #fef2f2; }
+    .bi-table tr.row-skip  { background: #f9fafb; color: #9ca3af; }
+    .bi-table tr.row-ok    { background: #f0fdf4; }
+    .bi-err { color: #c0392b; font-size: 10.5px; }
+    .bi-wrap { max-height: 480px; overflow: auto; border: 1px solid #e5e7eb; border-radius: 6px; }
+    .bi-stat { display: inline-block; margin-right: 16px; font-size: 12px; }
+    .bi-stat b { font-size: 15px; }
+  </style>
+</head>
+<body>
+<div class="report-wrap">
+  <div class="page-header no-print">
+    <div>
+      <div class="page-title">💸 Batch Collect — Payables</div>
+      <div class="page-subtitle">Download open Purchase Invoices, fill in Payment Date / Bank Account / Amount Paid, then post Payments directly to Manager</div>
+    </div>
+  </div>
+  <div id="biz-selector-wrap" class="no-print"></div>
+
+  <div class="filter-bar no-print" style="margin-bottom:14px;">
+    <button class="btn btn-outline" id="bic-download">📥 Download Open Invoices</button>
+    <input type="file" id="bic-file" accept=".xlsx,.xls" style="display:none;">
+    <button class="btn btn-outline" id="bic-upload-btn">📂 Choose File</button>
+    <span id="bic-filename" style="font-size:12px;color:#6b7280;"></span>
+    <div class="filter-sep"></div>
+    <button class="btn btn-primary" id="bic-validate" style="display:none;">🔍 Validate</button>
+    <button class="btn btn-primary" id="bic-post" style="display:none;">🚀 Post to Manager</button>
+  </div>
+
+  <div class="alert alert-info" style="margin-bottom:14px;">
+    ℹ️ "Download Open Invoices" pulls every Purchase Invoice that isn't fully paid as of today, one row per
+    invoice. Fill in only the <strong>Payment Date</strong>, <strong>Bank/Cash Account</strong>, and
+    <strong>Amount Paid</strong> columns for whichever invoices actually got paid — leave a row blank if it
+    hasn't been paid yet. Re-upload the same file, click Validate, then Post to Manager to record a Payment
+    against each matching invoice. Don't edit the Invoice ID, Invoice Date, Supplier, Reference, Invoice Amount,
+    or Balance Due columns — those are used to match each row back to its invoice and aren't sent to Manager.
+  </div>
+
+  <div id="bic-output"></div>
+</div>
+
+<script>const BI_COLLECT_TYPE = "Purchase";</script>
+<script src="shared.js"></script>
+<script src="tax-codes.js"></script>
+<script src="batch-import-collect.js"></script>
+<script>
+  document.addEventListener('DOMContentLoaded', () => initBatchCollect());
+</script>
+</body>
+</html>

@@ -220,4 +220,16 @@ const BATCH_IMPORT_INSTALLS = [
     file: 'batch-import-payroll.html',
     placement: 'payslips',
   },
+  {
+    id: '4d5e6f7a-8b9c-4a12-9cde-a3b4c5d6e7f8',
+    name: 'Batch Collect — Receivables',
+    file: 'batch-import-receivables.html',
+    placement: 'receipts',
+  },
+  {
+    id: '5e6f7a8b-9c0d-4b23-adef-b4c5d6e7f8a9',
+    name: 'Batch Collect — Payables',
+    file: 'batch-import-payables.html',
+    placement: 'payments',
+  },
 ];

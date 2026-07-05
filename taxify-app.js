@@ -730,9 +730,11 @@ function renderWorkflowScreen(root, workflowKey) {
 // lookup (see getReportBusiness() in shared.js) — same technique StepEngine
 // uses to embed report pages inside this wizard.
 const DATA_INTAKE_FILES = {
-  sales:     'batch-import-sales.html',
-  purchases: 'batch-import-purchase.html',
-  payroll:   'batch-import-payroll.html',
+  sales:        'batch-import-sales.html',
+  purchases:    'batch-import-purchase.html',
+  payroll:      'batch-import-payroll.html',
+  receivables:  'batch-import-receivables.html',
+  payables:     'batch-import-payables.html',
 };
 const _diIframes = {};
 let _diActiveTab = 'sales';

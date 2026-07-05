@@ -112,10 +112,14 @@
         <button type="button" class="tab active" data-di-tab="sales">Sales</button>
         <button type="button" class="tab" data-di-tab="purchases">Purchases</button>
         <button type="button" class="tab" data-di-tab="payroll">Payroll</button>
+        <button type="button" class="tab" data-di-tab="receivables">Receivables</button>
+        <button type="button" class="tab" data-di-tab="payables">Payables</button>
       </div>
       <div class="tfy-di-panel" data-di-panel="sales"></div>
       <div class="tfy-di-panel" data-di-panel="purchases" hidden></div>
       <div class="tfy-di-panel" data-di-panel="payroll" hidden></div>
+      <div class="tfy-di-panel" data-di-panel="receivables" hidden></div>
+      <div class="tfy-di-panel" data-di-panel="payables" hidden></div>
     </div>
 
     <!-- ── USER MODE ────────────────────────────────────────────── -->
@@ -146,7 +150,7 @@
           Expenses, Other Income, Other Expense) so 1701/1701Q/1702Q/1702RT classify them correctly.</li>
           <li><strong>Tax codes</strong> — create standard PH tax codes, then map VAT, EWT / CWT, FWT, and Percentage
           Tax categories — including the GL account each VAT code should post to.</li>
-          <li><strong>Setup</strong> — install Batch Import tools for Sales, Purchases, and Payroll.</li>
+          <li><strong>Setup</strong> — install Batch Import tools for Sales, Purchases, Payroll, Receivables, and Payables.</li>
           <li><strong>Payslip items</strong> — assign payslip items to BIR reporting categories, plus the expense /
           liability account each one posts to, so values flow into 1601C, SAWT, and 2316 correctly.</li>
           <li><strong>Reports</strong> — install the BIR report buttons this business needs.</li>
@@ -174,7 +178,8 @@
       <!-- ── BATCH IMPORT SETUP ───────────────────────────────────── -->
       <div id="batch-import-setup-view" hidden>
         <p class="muted">Install Batch Import buttons. Once installed, each one appears directly on the
-        <strong>Sales Invoices</strong> or <strong>Purchase Invoices</strong> page, letting the bookkeeper
+        <strong>Sales Invoices</strong>, <strong>Purchase Invoices</strong>, <strong>Receipts</strong>, or
+        <strong>Payments</strong> page, letting the bookkeeper
         upload a simple Excel sheet that gets posted straight into Manager.</p>
         <div id="batch-import-install-list"></div>
       </div>
