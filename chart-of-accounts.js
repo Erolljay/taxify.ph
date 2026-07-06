@@ -452,6 +452,9 @@
 
       var deductionSel = row.querySelector('[data-role="deduction"]');
       if (deductionSel) deductionDirty[acctGuid] = deductionSel.value;
+
+      var dtaSel = row.querySelector('[data-role="dta"]');
+      if (dtaSel) dtaDirty[acctGuid] = dtaSel.value;
     }
 
     async function onSaveRow(e) {

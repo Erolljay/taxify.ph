@@ -86,11 +86,11 @@ async function generate1702Q(biz, setup, outputEl) {
       aggregateAccountActivity(biz, yearStart, qEnd, coa),
     ]);
 
-    const cwt2307 = await getPrepaidTaxAssetBalance(biz, coa, qEnd, 'Prepaid Tax Asset-2307');
-    const cwt2307PrevQ = quarter > 1 ? await getPrepaidTaxAssetBalance(biz, coa, prevEnd, 'Prepaid Tax Asset-2307') : 0;
+    const dtaMap = await getDtaRoleMapping(biz);
+    const cwt2307 = await getDtaBalance(biz, coa, dtaMap, qEnd, 'cwt2307');
+    const cwt2307PrevQ = quarter > 1 ? await getDtaBalance(biz, coa, dtaMap, prevEnd, 'cwt2307') : 0;
     const cwtThisQuarter = cwt2307 - cwt2307PrevQ;
 
-    const dtaMap = await getDtaRoleMapping(biz);
     const priorYearExcessCredit = await getDtaBalance(biz, coa, dtaMap, qEnd, 'priorYearExcessCredit');
     const itrPaymentsRegularPrevQ = quarter > 1 ? await getDtaBalance(biz, coa, dtaMap, prevEnd, 'itrPaymentsRegular') : 0;
     const itrPaymentsMcitPrevQ = quarter > 1 ? await getDtaBalance(biz, coa, dtaMap, prevEnd, 'itrPaymentsMcit') : 0;

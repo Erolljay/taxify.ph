@@ -57,13 +57,21 @@ const DTA_ACCOUNTS = {
   mcitCarryforward:      'Deferred Tax Asset - MCIT Carryforward',
 };
 
-// The 4 carry-forward roles offered by the COA tab's "Deferred Tax Asset
+// The carry-forward/CWT roles offered by the COA tab's "Deferred Tax Asset
 // Role" dropdown for Asset-categorized accounts (chart-of-accounts.js).
+// cwt2307/cwt2306 exist because "Prepaid Tax Asset-2307/2306" was, until
+// now, looked up by exact name substring only (findAccountByName) with no
+// mapping fallback — silently reading as ₱0.00 for any business whose CWT
+// account isn't named that literally. Same fix as the other 4 roles: an
+// explicit mapping the preparer sets once, instead of a name they have to
+// match exactly.
 const DTA_ROLES = [
   { key: 'priorYearExcessCredit', label: "Prior Year's Excess Credit",  defaultName: DTA_ACCOUNTS.priorYearExcessCredit },
   { key: 'itrPaymentsRegular',    label: 'ITR Payments – Regular', defaultName: DTA_ACCOUNTS.itrPaymentsRegular },
   { key: 'itrPaymentsMcit',       label: 'ITR Payments – MCIT',    defaultName: DTA_ACCOUNTS.itrPaymentsMcit },
   { key: 'mcitCarryforward',      label: 'MCIT Carryforward',          defaultName: DTA_ACCOUNTS.mcitCarryforward },
+  { key: 'cwt2307',               label: 'Creditable Withholding Tax (BIR Form 2307)', defaultName: 'Prepaid Tax Asset-2307' },
+  { key: 'cwt2306',               label: 'Creditable Withholding Tax (BIR Form 2306)', defaultName: 'Prepaid Tax Asset-2306' },
 ];
 
 // Resolves which COA account plays a given Deferred Tax Asset role: prefers
@@ -483,25 +491,14 @@ function agedBreakdownFromEntries(entries, cutoffDate, expiryYears = 3) {
   return { usable, expiringSoon, expired, breakdown };
 }
 
-// ── PREPAID TAX ASSET (CREDITABLE WITHHOLDING TAX) BALANCE ───
-// Looks up the running balance of "Prepaid Tax Asset-2306"
-// (individual) or "Prepaid Tax Asset-2307" (corporate) as of a
-// given cutoff date, by summing debit-credit (or, for invoice/
-// receipt/payment lines that only carry qty+unitPrice, the computed
-// net amount) on that account from all transactions up to (and
-// including) the cutoff. Looked up by name — these are fixed BIR-mandated
-// account roles, not something the COA tab's Deferred Tax Asset role
-// mapping covers.
-async function getPrepaidTaxAssetBalance(biz, coa, cutoffDate, accountNameSubstr) {
-  const account = findAccountByName(coa, accountNameSubstr);
-  const { entries } = await collectAccountLedgerEntries(biz, account);
-  return sumLedgerEntries(entries, cutoffDate);
-}
-
 // ── DEFERRED TAX ASSET LOOKUPS (ROLE-MAPPED) ──────────────────
-// Preferred entry points for the 4 carry-forward roles: resolve the account
-// via the COA tab's explicit mapping (falling back to the default name —
-// see findDtaAccount above) rather than requiring an exact account name.
+// Preferred (only) entry points for every carry-forward/CWT figure: resolve
+// the account via the COA tab's explicit "Deferred Tax Asset Role" mapping,
+// falling back to the role's default account name (see findDtaAccount
+// above) for businesses that haven't mapped it yet. Covers "Prepaid Tax
+// Asset-2306/2307" (CWT) too now — see the cwt2306/cwt2307 entries in
+// DTA_ROLES — since matching those by exact name silently read as ₱0.00
+// for any business whose account wasn't named exactly that.
 async function getDtaBalance(biz, coa, dtaMap, cutoffDate, roleKey) {
   const account = findDtaAccount(coa, dtaMap, roleKey);
   const { entries } = await collectAccountLedgerEntries(biz, account);

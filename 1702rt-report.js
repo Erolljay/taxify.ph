@@ -84,8 +84,9 @@ async function generate1702RT(biz, setup, outputEl) {
 
     const fullYear = await aggregateAccountActivity(biz, yearStart, yearEnd, coa);
 
-    const cwt2307Year = await getPrepaidTaxAssetBalance(biz, coa, yearEnd, 'Prepaid Tax Asset-2307');
-    const cwt2307Q3 = await getPrepaidTaxAssetBalance(biz, coa, q3End, 'Prepaid Tax Asset-2307');
+    const dtaMap = await getDtaRoleMapping(biz);
+    const cwt2307Year = await getDtaBalance(biz, coa, dtaMap, yearEnd, 'cwt2307');
+    const cwt2307Q3 = await getDtaBalance(biz, coa, dtaMap, q3End, 'cwt2307');
     const cwtQ4 = cwt2307Year - cwt2307Q3;
 
     render1702RT(outputEl, { fullYear, cwtQ4 }, setup, year, rate, deduction);

@@ -329,8 +329,8 @@ const WORKFLOWS = {
         key: 'itr-dta-check',
         type: 'checklist',
         label: 'Carry-forward account check',
-        help: "Confirms whether the Deferred Tax Asset account for Prior Year's Excess Credit is set up. Informational only — you can continue either way.",
-        check: (biz) => checkDtaAccounts(biz, ['priorYearExcessCredit']),
+        help: "Confirms whether the Deferred Tax Asset accounts for Prior Year's Excess Credit and Creditable Withholding Tax (2306) are set up. Informational only — you can continue either way.",
+        check: (biz) => checkDtaAccounts(biz, ['priorYearExcessCredit', 'cwt2306']),
       },
       {
         key: 'itr-review',
@@ -357,8 +357,8 @@ const WORKFLOWS = {
         key: 'itr-dta-check',
         type: 'checklist',
         label: 'Carry-forward accounts check',
-        help: "Confirms whether the 4 Deferred Tax Asset accounts (Prior Year's Excess Credit, ITR Payments Regular/MCIT, MCIT Carryforward) are set up. Informational only — you can continue either way.",
-        check: (biz) => checkDtaAccounts(biz),
+        help: "Confirms whether the 5 Deferred Tax Asset accounts (Prior Year's Excess Credit, ITR Payments Regular/MCIT, MCIT Carryforward, Creditable Withholding Tax 2307) are set up. Informational only — you can continue either way.",
+        check: (biz) => checkDtaAccounts(biz, ['priorYearExcessCredit', 'itrPaymentsRegular', 'itrPaymentsMcit', 'mcitCarryforward', 'cwt2307']),
       },
       {
         key: 'itr-review',
