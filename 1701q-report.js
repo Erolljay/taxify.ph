@@ -8,7 +8,13 @@
    no NOLCO/exempt/special-rate schedules. Sales/COGS/Opex are
    reconstructed from transactions via pnl-helpers.js; manual
    inputs cover figures Manager.io has no transaction trail for
-   (non-operating income, prior credits, penalties).
+   (non-operating income, penalties).
+
+   Prior Year's Excess Credit is read from a dedicated Balance Sheet
+   account (see DTA_ACCOUNTS in 1702q-report.js — same account, since
+   a business is always either Individual or Non-Individual, never
+   both, so there's no collision risk sharing the name) instead of a
+   manual input, so it doesn't reset every session.
    ============================================================ */
 
 const TAX_TABLE_2023 = [
@@ -103,8 +109,16 @@ async function generate1701Q(biz, setup, outputEl) {
     const cwtPrepaid2306PrevQ = quarter > 1 ? await getPrepaidTaxAssetBalance(biz, coa, prevEnd, 'Prepaid Tax Asset-2306') : 0;
     const cwtThisQuarter = cwtPrepaid2306 - cwtPrepaid2306PrevQ;
 
+    const priorYearExcessCredit = await getPrepaidTaxAssetBalance(biz, coa, qEnd, DTA_ACCOUNTS.priorYearExcessCredit);
+    const itrPaymentsPrevQ = quarter > 1 ? await getPrepaidTaxAssetBalance(biz, coa, prevEnd, DTA_ACCOUNTS.itrPaymentsRegular) : 0;
+
     const period = { quarter, year, label: `${quarterLabel(quarter)} ${year}` };
-    render1701Q(outputEl, { thisQ, cumPrev, cwtThisQuarter }, setup, period, method, deduction);
+    render1701Q(outputEl, {
+      thisQ, cumPrev, cwtThisQuarter,
+      cwtPrevQuarters: cwtPrepaid2306PrevQ,
+      priorYearExcessCredit,
+      itrPaymentsPrevQ,
+    }, setup, period, method, deduction);
 
     ['c1701q-print', 'c1701q-pdf'].forEach(id => {
       const btn = document.getElementById(id);
@@ -153,9 +167,9 @@ function render1701Q(el, data, setup, period, method, deduction) {
 
     <div class="return-section">
       <div class="return-section-header">Schedule III – Tax Credits/Payments</div>
-      ${manualLine(55, "Prior Year's Excess Credits", 'c1701q-55')}
-      ${manualLine(56, 'Tax Payment/s for the Previous Quarter/s', 'c1701q-56')}
-      ${manualLine(57, 'Creditable Tax Withheld for the Previous Quarter/s', 'c1701q-57')}
+      ${returnLine(55, "Prior Year's Excess Credits <span style=\"font-size:10px;color:#9ca3af;font-weight:400;\">(auto — from books)</span>", data.priorYearExcessCredit)}
+      ${returnLine(56, 'Tax Payment/s for the Previous Quarter/s <span style="font-size:10px;color:#9ca3af;font-weight:400;">(auto — from books)</span>', data.itrPaymentsPrevQ)}
+      ${returnLine(57, 'Creditable Tax Withheld for the Previous Quarter/s <span style="font-size:10px;color:#9ca3af;font-weight:400;">(auto — from books)</span>', data.cwtPrevQuarters)}
       ${returnLine(58, 'Creditable Tax Withheld per BIR Form No. 2307 for this Quarter', data.cwtThisQuarter)}
       ${manualLine(59, 'Tax Paid in Return Previously Filed, if Amended', 'c1701q-59')}
       ${manualLine(60, 'Foreign Tax Credits, if applicable', 'c1701q-60')}
@@ -182,6 +196,9 @@ function render1701Q(el, data, setup, period, method, deduction) {
   ], 'form');
 
   el._cwtThisQuarter = data.cwtThisQuarter;
+  el._cwtPrevQuarters = data.cwtPrevQuarters;
+  el._priorYearExcessCredit = data.priorYearExcessCredit;
+  el._itrPaymentsPrevQ = data.itrPaymentsPrevQ;
   bindIncomeTaxTabs(el);
   el.querySelectorAll('.recon-manual-input').forEach(inp => inp.addEventListener('input', () => recompute1701Q(el, thisQ, prevQ, method)));
   bindDeductionMappingTable(el, App.currentBusiness, () => render1701Q(el, data, setup, period, method, deduction));
@@ -255,7 +272,9 @@ function recompute1701Q(el, thisQ, prevQ, method) {
     setText(el, 'c1701q-line46', taxDue);
   }
 
-  const line62 = ['c1701q-55','c1701q-56','c1701q-57','c1701q-59','c1701q-60','c1701q-61'].reduce((s, id) => s + val(id), 0) + (el._cwtThisQuarter || 0);
+  const line62 = ['c1701q-59','c1701q-60','c1701q-61'].reduce((s, id) => s + val(id), 0)
+    + (el._cwtThisQuarter || 0) + (el._cwtPrevQuarters || 0)
+    + (el._priorYearExcessCredit || 0) + (el._itrPaymentsPrevQ || 0);
 
   setText(el, 'c1701q-line62', line62);
   setText(el, 'c1701q-line26', taxDue);

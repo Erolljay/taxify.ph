@@ -6,11 +6,16 @@
 
    Scope (v1 "core path"): regular/normal rate only (no EXEMPT or
    SPECIAL rate schedule), itemized OR OSD deduction, MCIT compared
-   against regular tax for the current quarter but no cross-year
-   MCIT carryforward tracking (Manager.io has no transaction trail
-   for that — it's a manual input). CREATE Law rate (25% or the 20%
-   small-corporation rate) is preparer-selected since Manager.io
-   does not track total assets.
+   against regular tax for the current quarter. CREATE Law rate (25%
+   or the 20% small-corporation rate) is preparer-selected since
+   Manager.io does not track total assets.
+
+   Cross-year figures (Prior Year's Excess Credit, prior quarters'
+   ITR/MCIT payments, unexpired MCIT carryforward) are read from 4
+   dedicated Balance Sheet accounts instead of manual inputs — see
+   DTA_ACCOUNTS in pnl-helpers.js — so they don't reset every session
+   and don't rely on the preparer re-typing a number this same app
+   already computed on an earlier quarter's return.
    ============================================================ */
 
 async function init1702QReport() {
@@ -85,8 +90,21 @@ async function generate1702Q(biz, setup, outputEl) {
     const cwt2307PrevQ = quarter > 1 ? await getPrepaidTaxAssetBalance(biz, coa, prevEnd, 'Prepaid Tax Asset-2307') : 0;
     const cwtThisQuarter = cwt2307 - cwt2307PrevQ;
 
+    const priorYearExcessCredit = await getPrepaidTaxAssetBalance(biz, coa, qEnd, DTA_ACCOUNTS.priorYearExcessCredit);
+    const itrPaymentsRegularPrevQ = quarter > 1 ? await getPrepaidTaxAssetBalance(biz, coa, prevEnd, DTA_ACCOUNTS.itrPaymentsRegular) : 0;
+    const itrPaymentsMcitPrevQ = quarter > 1 ? await getPrepaidTaxAssetBalance(biz, coa, prevEnd, DTA_ACCOUNTS.itrPaymentsMcit) : 0;
+    const mcitCarryforward = await getAgedCarryforwardBalance(biz, coa, qEnd, DTA_ACCOUNTS.mcitCarryforward);
+
     const period = { quarter, year, label: `${quarterLabel(quarter)} ${year}` };
-    render1702Q(outputEl, { thisQ, cumPrev, cumToDate, cwtThisQuarter }, setup, period, rate, deduction);
+    render1702Q(outputEl, {
+      thisQ, cumPrev, cumToDate,
+      cwtThisQuarter,
+      cwtPrevQuarters: cwt2307PrevQ,
+      priorYearExcessCredit,
+      itrPaymentsRegularPrevQ,
+      itrPaymentsMcitPrevQ,
+      mcitCarryforward,
+    }, setup, period, rate, deduction);
 
     ['c1702q-print', 'c1702q-pdf'].forEach(id => {
       const btn = document.getElementById(id);
@@ -155,20 +173,21 @@ function render1702Q(el, data, setup, period, rate, deduction) {
 
     <div class="return-section">
       <div class="return-section-header">Schedule 4 – Tax Credits/Payments</div>
-      ${manualLine1702('1', "Prior Year's Excess Credits", 'c1702q-tc1')}
-      ${manualLine1702('2', 'Tax Payment/s for the Previous Quarter/s (other than MCIT)', 'c1702q-tc2')}
-      ${manualLine1702('3', 'MCIT Payment/s for the Previous Quarter/s', 'c1702q-tc3')}
-      ${manualLine1702('4', 'Creditable Tax Withheld for the Previous Quarter/s', 'c1702q-tc4')}
+      ${computedLine1702('1', "Prior Year's Excess Credits", data.priorYearExcessCredit)}
+      ${computedLine1702('2', 'Tax Payment/s for the Previous Quarter/s (other than MCIT)', data.itrPaymentsRegularPrevQ)}
+      ${computedLine1702('3', 'MCIT Payment/s for the Previous Quarter/s', data.itrPaymentsMcitPrevQ)}
+      ${computedLine1702('4', 'Creditable Tax Withheld for the Previous Quarter/s', data.cwtPrevQuarters)}
       <div class="return-line"><div class="return-line-num">5</div><div class="return-line-label">Creditable Tax Withheld per BIR Form No. 2307 for this Quarter</div><div class="return-line-amt">₱ ${fmt(data.cwtThisQuarter)}</div></div>
       ${manualLine1702('6', 'Tax Paid in Return Previously Filed, if Amended', 'c1702q-tc6')}
       ${manualLine1702('6b', 'Other Tax Credits/Payments', 'c1702q-tc6b')}
       <div class="return-line"><div class="return-line-num">7</div><div class="return-line-label" style="font-weight:700;">Total Tax Credits/Payments</div><div class="return-line-amt" id="c1702q-tc-total">₱ 0.00</div></div>
+      ${mcitCarryforwardWarningHtml(data.mcitCarryforward)}
     </div>
 
     <div class="return-section">
       <div class="return-section-header">Part II – Total Tax Payable</div>
       <div class="return-line"><div class="return-line-num">14</div><div class="return-line-label">Income Tax Due – Regular/Normal Rate</div><div class="return-line-amt" id="c1702q-p2-14">₱ 0.00</div></div>
-      ${manualLine1702('15', "Less: Unexpired Excess of Prior Year's MCIT over Regular Rate (only if this quarter's tax due is regular rate)", 'c1702q-p2-15')}
+      <div class="return-line"><div class="return-line-num">15</div><div class="return-line-label">Less: Unexpired Excess of Prior Year's MCIT over Regular Rate <span style="font-size:10px;color:#9ca3af;font-weight:400;">(auto — from books, only if Item 14 is regular rate, capped at Item 14)</span></div><div class="return-line-amt" id="c1702q-p2-15">₱ 0.00</div></div>
       <div class="return-line"><div class="return-line-num">16</div><div class="return-line-label">Balance/Income Tax Still Due – Regular Rate</div><div class="return-line-amt" id="c1702q-p2-16">₱ 0.00</div></div>
       <div class="return-line"><div class="return-line-num">18</div><div class="return-line-label" style="font-weight:700;">Aggregate Income Tax Due</div><div class="return-line-amt" id="c1702q-p2-18">₱ 0.00</div></div>
       <div class="return-line"><div class="return-line-num">19</div><div class="return-line-label">Less: Total Tax Credits/Payments</div><div class="return-line-amt" id="c1702q-p2-19">₱ 0.00</div></div>
@@ -204,6 +223,35 @@ function manualLine1702(num, label, inputId) {
   </div>`;
 }
 
+// Read-only counterpart to manualLine1702 for figures sourced from a
+// Deferred Tax Asset account's running balance instead of a typed-in value.
+function computedLine1702(num, label, amount) {
+  return `<div class="return-line">
+    <div class="return-line-num">${num}</div>
+    <div class="return-line-label">${escHtml(label)} <span style="font-size:10px;color:#9ca3af;font-weight:400;">(auto — from books)</span></div>
+    <div class="return-line-amt">₱ ${fmt(amount)}</div>
+  </div>`;
+}
+
+// Surfaces the MCIT carryforward's aged breakdown right under Schedule 4 so
+// the preparer sees, at filing time, exactly how much of the account's total
+// balance is usable this quarter vs. about to expire vs. already expired
+// under the NIRC's 3-taxable-year window — the plain running balance on
+// line 1/Part II line 15 alone can't show that distinction.
+function mcitCarryforwardWarningHtml(mcitCarryforward) {
+  if (!mcitCarryforward) return '';
+  const { expiringSoon, expired, breakdown } = mcitCarryforward;
+  if (expiringSoon < 0.005 && expired < 0.005) return '';
+  const rows = breakdown
+    .filter(l => l.expired || l.amount >= 0.005)
+    .map(l => `<li>Tax Year ${l.year}: ₱ ${fmt(l.amount)}${l.expired ? ' — <strong>expired</strong>, no longer creditable' : (l.age >= 3 ? ' — expires after this year' : '')}</li>`)
+    .join('');
+  return `<div class="alert alert-warn no-print" style="margin-top:8px;font-size:11px;">
+    ⚠ MCIT Carryforward aging (Deferred Tax Asset - MCIT Carryforward): only unexpired lots are counted toward Part II Line 15.
+    <ul style="margin:4px 0 0 18px;padding:0;">${rows}</ul>
+  </div>`;
+}
+
 function val1702(id) {
   const el = document.getElementById(id);
   return el ? (parseFloat(el.value) || 0) : 0;
@@ -215,7 +263,10 @@ function set1702(el, id, amount) {
 }
 
 function recompute1702Q(el) {
-  const { thisQ, cumPrev, cumToDate, cwtThisQuarter } = el._data;
+  const {
+    thisQ, cumPrev, cumToDate, cwtThisQuarter, cwtPrevQuarters,
+    priorYearExcessCredit, itrPaymentsRegularPrevQ, itrPaymentsMcitPrevQ, mcitCarryforward,
+  } = el._data;
   const rate = el._rate;
   const deduction = el._deduction;
 
@@ -248,14 +299,19 @@ function recompute1702Q(el) {
   set1702(el, 'c1702q-s2-13', incomeTaxDue);
 
   const isRegularRateHigher = incomeTaxDueRegular >= mcit;
-  const line15 = isRegularRateHigher ? val1702('c1702q-p2-15') : 0;
-  set1702(el, 'c1702q-p2-14', incomeTaxDueRegular >= mcit ? incomeTaxDueRegular : mcit);
-  const line16 = (incomeTaxDueRegular >= mcit ? incomeTaxDueRegular : mcit) - line15;
+  const line14 = incomeTaxDueRegular >= mcit ? incomeTaxDueRegular : mcit;
+  // Only unexpired MCIT carryforward lots count, and it can only offset
+  // regular-rate tax due (never MCIT), capped at Item 14 itself — this
+  // line only reduces tax due, it can't create a refund on its own.
+  const line15 = isRegularRateHigher ? Math.min(mcitCarryforward.usable, line14) : 0;
+  set1702(el, 'c1702q-p2-14', line14);
+  set1702(el, 'c1702q-p2-15', line15);
+  const line16 = line14 - line15;
   set1702(el, 'c1702q-p2-16', line16);
   set1702(el, 'c1702q-p2-18', line16);
 
-  const credits = ['c1702q-tc1','c1702q-tc2','c1702q-tc3','c1702q-tc4','c1702q-tc6','c1702q-tc6b']
-    .reduce((s, id) => s + val1702(id), 0) + cwtThisQuarter;
+  const manualCredits = ['c1702q-tc6', 'c1702q-tc6b'].reduce((s, id) => s + val1702(id), 0);
+  const credits = manualCredits + priorYearExcessCredit + itrPaymentsRegularPrevQ + itrPaymentsMcitPrevQ + cwtPrevQuarters + cwtThisQuarter;
   set1702(el, 'c1702q-tc-total', credits);
   set1702(el, 'c1702q-p2-19', credits);
 

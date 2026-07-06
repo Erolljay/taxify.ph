@@ -14,14 +14,54 @@
    debit/credit amounts, we can reconstruct P&L totals ourselves.
    ============================================================ */
 
-// Standard Manager.io system group GUIDs (same across all businesses).
+// Standard Manager.io system group GUIDs (same across all businesses). Only
+// used as a fallback (see pnlBucketForAccount below) — real accounts live in
+// editable *subgroups* of these, never directly in the master group itself,
+// so this match rarely fires once an account has a real BIR category.
 const PNL_GROUP = {
   SALES: '95713fac-30d3-42e4-b536-dd7bc4f7a80e',   // Sales / Other Income
   COGS:  '11eafe62-925c-4b6b-8321-1b5485a963cc',   // Cost of Sales
   OPEX:  'fd003045-876e-439e-b923-1904453f5c30',   // Operating Expenses
 };
 
-function pnlBucketForGroup(groupGuid) {
+// Maps the explicit BIR category (set per-account in the COA tab, chart-of-
+// accounts.js's BIR_COA_CATEGORIES) to the 3 P&L totals the income-tax
+// reports aggregate into. Cost of Sales and Cost of Services both feed the
+// single "Cost of Sales/Services" line on 1701/1701Q/1702Q/1702RT; Other
+// Income/Other Expense are still ordinary P&L income/expense for tax
+// purposes, so they roll into the same income/opex totals as Revenue/Opex.
+const COA_CATEGORY_BUCKET = {
+  'acct-bir-revenue':  'income',
+  'acct-bir-oincome':  'income',
+  'acct-bir-cogs':     'cogs',
+  'acct-bir-cos':      'cogs',
+  'acct-bir-opex':     'opex',
+  'acct-bir-oexpense': 'opex',
+};
+
+// ── DEFERRED TAX ASSET ACCOUNTS (carry-forward figures) ──────
+// Account names the preparer books cross-year/cross-quarter income-tax
+// carry-forward figures to — Balance Sheet / asset-type, never P&L, so they
+// never touch Gross/Taxable Income. Distinct "Deferred Tax Asset -" prefix
+// keeps findAccountByName()'s substring match from ever confusing these
+// with "Prepaid Tax Asset-2307/2306". Shared by 1701q-report.js (Prior
+// Year Excess Credit only — individuals have no MCIT) and 1702q-report.js
+// (all 4 — a business is always either Individual or Non-Individual, never
+// both, so there's no collision risk reusing the same account name).
+const DTA_ACCOUNTS = {
+  priorYearExcessCredit: 'Deferred Tax Asset - Prior Year Excess Credit',
+  itrPaymentsRegular:    'Deferred Tax Asset - ITR Payments Regular',
+  itrPaymentsMcit:       'Deferred Tax Asset - ITR Payments MCIT',
+  mcitCarryforward:      'Deferred Tax Asset - MCIT Carryforward',
+};
+
+// coaMap: { accountGuid -> 'acct-bir-<category>' } from getCoaMapping() — the
+// mapping the preparer sets up in the COA tab. That mapping is the source of
+// truth; the raw Manager group GUID is only a fallback for accounts nobody
+// has mapped yet (and, per the comment above, will rarely match anything).
+function pnlBucketForAccount(guid, groupGuid, coaMap) {
+  const mapped = coaMap && coaMap[guid];
+  if (mapped && COA_CATEGORY_BUCKET[mapped]) return COA_CATEGORY_BUCKET[mapped];
   if (groupGuid === PNL_GROUP.SALES) return 'income';
   if (groupGuid === PNL_GROUP.COGS) return 'cogs';
   if (groupGuid === PNL_GROUP.OPEX) return 'opex';
@@ -34,6 +74,13 @@ let _coaCache = {}; // { [biz]: { [accountGuid]: {...} } }
 async function loadChartOfAccounts(biz, force = false) {
   if (!force && _coaCache[biz]) return _coaCache[biz];
 
+  let coaMap = {};
+  try {
+    coaMap = (typeof getCoaMapping === 'function') ? await getCoaMapping(biz) : {};
+  } catch (e) {
+    console.warn('loadChartOfAccounts: getCoaMapping failed, falling back to group-GUID matching:', e.message);
+  }
+
   const [pnlAccounts, bsAccounts] = await Promise.all([
     fetchAllBatch('/api4/profit-and-loss-statement-account-batch', biz),
     fetchAllBatch('/api4/balance-sheet-account-batch', biz),
@@ -42,11 +89,12 @@ async function loadChartOfAccounts(biz, force = false) {
   const byKey = {};
   for (const it of pnlAccounts) {
     const a = it.item || it.value || it;
-    byKey[a.key || it.key] = {
-      key: a.key || it.key,
+    const key = a.key || it.key;
+    byKey[key] = {
+      key,
       name: a.name,
       group: a.group,
-      bucket: pnlBucketForGroup(a.group),
+      bucket: pnlBucketForAccount(key, a.group, coaMap),
       isProfitAndLossAccount: true,
     };
   }
@@ -311,16 +359,15 @@ function renderPnLStatementHtml(totals, byAccount) {
     </div>`;
 }
 
-// ── PREPAID TAX ASSET (CREDITABLE WITHHOLDING TAX) BALANCE ───
-// Looks up the running balance of "Prepaid Tax Asset-2306"
-// (individual) or "Prepaid Tax Asset-2307" (corporate) as of a
-// given cutoff date, by summing debit-credit (or, for invoice/
-// receipt/payment lines that only carry qty+unitPrice, the computed
-// net amount) on that account from all transactions up to (and
-// including) the cutoff.
-async function getPrepaidTaxAssetBalance(biz, coa, cutoffDate, accountNameSubstr) {
+// ── ACCOUNT LEDGER (PREPAID/DEFERRED TAX ASSET ACCOUNTS) ─────
+// Shared by getPrepaidTaxAssetBalance() and getAgedCarryforwardBalance()
+// below. Walks every transaction batch once and returns every line posted
+// to the named account as a signed (debit-normal) amount + its date,
+// sorted chronologically — the raw ledger, before either caller decides
+// how to fold it into a single number.
+async function collectAccountLedgerEntries(biz, coa, accountNameSubstr) {
   const account = findAccountByName(coa, accountNameSubstr);
-  if (!account) return 0;
+  if (!account) return { account: null, entries: [] };
 
   const rateByKey = await loadTaxCodeRates(biz);
   const batches = [
@@ -331,26 +378,94 @@ async function getPrepaidTaxAssetBalance(biz, coa, cutoffDate, accountNameSubstr
     'payment-batch',
   ];
 
-  let balance = 0;
+  const entries = [];
   for (const batchPath of batches) {
     const items = await fetchAllBatch(`/api4/${batchPath}`, biz);
     for (const it of items) {
       const v = it.item || it.value || it;
       const date = v.date || v.issueDate || v.invoiceDate || v.receiptDate || v.paymentDate;
-      if (!date || new Date(date) > cutoffDate) continue;
+      if (!date) continue;
       const lines = v.Lines || v.lines || v.invoiceLines || v.receiptLines || v.paymentLines || v.journalEntryLines || [];
       for (const line of lines) {
         const guid = line.account || line.Account;
         if (guid !== account.key) continue;
         const hasCredit = line.credit !== undefined || line.Credit !== undefined;
         const hasDebit  = line.debit  !== undefined || line.Debit  !== undefined;
-        if (hasCredit || hasDebit) {
-          balance += Number(line.debit ?? line.Debit ?? 0) - Number(line.credit ?? line.Credit ?? 0);
-        } else {
-          balance += lineAmounts(v, line, rateByKey).net;
-        }
+        const amount = (hasCredit || hasDebit)
+          ? Number(line.debit ?? line.Debit ?? 0) - Number(line.credit ?? line.Credit ?? 0)
+          : lineAmounts(v, line, rateByKey).net;
+        entries.push({ date: new Date(date), amount });
       }
     }
   }
-  return balance;
+  entries.sort((a, b) => a.date - b.date);
+  return { account, entries };
+}
+
+// ── PREPAID TAX ASSET (CREDITABLE WITHHOLDING TAX) BALANCE ───
+// Looks up the running balance of "Prepaid Tax Asset-2306"
+// (individual) or "Prepaid Tax Asset-2307" (corporate) as of a
+// given cutoff date, by summing debit-credit (or, for invoice/
+// receipt/payment lines that only carry qty+unitPrice, the computed
+// net amount) on that account from all transactions up to (and
+// including) the cutoff. Also used for the simple (non-expiring)
+// carryforward accounts, e.g. "Deferred Tax Asset - Prior Year Excess
+// Credit", which have no statutory expiry so a running balance is
+// all they need.
+async function getPrepaidTaxAssetBalance(biz, coa, cutoffDate, accountNameSubstr) {
+  const { entries } = await collectAccountLedgerEntries(biz, coa, accountNameSubstr);
+  return entries
+    .filter(e => e.date <= cutoffDate)
+    .reduce((sum, e) => sum + e.amount, 0);
+}
+
+// ── AGED CARRYFORWARD BALANCE (MCIT CARRYFORWARD, NIRC SEC. 27(E)(2)) ──
+// Excess MCIT paid in a given taxable year may only be credited against
+// REGULAR income tax due in the 3 taxable years immediately following —
+// after that it expires. A plain running balance can't answer "how much
+// of this is still usable," so this splits the ledger into dated FIFO
+// lots: each debit entry opens a lot dated by the calendar year it was
+// posted in (the app's usual convention of reading the fact from the
+// transaction date rather than a separate field); each credit entry
+// (usage/write-off) consumes the oldest open lot(s) first. As of
+// cutoffDate, a lot is expired once more than `expiryYears` taxable
+// years have passed since its origin year.
+async function getAgedCarryforwardBalance(biz, coa, cutoffDate, accountNameSubstr, expiryYears = 3) {
+  const { entries } = await collectAccountLedgerEntries(biz, coa, accountNameSubstr);
+  const cutoffYear = cutoffDate.getFullYear();
+
+  const lots = []; // [{ year, remaining }], oldest first (entries are date-sorted)
+  for (const entry of entries) {
+    if (entry.date > cutoffDate) continue;
+    if (entry.amount >= 0) {
+      const year = entry.date.getFullYear();
+      const openLot = lots.find(l => l.year === year);
+      if (openLot) openLot.remaining += entry.amount;
+      else lots.push({ year, remaining: entry.amount });
+    } else {
+      let toConsume = -entry.amount;
+      for (const lot of lots) {
+        if (toConsume <= 0) break;
+        const used = Math.min(lot.remaining, toConsume);
+        lot.remaining -= used;
+        toConsume -= used;
+      }
+    }
+  }
+
+  let usable = 0, expiringSoon = 0, expired = 0;
+  const breakdown = [];
+  for (const lot of lots) {
+    if (lot.remaining <= 0.005) continue;
+    const age = cutoffYear - lot.year;
+    const isExpired = age > expiryYears;
+    if (isExpired) expired += lot.remaining;
+    else {
+      usable += lot.remaining;
+      if (age === expiryYears) expiringSoon += lot.remaining;
+    }
+    breakdown.push({ year: lot.year, amount: lot.remaining, age, expired: isExpired });
+  }
+
+  return { usable, expiringSoon, expired, breakdown };
 }
