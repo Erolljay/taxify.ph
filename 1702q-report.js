@@ -135,6 +135,13 @@ function render1702Q(el, data, setup, period, rate, deduction) {
   const pnlHtml = renderPnLStatementHtml(data.thisQ.totals, data.thisQ.byAccount);
   const mappingHtml = renderDeductionScheduleHtml(schedule, 'Ordinary Allowable Itemized Deductions (This Quarter)');
 
+  // MCIT only applies beginning the 4th taxable year following incorporation
+  // (NIRC Sec. 27(E)(1)) — see isMcitApplicable in pnl-helpers.js.
+  const mcitApplicable = isMcitApplicable(setup.dateOfIncorporation, period.year);
+  const mcitExemptNote = !mcitApplicable
+    ? `<div class="alert alert-info no-print" style="margin-top:6px;font-size:11px;">⏸ Not yet subject to MCIT — exempt for the first 3 taxable years from incorporation (${escHtml(setup.dateOfIncorporation)}). MCIT first applies for taxable year ${new Date(setup.dateOfIncorporation).getFullYear() + 3}.</div>`
+    : '';
+
   const formHtml = `
     <div class="form-title">
       <h2>BIR Form 1702-Q — Quarterly Income Tax Return for Corporations, Partnerships and Other Non-Individual Taxpayers</h2>
@@ -168,6 +175,7 @@ function render1702Q(el, data, setup, period, rate, deduction) {
 
     <div class="return-section">
       <div class="return-section-header">Schedule 3 – Computation of MCIT for the Quarter/s</div>
+      ${mcitExemptNote}
       <div class="return-line"><div class="return-line-num">4</div><div class="return-line-label">Total Gross Income, Year-to-Date</div><div class="return-line-amt" id="c1702q-s3-4">₱ 0.00</div></div>
       <div class="return-line"><div class="return-line-num">5</div><div class="return-line-label">MCIT Rate</div><div class="return-line-amt">2%</div></div>
       <div class="return-line"><div class="return-line-num">6</div><div class="return-line-label" style="font-weight:700;">Minimum Corporate Income Tax</div><div class="return-line-amt" id="c1702q-s3-6">₱ 0.00</div></div>
@@ -213,6 +221,7 @@ function render1702Q(el, data, setup, period, rate, deduction) {
   el._rate = rate;
   el._deduction = deduction;
   el._itemizedTotal = schedule.total;
+  el._mcitApplicable = mcitApplicable;
   bindIncomeTaxTabs(el);
   el.querySelectorAll('.recon-manual-input').forEach(inp => inp.addEventListener('input', () => recompute1702Q(el)));
   bindDeductionMappingTable(el, App.currentBusiness, () => render1702Q(el, data, setup, period, rate, deduction));
@@ -389,7 +398,9 @@ function recompute1702Q(el) {
 
   const mcitBase = cumNet.totalGrossIncome;
   set1702(el, 'c1702q-s3-4', mcitBase);
-  const mcit = Math.max(0, mcitBase) * 0.02;
+  // Still within the first 3 taxable years from incorporation -> not yet
+  // subject to MCIT at all, regardless of gross income (NIRC Sec. 27(E)(1)).
+  const mcit = el._mcitApplicable ? Math.max(0, mcitBase) * 0.02 : 0;
   set1702(el, 'c1702q-s3-6', mcit);
   set1702(el, 'c1702q-s2-12', mcit);
 

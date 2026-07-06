@@ -22,10 +22,12 @@
     // [7] Registered Name (non-individual)
     { id: 'b1r00001-0000-4000-a000-000000000009', label: 'Company / Registered Name', type: 'text',  placeholder: 'ABC Corporation' },
     { id: 'b1r00001-0000-4000-a000-000000000025', label: 'Trade Name',               type: 'text',   placeholder: 'e.g. ABC Store (if different from registered name)' },
+    { id: 'b1r00001-0000-4000-a000-000000000027', label: 'Date of Incorporation',    type: 'date',   help: 'Used to determine when MCIT starts applying (4th taxable year following incorporation).' },
     // [8-10] Registered Name (individual)
     { id: 'b1r00001-0000-4000-a000-000000000010', label: 'Last Name',                type: 'text',   placeholder: 'Dela Cruz' },
     { id: 'b1r00001-0000-4000-a000-000000000011', label: 'First Name',               type: 'text',   placeholder: 'Juan' },
     { id: 'b1r00001-0000-4000-a000-000000000012', label: 'Middle Name',              type: 'text',   placeholder: 'Santos' },
+    { id: 'b1r00001-0000-4000-a000-000000000026', label: 'Date of Birth',            type: 'date' },
     // [11-16] Address
     { id: 'b1r00001-0000-4000-a000-000000000017', label: 'Substreet',                type: 'text',   placeholder: 'Unit / Floor / Room' },
     { id: 'b1r00001-0000-4000-a000-000000000018', label: 'Street',                   type: 'text',   placeholder: 'e.g. Iznart St.' },
@@ -260,11 +262,13 @@
         '<div id="cf-grp-company" style="' + (isInd ? 'display:none' : '') + '">' +
           renderField(BF('b1r00001-0000-4000-a000-000000000009'), val('b1r00001-0000-4000-a000-000000000009'), 'biz') +
           renderField(BF('b1r00001-0000-4000-a000-000000000025'), val('b1r00001-0000-4000-a000-000000000025'), 'biz') +
+          renderField(BF('b1r00001-0000-4000-a000-000000000027'), val('b1r00001-0000-4000-a000-000000000027'), 'biz') +
         '</div>' +
         '<div id="cf-grp-ind" style="' + (!isInd ? 'display:none' : '') + '">' +
           renderField(BF('b1r00001-0000-4000-a000-000000000010'), val('b1r00001-0000-4000-a000-000000000010'), 'biz') +
           renderField(BF('b1r00001-0000-4000-a000-000000000011'), val('b1r00001-0000-4000-a000-000000000011'), 'biz') +
           renderField(BF('b1r00001-0000-4000-a000-000000000012'), val('b1r00001-0000-4000-a000-000000000012'), 'biz') +
+          renderField(BF('b1r00001-0000-4000-a000-000000000026'), val('b1r00001-0000-4000-a000-000000000026'), 'biz') +
         '</div>';
 
       var addr =

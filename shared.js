@@ -479,6 +479,8 @@ const BIZ_GUIDS = {
   authRepSignature: 'b1r00001-0000-4000-a000-000000000023',
   fiscalMonthEnd:'b1r00001-0000-4000-a000-000000000024',
   tradeName:     'b1r00001-0000-4000-a000-000000000025',
+  dateOfBirth:   'b1r00001-0000-4000-a000-000000000026',
+  dateOfIncorporation: 'b1r00001-0000-4000-a000-000000000027',
 };
 
 const PARTY_GUIDS = {
@@ -532,6 +534,8 @@ async function loadSetup(biz) {
       authRep:  cf[BIZ_GUIDS.authRep]       || '',
       authRepTitle: cf[BIZ_GUIDS.authRepTitle] || '',
       authRepSignature: cf[BIZ_GUIDS.authRepSignature] || '',
+      dateOfBirth:          cf[BIZ_GUIDS.dateOfBirth]          || '',
+      dateOfIncorporation:  cf[BIZ_GUIDS.dateOfIncorporation]  || '',
       vatMapping: readMapping(model, 'vatMapping'),
       ewtMapping: readMapping(model, 'ewtMapping'),
     };
