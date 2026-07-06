@@ -34,7 +34,7 @@ const StepEngine = (function () {
     steps.forEach(s => markDone(biz, workflowKey, s.key, false));
   }
 
-  const TYPE_ICON = { review: '📊', validate: '🔎', download: '📥', final: '🏁', instruction: 'ℹ️', period: '📅', payment: '💳' };
+  const TYPE_ICON = { review: '📊', validate: '🔎', download: '📥', final: '🏁', instruction: 'ℹ️', period: '📅', payment: '💳', checklist: '📋' };
 
   function periodStorageKey(biz, workflowKey) {
     return `taxify:period:${biz}:${workflowKey}`;
@@ -260,6 +260,8 @@ const StepEngine = (function () {
       mountBundleFinalStep(body, panel, state, step);
     } else if (step.type === 'validate') {
       mountValidateStep(body, panel, state, step);
+    } else if (step.type === 'checklist') {
+      mountChecklistStep(body, panel, state, step);
     } else if (step.type === 'instruction') {
       mountInstructionStep(body, panel, state, step);
     } else if (step.type === 'period') {
@@ -1034,6 +1036,48 @@ const StepEngine = (function () {
       }
     };
     body.querySelector('#tfy-recheck').onclick = () => runValidateCheck(body, panel, state, step);
+  }
+
+  // Like 'validate', but never blocks: an async check(biz) informs the
+  // preparer of something worth knowing (e.g. whether an optional account
+  // is set up) without gating progress on it. Always shows a Continue
+  // button, whether or not the check passed — the difference from
+  // 'instruction' is that the body content is computed from live data
+  // instead of a fixed string.
+  function mountChecklistStep(body, panel, state, step) {
+    if (!state._onShow) state._onShow = {};
+    let started = false;
+    state._onShow[step.key] = () => {
+      if (started) return;
+      started = true;
+      runChecklist(body, panel, state, step);
+    };
+  }
+
+  async function runChecklist(body, panel, state, step) {
+    body.innerHTML = `<div class="spinner-wrap"><div class="spinner"></div><span>Checking…</span></div>`;
+    let result;
+    try {
+      result = await step.check(state.biz);
+    } catch (e) {
+      result = { ok: false, message: `Could not run this check: ${e.message}`, rows: [] };
+    }
+
+    const root = panel.closest('.tfy-step-wrap').parentElement;
+    const rowsHtml = (result.rows || [])
+      .map(r => `<li>${r.ok ? '✅' : '⚠️'} <strong>${escHtml(r.label)}</strong> — ${escHtml(r.detail || '')}</li>`)
+      .join('');
+
+    body.innerHTML = `
+      <div class="alert ${result.ok ? 'alert-success' : 'alert-warn'}" style="margin-bottom:10px;">${result.ok ? '✅' : '⚠️'} ${escHtml(result.message || '')}</div>
+      ${rowsHtml ? `<ul class="tfy-problem-list">${rowsHtml}</ul>` : ''}
+      <div class="tfy-step-footer">
+        <button class="btn btn-primary" id="tfy-continue">Continue →</button>
+        <button class="btn btn-outline" id="tfy-recheck" style="margin-left:6px;">↻ Re-check</button>
+      </div>`;
+
+    body.querySelector('#tfy-continue').onclick = () => setStepDone(root, state, step.key, true);
+    body.querySelector('#tfy-recheck').onclick = () => runChecklist(body, panel, state, step);
   }
 
   return { mount, isDone, markDone, resetWorkflow };

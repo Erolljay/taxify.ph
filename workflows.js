@@ -31,6 +31,54 @@ async function checkPartyTIN(biz, partyType) {
   };
 }
 
+// Reports whether each Deferred Tax Asset carry-forward account (see
+// DTA_ROLES in pnl-helpers.js) resolves to a real Manager account — either
+// explicitly via the COA tab's "Deferred Tax Asset Role" dropdown, or by
+// matching the role's default name. Informational only: a missing account
+// just means that figure defaults to ₱0.00 on the return (the same
+// fallback 1701q/1702q-report.js already use), so this never blocks
+// filing — see the 'checklist' step type in step-engine.js. roleKeys
+// restricts which roles get checked (1701Q has no MCIT, so the individual
+// workflow only checks 'priorYearExcessCredit'); omit for all 4.
+async function checkDtaAccounts(biz, roleKeys) {
+  const coa = await loadChartOfAccounts(biz);
+  const dtaMap = await getDtaRoleMapping(biz);
+  const today = new Date();
+
+  const roles = roleKeys ? DTA_ROLES.filter(r => roleKeys.includes(r.key)) : DTA_ROLES;
+  const rows = [];
+  for (const role of roles) {
+    const account = findDtaAccount(coa, dtaMap, role.key);
+    if (!account) {
+      rows.push({
+        ok: false,
+        label: role.label,
+        detail: 'No account mapped or found by default name — this figure will read as ₱0.00 until one is set up in Settings → Chart of Accounts.',
+      });
+      continue;
+    }
+    if (role.key === 'mcitCarryforward') {
+      const aged = await getDtaAgedBalance(biz, coa, dtaMap, today, role.key);
+      let detail = `"${account.name}" — usable: ₱${fmt(aged.usable)}`;
+      if (aged.expiringSoon > 0.005) detail += `, expiring this year: ₱${fmt(aged.expiringSoon)}`;
+      if (aged.expired > 0.005) detail += `, expired: ₱${fmt(aged.expired)}`;
+      rows.push({ ok: true, label: role.label, detail });
+    } else {
+      const balance = await getDtaBalance(biz, coa, dtaMap, today, role.key);
+      rows.push({ ok: true, label: role.label, detail: `"${account.name}" — current balance: ₱${fmt(balance)}` });
+    }
+  }
+
+  const allMapped = rows.every(r => r.ok);
+  return {
+    ok: allMapped,
+    message: allMapped
+      ? `All ${roles.length} carry-forward account${roles.length === 1 ? '' : 's'} ${roles.length === 1 ? 'is' : 'are'} mapped.`
+      : "Some carry-forward accounts aren't set up yet — this is informational only and won't block filing.",
+    rows,
+  };
+}
+
 const WORKFLOWS = {
 
   vat: {
@@ -278,6 +326,13 @@ const WORKFLOWS = {
     label: 'Income Tax (Individual)',
     steps: [
       {
+        key: 'itr-dta-check',
+        type: 'checklist',
+        label: 'Carry-forward account check',
+        help: "Confirms whether the Deferred Tax Asset account for Prior Year's Excess Credit is set up. Informational only — you can continue either way.",
+        check: (biz) => checkDtaAccounts(biz, ['priorYearExcessCredit']),
+      },
+      {
         key: 'itr-review',
         type: 'review',
         label: 'Review Quarterly Income Tax Return',
@@ -298,6 +353,13 @@ const WORKFLOWS = {
     key: 'nonindividual',
     label: 'Income Tax (Corporation)',
     steps: [
+      {
+        key: 'itr-dta-check',
+        type: 'checklist',
+        label: 'Carry-forward accounts check',
+        help: "Confirms whether the 4 Deferred Tax Asset accounts (Prior Year's Excess Credit, ITR Payments Regular/MCIT, MCIT Carryforward) are set up. Informational only — you can continue either way.",
+        check: (biz) => checkDtaAccounts(biz),
+      },
       {
         key: 'itr-review',
         type: 'review',

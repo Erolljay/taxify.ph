@@ -109,6 +109,7 @@
     var groups = { pnl: [], bs: [] };
     var coaMap = {};    // accountGuid -> 'acct-bir-<category>'
     var deductionOverrides = {}; // accountGuid -> DEDUCTION_SCHEDULE key (Operating Expenses only)
+    var dtaMap = {};    // accountGuid -> DTA_ROLES key, e.g. 'priorYearExcessCredit' (Asset accounts only)
 
     // Same override store the 1701/1701Q/1702Q/1702RT itemized-deduction
     // schedules read via getDeductionOverrides() in deduction-helpers.js —
@@ -127,6 +128,23 @@
         return '<option value="' + esc(c.key) + '"' + sel + '>' + esc(c.num) + ' – ' + esc(c.label) + '</option>';
       }).join('');
       return '<select data-role="deduction" style="width:100%;font-size:12px;">' + opts + '</select>';
+    }
+
+    // Same idea as the Operating Expenses -> Itemized Deduction dropdown
+    // above, but for Asset accounts: lets the preparer say which of the 4
+    // income-tax carry-forward roles (Prior Year Excess Credit, ITR
+    // Payments Regular/MCIT, MCIT Carryforward) an account plays, read by
+    // 1701q/1702q-report.js via getDtaBalance/getDtaAgedBalance in
+    // pnl-helpers.js instead of matching the account by name.
+    function dtaRoleSelectHtml(guid) {
+      if (typeof DTA_ROLES === 'undefined') return '';
+      var current = dtaMap[guid] || '';
+      var opts = '<option value="">-- not a carry-forward account --</option>' + DTA_ROLES.map(function (r) {
+        var value = r.key;
+        var sel = value === current ? ' selected' : '';
+        return '<option value="' + esc(value) + '"' + sel + '>' + esc(r.label) + '</option>';
+      }).join('');
+      return '<select data-role="dta" style="width:100%;font-size:12px;">' + opts + '</select>';
     }
 
     async function refresh() {
@@ -156,6 +174,13 @@
         loadError += 'Mapping: ' + err.message + '. ';
       }
       deductionOverrides = (typeof getDeductionOverrides === 'function') ? getDeductionOverrides(business) : {};
+      try {
+        dtaMap = (typeof getDtaRoleMapping === 'function') ? await getDtaRoleMapping(business) : {};
+      } catch (err) {
+        console.error('[COA] getDtaRoleMapping failed:', err);
+        dtaMap = {};
+        loadError += 'Deferred Tax Asset mapping: ' + err.message + '. ';
+      }
       console.log('[COA] loaded', Object.keys(coa).length, 'accounts;', groups.pnl.length, 'P&L groups;', groups.bs.length, 'balance-sheet groups.');
       render(loadError);
     }
@@ -220,11 +245,15 @@
       var deductionCell = cat.id === 'acct-bir-opex'
         ? '<td style="padding:6px 8px;">' + deductionSelectHtml(acct.key, acct.name) + '</td>'
         : '';
+      var dtaCell = cat.id === 'acct-bir-asset'
+        ? '<td style="padding:6px 8px;">' + dtaRoleSelectHtml(acct.key) + '</td>'
+        : '';
       return '<tr data-key="' + esc(acct.key) + '" style="border-bottom:.5px solid #f3f4f6;">' +
         '<td style="padding:6px 8px;"><input data-role="name" type="text" value="' + esc(acct.name) + '" style="font-size:12px;width:100%;border:1px solid #e5e7eb;border-radius:4px;padding:3px 6px;" /></td>' +
         '<td style="padding:6px 8px;font-size:12px;color:#6b7280;">' + esc(groupNameFor(acct.group, acct.isProfitAndLossAccount)) + '</td>' +
         '<td style="padding:6px 8px;"><select data-role="cat" style="width:100%;font-size:12px;">' + catOpts + '</select></td>' +
         deductionCell +
+        dtaCell +
         '<td style="padding:6px 8px;"><button class="btn btn-primary btn-sm" data-action="coa-save-row" style="font-size:11px;">Save</button></td>' +
         '</tr>';
     }
@@ -235,6 +264,9 @@
       var deductionCell = cat.id === 'acct-bir-opex'
         ? '<td style="padding:6px 8px;">' + deductionSelectHtml('', '') + '</td>'
         : '';
+      var dtaCell = cat.id === 'acct-bir-asset'
+        ? '<td style="padding:6px 8px;">' + dtaRoleSelectHtml('') + '</td>'
+        : '';
       return '<tr data-new="true" data-cat="' + esc(cat.id) + '" style="border-bottom:.5px solid #f3f4f6;background:#f8fafc;">' +
         '<td style="padding:6px 8px;"><input data-role="name" type="text" placeholder="Account name" style="font-size:12px;width:100%;border:1px solid #e5e7eb;border-radius:4px;padding:3px 6px;" /></td>' +
         '<td style="padding:6px 8px;">' +
@@ -243,6 +275,7 @@
         '</td>' +
         '<td style="padding:6px 8px;font-size:12px;color:#6b7280;">' + esc(cat.label) + '</td>' +
         deductionCell +
+        dtaCell +
         '<td style="padding:6px 8px;"><button data-action="coa-remove-row" style="font-size:11px;border:1px solid #d1d5db;border-radius:4px;background:#fff;cursor:pointer;padding:3px 8px;">✕</button></td>' +
         '</tr>';
     }
@@ -268,17 +301,21 @@
         '</h3>';
       var rows = accts.map(function (a) { return categoryRow(cat, a); }).join('');
       var isOpex = cat.id === 'acct-bir-opex';
-      var colspan = isOpex ? 5 : 4;
+      var isAsset = cat.id === 'acct-bir-asset';
+      var colspan = (isOpex || isAsset) ? 5 : 4;
       var deductionHeader = isOpex ? '<th style="text-align:left;padding:5px 8px;font-weight:500;">Itemized Deduction</th>' : '';
+      var dtaHeader = isAsset ? '<th style="text-align:left;padding:5px 8px;font-weight:500;">Deferred Tax Asset Role</th>' : '';
       var emptyMsg = !accts.length ? '<tr><td colspan="' + colspan + '" style="padding:6px 8px;"><span class="muted">No accounts mapped to ' + esc(cat.label.toLowerCase()) + ' yet.</span></td></tr>' : '';
       return heading +
         (isOpex ? '<p style="font-size:11px;color:#6b7280;margin:0 0 6px;">Each expense account also gets an <strong>Itemized Deduction</strong> category (BIR Schedule 4 / Schedule I), so 1701/1701Q/1702Q/1702RT pick it up automatically.</p>' : '') +
+        (isAsset ? '<p style="font-size:11px;color:#6b7280;margin:0 0 6px;">An asset account can optionally be tagged with a <strong>Deferred Tax Asset Role</strong> so 1701Q/1702Q read its balance automatically for Prior Year\'s Excess Credit, ITR Payments, or MCIT Carryforward instead of a manual entry.</p>' : '') +
         '<div style="overflow-x:auto;margin-bottom:8px;"><table id="' + tableId + '" style="width:100%;border-collapse:collapse;">' +
         '<thead><tr style="font-size:11px;color:#9ca3af;">' +
         '<th style="text-align:left;padding:5px 8px;font-weight:500;">Account</th>' +
         '<th style="text-align:left;padding:5px 8px;font-weight:500;">Group</th>' +
         '<th style="padding:5px 8px;font-weight:500;">BIR Category</th>' +
         deductionHeader +
+        dtaHeader +
         '<th></th></tr></thead><tbody>' + rows + emptyMsg + '</tbody></table></div>';
     }
 
@@ -321,10 +358,12 @@
     // the coaMap write into one call instead of one saveCoaMapping per row.
     // deductionDirty does the same for the Operating Expenses itemized-
     // deduction sub-category (only present when the row has a [data-role="deduction"]
-    // select, i.e. it's in the Operating Expenses category table).
-    async function saveRow(business, row, mapDirty, deductionDirty) {
+    // select, i.e. it's in the Operating Expenses category table). dtaDirty
+    // does the same for the Asset accounts' Deferred Tax Asset Role
+    // (only present when the row has a [data-role="dta"] select).
+    async function saveRow(business, row, mapDirty, deductionDirty, dtaDirty) {
       if (row.dataset.new === 'true') {
-        await createRow(business, row, mapDirty, deductionDirty);
+        await createRow(business, row, mapDirty, deductionDirty, dtaDirty);
         return;
       }
 
@@ -353,6 +392,9 @@
 
       var deductionSel = row.querySelector('[data-role="deduction"]');
       if (deductionSel) deductionDirty[guid] = deductionSel.value;
+
+      var dtaSel = row.querySelector('[data-role="dta"]');
+      if (dtaSel) dtaDirty[guid] = dtaSel.value;
     }
 
     // Creates a new account (and optionally a new group) for a blank row
@@ -361,7 +403,7 @@
     // Liabilities/Equity/etc. "father" groups, or it silently lands under
     // Equity > Uncategorized -- so a real group selection (or a freshly
     // created one) is mandatory here.
-    async function createRow(business, row, mapDirty, deductionDirty) {
+    async function createRow(business, row, mapDirty, deductionDirty, dtaDirty) {
       var cat = catById(row.dataset.cat);
       var name = (row.querySelector('[data-role="name"]').value || '').trim();
       var groupSel = row.querySelector('[data-role="newgroup"]');
@@ -419,10 +461,12 @@
       if (!business) return;
 
       var deductionDirty = {};
+      var dtaDirty = {};
       try {
-        await saveRow(business, row, coaMap, deductionDirty);
+        await saveRow(business, row, coaMap, deductionDirty, dtaDirty);
         await saveCoaMapping(business, coaMap);
         persistDeductionDirty(business, deductionDirty);
+        await persistDtaDirty(business, dtaDirty);
         flash(btn, true);
         await refresh();
       } catch (err) {
@@ -440,14 +484,16 @@
 
       var rows = table.querySelectorAll('tbody tr');
       var deductionDirty = {};
+      var dtaDirty = {};
       btn.textContent = 'Saving…';
       btn.disabled = true;
       try {
         for (var i = 0; i < rows.length; i++) {
-          await saveRow(business, rows[i], coaMap, deductionDirty);
+          await saveRow(business, rows[i], coaMap, deductionDirty, dtaDirty);
         }
         await saveCoaMapping(business, coaMap);
         persistDeductionDirty(business, deductionDirty);
+        await persistDtaDirty(business, dtaDirty);
         flash(btn, true);
         await refresh();
       } catch (err) {
@@ -462,6 +508,16 @@
       if (!Object.keys(deductionDirty).length || typeof saveDeductionOverrides !== 'function') return;
       Object.assign(deductionOverrides, deductionDirty);
       saveDeductionOverrides(business, deductionOverrides);
+    }
+
+    // dtaDirty values are either a role key (e.g. 'priorYearExcessCredit') or
+    // '' (preparer picked "-- not a carry-forward account --", meaning any
+    // previous role assignment for that account should be cleared).
+    async function persistDtaDirty(business, dtaDirty) {
+      if (!Object.keys(dtaDirty).length || typeof saveDtaRoleMapping !== 'function') return;
+      Object.assign(dtaMap, dtaDirty);
+      for (var guid in dtaMap) { if (!dtaMap[guid]) delete dtaMap[guid]; }
+      await saveDtaRoleMapping(business, dtaMap);
     }
 
     function showToastSafe(msg) {

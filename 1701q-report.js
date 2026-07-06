@@ -11,10 +11,11 @@
    (non-operating income, penalties).
 
    Prior Year's Excess Credit is read from a dedicated Balance Sheet
-   account (see DTA_ACCOUNTS in 1702q-report.js — same account, since
-   a business is always either Individual or Non-Individual, never
-   both, so there's no collision risk sharing the name) instead of a
-   manual input, so it doesn't reset every session.
+   account, resolved via the COA tab's Deferred Tax Asset role mapping
+   (see DTA_ROLES/getDtaBalance in pnl-helpers.js — same role as
+   1702q-report.js uses, since a business is always either Individual
+   or Non-Individual, never both, so there's no collision risk sharing
+   it) instead of a manual input, so it doesn't reset every session.
    ============================================================ */
 
 const TAX_TABLE_2023 = [
@@ -109,8 +110,9 @@ async function generate1701Q(biz, setup, outputEl) {
     const cwtPrepaid2306PrevQ = quarter > 1 ? await getPrepaidTaxAssetBalance(biz, coa, prevEnd, 'Prepaid Tax Asset-2306') : 0;
     const cwtThisQuarter = cwtPrepaid2306 - cwtPrepaid2306PrevQ;
 
-    const priorYearExcessCredit = await getPrepaidTaxAssetBalance(biz, coa, qEnd, DTA_ACCOUNTS.priorYearExcessCredit);
-    const itrPaymentsPrevQ = quarter > 1 ? await getPrepaidTaxAssetBalance(biz, coa, prevEnd, DTA_ACCOUNTS.itrPaymentsRegular) : 0;
+    const dtaMap = await getDtaRoleMapping(biz);
+    const priorYearExcessCredit = await getDtaBalance(biz, coa, dtaMap, qEnd, 'priorYearExcessCredit');
+    const itrPaymentsPrevQ = quarter > 1 ? await getDtaBalance(biz, coa, dtaMap, prevEnd, 'itrPaymentsRegular') : 0;
 
     const period = { quarter, year, label: `${quarterLabel(quarter)} ${year}` };
     render1701Q(outputEl, {

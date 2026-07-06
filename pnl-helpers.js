@@ -40,20 +40,46 @@ const COA_CATEGORY_BUCKET = {
 };
 
 // ── DEFERRED TAX ASSET ACCOUNTS (carry-forward figures) ──────
-// Account names the preparer books cross-year/cross-quarter income-tax
-// carry-forward figures to — Balance Sheet / asset-type, never P&L, so they
+// Default account names, used only as a fallback for businesses that
+// haven't mapped a role via the COA tab yet (see DTA_ROLES/findDtaAccount
+// below — same "explicit mapping wins, name match is the fallback" shape as
+// pnlBucketForAccount). Balance Sheet / asset-type, never P&L, so they
 // never touch Gross/Taxable Income. Distinct "Deferred Tax Asset -" prefix
 // keeps findAccountByName()'s substring match from ever confusing these
 // with "Prepaid Tax Asset-2307/2306". Shared by 1701q-report.js (Prior
 // Year Excess Credit only — individuals have no MCIT) and 1702q-report.js
 // (all 4 — a business is always either Individual or Non-Individual, never
-// both, so there's no collision risk reusing the same account name).
+// both, so there's no collision risk reusing the same default account name).
 const DTA_ACCOUNTS = {
   priorYearExcessCredit: 'Deferred Tax Asset - Prior Year Excess Credit',
   itrPaymentsRegular:    'Deferred Tax Asset - ITR Payments Regular',
   itrPaymentsMcit:       'Deferred Tax Asset - ITR Payments MCIT',
   mcitCarryforward:      'Deferred Tax Asset - MCIT Carryforward',
 };
+
+// The 4 carry-forward roles offered by the COA tab's "Deferred Tax Asset
+// Role" dropdown for Asset-categorized accounts (chart-of-accounts.js).
+const DTA_ROLES = [
+  { key: 'priorYearExcessCredit', label: "Prior Year's Excess Credit",  defaultName: DTA_ACCOUNTS.priorYearExcessCredit },
+  { key: 'itrPaymentsRegular',    label: 'ITR Payments – Regular', defaultName: DTA_ACCOUNTS.itrPaymentsRegular },
+  { key: 'itrPaymentsMcit',       label: 'ITR Payments – MCIT',    defaultName: DTA_ACCOUNTS.itrPaymentsMcit },
+  { key: 'mcitCarryforward',      label: 'MCIT Carryforward',          defaultName: DTA_ACCOUNTS.mcitCarryforward },
+];
+
+// Resolves which COA account plays a given Deferred Tax Asset role: prefers
+// the preparer's explicit mapping from the COA tab (dtaMap: accountGuid ->
+// roleKey, from getDtaRoleMapping()), falling back to matching the role's
+// default account name for businesses that haven't set up the mapping yet.
+// dtaMap is keyed by account guid — the same key space getCoaMapping's
+// coaMap uses — so it's stored under key-prefixed entries ('dta:<guid>') in
+// the shared mapping blob rather than value-prefixed like coaMap, to avoid
+// the two mappings silently overwriting each other's entry for one account.
+function findDtaAccount(coa, dtaMap, roleKey) {
+  const mappedGuid = Object.keys(dtaMap || {}).find(guid => dtaMap[guid] === roleKey);
+  if (mappedGuid && coa[mappedGuid]) return coa[mappedGuid];
+  const role = DTA_ROLES.find(r => r.key === roleKey);
+  return role ? findAccountByName(coa, role.defaultName) : null;
+}
 
 // coaMap: { accountGuid -> 'acct-bir-<category>' } from getCoaMapping() — the
 // mapping the preparer sets up in the COA tab. That mapping is the source of
@@ -360,13 +386,11 @@ function renderPnLStatementHtml(totals, byAccount) {
 }
 
 // ── ACCOUNT LEDGER (PREPAID/DEFERRED TAX ASSET ACCOUNTS) ─────
-// Shared by getPrepaidTaxAssetBalance() and getAgedCarryforwardBalance()
-// below. Walks every transaction batch once and returns every line posted
-// to the named account as a signed (debit-normal) amount + its date,
-// sorted chronologically — the raw ledger, before either caller decides
-// how to fold it into a single number.
-async function collectAccountLedgerEntries(biz, coa, accountNameSubstr) {
-  const account = findAccountByName(coa, accountNameSubstr);
+// Shared by every balance/aging lookup below. Walks every transaction batch
+// once and returns every line posted to the given account as a signed
+// (debit-normal) amount + its date, sorted chronologically — the raw
+// ledger, before any caller decides how to fold it into a single number.
+async function collectAccountLedgerEntries(biz, account) {
   if (!account) return { account: null, entries: [] };
 
   const rateByKey = await loadTaxCodeRates(biz);
@@ -402,24 +426,14 @@ async function collectAccountLedgerEntries(biz, coa, accountNameSubstr) {
   return { account, entries };
 }
 
-// ── PREPAID TAX ASSET (CREDITABLE WITHHOLDING TAX) BALANCE ───
-// Looks up the running balance of "Prepaid Tax Asset-2306"
-// (individual) or "Prepaid Tax Asset-2307" (corporate) as of a
-// given cutoff date, by summing debit-credit (or, for invoice/
-// receipt/payment lines that only carry qty+unitPrice, the computed
-// net amount) on that account from all transactions up to (and
-// including) the cutoff. Also used for the simple (non-expiring)
-// carryforward accounts, e.g. "Deferred Tax Asset - Prior Year Excess
-// Credit", which have no statutory expiry so a running balance is
-// all they need.
-async function getPrepaidTaxAssetBalance(biz, coa, cutoffDate, accountNameSubstr) {
-  const { entries } = await collectAccountLedgerEntries(biz, coa, accountNameSubstr);
+// Plain running balance as of cutoffDate — no expiry, no lot tracking.
+function sumLedgerEntries(entries, cutoffDate) {
   return entries
     .filter(e => e.date <= cutoffDate)
     .reduce((sum, e) => sum + e.amount, 0);
 }
 
-// ── AGED CARRYFORWARD BALANCE (MCIT CARRYFORWARD, NIRC SEC. 27(E)(2)) ──
+// ── AGED CARRYFORWARD BREAKDOWN (MCIT CARRYFORWARD, NIRC SEC. 27(E)(2)) ──
 // Excess MCIT paid in a given taxable year may only be credited against
 // REGULAR income tax due in the 3 taxable years immediately following —
 // after that it expires. A plain running balance can't answer "how much
@@ -430,8 +444,7 @@ async function getPrepaidTaxAssetBalance(biz, coa, cutoffDate, accountNameSubstr
 // (usage/write-off) consumes the oldest open lot(s) first. As of
 // cutoffDate, a lot is expired once more than `expiryYears` taxable
 // years have passed since its origin year.
-async function getAgedCarryforwardBalance(biz, coa, cutoffDate, accountNameSubstr, expiryYears = 3) {
-  const { entries } = await collectAccountLedgerEntries(biz, coa, accountNameSubstr);
+function agedBreakdownFromEntries(entries, cutoffDate, expiryYears = 3) {
   const cutoffYear = cutoffDate.getFullYear();
 
   const lots = []; // [{ year, remaining }], oldest first (entries are date-sorted)
@@ -468,4 +481,35 @@ async function getAgedCarryforwardBalance(biz, coa, cutoffDate, accountNameSubst
   }
 
   return { usable, expiringSoon, expired, breakdown };
+}
+
+// ── PREPAID TAX ASSET (CREDITABLE WITHHOLDING TAX) BALANCE ───
+// Looks up the running balance of "Prepaid Tax Asset-2306"
+// (individual) or "Prepaid Tax Asset-2307" (corporate) as of a
+// given cutoff date, by summing debit-credit (or, for invoice/
+// receipt/payment lines that only carry qty+unitPrice, the computed
+// net amount) on that account from all transactions up to (and
+// including) the cutoff. Looked up by name — these are fixed BIR-mandated
+// account roles, not something the COA tab's Deferred Tax Asset role
+// mapping covers.
+async function getPrepaidTaxAssetBalance(biz, coa, cutoffDate, accountNameSubstr) {
+  const account = findAccountByName(coa, accountNameSubstr);
+  const { entries } = await collectAccountLedgerEntries(biz, account);
+  return sumLedgerEntries(entries, cutoffDate);
+}
+
+// ── DEFERRED TAX ASSET LOOKUPS (ROLE-MAPPED) ──────────────────
+// Preferred entry points for the 4 carry-forward roles: resolve the account
+// via the COA tab's explicit mapping (falling back to the default name —
+// see findDtaAccount above) rather than requiring an exact account name.
+async function getDtaBalance(biz, coa, dtaMap, cutoffDate, roleKey) {
+  const account = findDtaAccount(coa, dtaMap, roleKey);
+  const { entries } = await collectAccountLedgerEntries(biz, account);
+  return sumLedgerEntries(entries, cutoffDate);
+}
+
+async function getDtaAgedBalance(biz, coa, dtaMap, cutoffDate, roleKey, expiryYears = 3) {
+  const account = findDtaAccount(coa, dtaMap, roleKey);
+  const { entries } = await collectAccountLedgerEntries(biz, account);
+  return agedBreakdownFromEntries(entries, cutoffDate, expiryYears);
 }

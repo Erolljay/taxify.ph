@@ -336,6 +336,36 @@ async function saveCoaMapping(biz, mapping) {
   return _saveIntoMappingBlob(biz, mapping, (k, v) => typeof v === 'string' && v.startsWith('acct-bir-'));
 }
 
+// Read/save Deferred Tax Asset account -> carry-forward role mapping
+// { accountGuid -> roleKey } — which Balance Sheet asset account plays
+// which of the 4 income-tax carry-forward roles (Prior Year Excess Credit,
+// ITR Payments Regular/MCIT, MCIT Carryforward). Set from the COA tab's
+// "Deferred Tax Asset Role" dropdown (chart-of-accounts.js) — read by
+// pnl-helpers.js's getDtaBalance/getDtaAgedBalance instead of matching
+// accounts by name.
+//
+// Stored under 'dta:<accountGuid>' KEYS in the shared blob (not a value
+// prefix like getCoaMapping uses) because dtaMap and coaMap both key by
+// account guid — a value-prefix scheme would mean the two mappings'
+// entries for the same account collide on the same blob key and silently
+// overwrite each other. Callers outside this function only ever see plain
+// { accountGuid -> roleKey }; the 'dta:' prefixing/stripping is entirely
+// an internal storage detail.
+async function getDtaRoleMapping(biz) {
+  const full = await _getFullMappingBlob(biz);
+  const merged = {};
+  for (const [k, v] of Object.entries(full)) {
+    if (typeof v === 'string' && k.startsWith('dta:')) merged[k.slice(4)] = v;
+  }
+  return merged;
+}
+
+async function saveDtaRoleMapping(biz, mapping) {
+  const prefixed = {};
+  for (const [guid, roleKey] of Object.entries(mapping)) prefixed['dta:' + guid] = roleKey;
+  return _saveIntoMappingBlob(biz, prefixed, (k) => k.startsWith('dta:'));
+}
+
 // Read/save account-picker assignments for payslip items & VAT tax codes.
 // Keys: 'psi:<itemKey>:expense' | 'psi:<itemKey>:liability' | 'tc:<tcName>' -> accountGuid.
 async function getAccountLinkMapping(biz) {
