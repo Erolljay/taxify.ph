@@ -6,77 +6,138 @@
   <title>Taxify it!</title>
   <link rel="stylesheet" href="styles.css">
   <style>
-    html, body { height:100%; margin:0; }
-    .tfy-shell { display:flex; min-height:100vh; align-items:stretch; }
+    /* ============================================================
+       Taxify it! — app shell (redesign 2026)
+       Only visual rules here; class names / ids / structure match
+       what taxify-app.js and step-engine.js query, so all logic
+       keeps working unchanged.
+       ============================================================ */
+    html, body { height: 100%; margin: 0; }
+    body { background: #fff; }
 
-    .tfy-sidenav { width:230px; flex-shrink:0; background:#0d1b3e; color:#fff; display:flex; flex-direction:column; padding:18px 0; }
-    .tfy-sidenav-biz { font-size:13px; font-weight:700; padding:0 18px 16px; margin-bottom:8px; border-bottom:1px solid rgba(255,255,255,.12); word-break:break-word; }
-    .tfy-sidenav-nav { display:flex; flex-direction:column; gap:2px; flex:1; }
-    .tfy-sidenav-bottom { border-top:1px solid rgba(255,255,255,.12); padding-top:8px; margin-top:8px; }
-    .tfy-nav-item { display:block; width:100%; text-align:left; background:none; border:none; border-left:3px solid transparent; color:#cbd5e1; font-size:13px; font-weight:500; padding:10px 18px; cursor:pointer; font-family:inherit; }
-    .tfy-nav-item:hover { background:rgba(255,255,255,.06); color:#fff; }
-    .tfy-nav-item.active { background:#1a2f5e; color:#fff; font-weight:700; border-left-color:#f59e0b; }
+    .tfy-shell { display: flex; min-height: 100vh; align-items: stretch; }
 
-    .tfy-main { flex:1; min-width:0; padding:24px 28px; }
+    /* ── SIDEBAR ── */
+    .tfy-sidenav {
+      width: 268px; flex-shrink: 0; background: var(--sidebar);
+      color: #c3cde8; display: flex; flex-direction: column;
+    }
+    .tfy-brand {
+      display: flex; align-items: center; gap: 12px;
+      padding: 22px 22px 18px; border-bottom: 1px solid rgba(255,255,255,.08);
+    }
+    .tfy-brand-mark {
+      width: 40px; height: 40px; flex-shrink: 0; border-radius: 9px; background: #fff;
+      display: flex; align-items: center; justify-content: center; overflow: hidden;
+    }
+    .tfy-brand-mark img { width: 30px; height: 30px; object-fit: contain; }
+    .tfy-brand-mark .tfy-brand-letter { font-size: 20px; font-weight: 800; color: var(--navy); line-height: 1; }
+    .tfy-brand-name { font-size: 19px; font-weight: 700; color: #fff; letter-spacing: -0.01em; line-height: 1.1; }
+    .tfy-brand-name em { color: #4f9dff; font-style: normal; }
 
-    .tfy-di-panel { margin-top:14px; }
-    .tfy-di-iframe { width:100%; height:720px; border:1px solid #e5e7eb; border-radius:6px; }
+    .tfy-sidenav-biz {
+      margin: 16px 18px 10px; padding: 10px 12px;
+      background: #0d2a6e; border: 1px solid #1c3d86; border-radius: 9px;
+      font-size: 12.5px; font-weight: 600; color: #fff; word-break: break-word;
+    }
 
-    .tfy-step-wrap { display:flex; gap:16px; align-items:flex-start; }
-    .tfy-step-rail { width:220px; flex-shrink:0; display:flex; flex-direction:column; gap:4px; }
-    .tfy-step-rail-title { font-size:11px; text-transform:uppercase; letter-spacing:.05em; color:#6b7280; font-weight:600; margin-bottom:4px; }
-    .tfy-step-item { display:flex; align-items:center; gap:8px; text-align:left; padding:8px 10px; border-radius:6px; border:1px solid transparent; background:none; cursor:pointer; font-size:12px; }
-    .tfy-step-item.active { background:#eef2ff; border-color:#c7d2fe; font-weight:600; }
-    .tfy-step-item.locked { opacity:.45; cursor:not-allowed; }
-    .tfy-step-item.done .tfy-step-label { color:#065f46; }
-    .tfy-step-restart { margin-top:10px; font-size:11px; color:#9ca3af; background:none; border:none; cursor:pointer; text-align:left; }
-    .tfy-step-panel { flex:1; min-width:0; border:1px solid #e5e7eb; border-radius:10px; padding:16px; background:#fff; }
-    .tfy-step-header-title { font-size:14px; font-weight:600; color:#1a2f5e; margin-bottom:4px; }
-    .tfy-step-header-help { font-size:12px; color:#6b7280; margin-bottom:12px; }
-    .tfy-iframe-mount { position:relative; }
-    .tfy-iframe-holder { width:100%; }
-    .tfy-iframe { width:100%; height:560px; border:1px solid #e5e7eb; border-radius:6px; }
-    .tfy-step-footer { margin-top:12px; }
-    .tfy-problem-list { font-size:12px; max-height:160px; overflow:auto; margin:8px 0; }
-    .spinner-wrap { display:flex; align-items:center; gap:8px; font-size:12px; color:#6b7280; }
+    .tfy-sidenav-nav { display: flex; flex-direction: column; gap: 2px; flex: 1; overflow-y: auto; padding: 6px 12px 16px; }
+    .tfy-navgroup { font-size: 9.5px; font-weight: 700; letter-spacing: .13em; text-transform: uppercase; color: #4f6bb0; padding: 14px 10px 6px; }
+
+    .tfy-nav-item {
+      display: flex; align-items: center; gap: 11px; width: 100%; text-align: left;
+      background: none; border: none; border-radius: 8px; color: #a9b6dc;
+      font-size: 13px; font-weight: 500; padding: 9px 11px; cursor: pointer;
+      font-family: inherit; transition: background .15s, color .15s;
+    }
+    .tfy-nav-item:hover { background: rgba(255,255,255,.07); color: #fff; }
+    .tfy-nav-item.active { background: var(--royal); color: #fff; font-weight: 600; }
+
+    .tfy-sidenav-bottom { border-top: 1px solid rgba(255,255,255,.08); padding: 10px 12px 14px; }
+    .tfy-sidenav-bottom .tfy-nav-item { margin-top: 0; }
+    .tfy-status-line { display: flex; align-items: center; gap: 8px; padding: 4px 12px 2px; font-size: 11px; color: #5f7bc0; }
+    .tfy-status-dot { width: 7px; height: 7px; border-radius: 50%; background: #2fbf71; }
+
+    /* ── MAIN ── */
+    .tfy-main { flex: 1; min-width: 0; padding: 0; background: var(--bg); }
+    #biz-context-wrap:not(:empty) { padding: 16px 24px 0; }
+
+    /* Data intake / settings share the .tabs bar (styled in styles.css) */
+    .tfy-di-panel { margin: 16px 24px 24px; }
+    .tfy-di-iframe { width: 100%; height: 720px; border: 1px solid var(--border); border-radius: var(--radius); background: #fff; }
+
+    /* ── STEP ENGINE (workflows) ── */
+    .tfy-step-wrap { display: flex; gap: 22px; align-items: flex-start; padding: 24px; }
+    .tfy-step-rail { width: 250px; flex-shrink: 0; display: flex; flex-direction: column; gap: 3px; }
+    .tfy-step-rail-title { font-size: 10.5px; text-transform: uppercase; letter-spacing: .08em; color: var(--faint); font-weight: 700; margin: 0 8px 8px; }
+    .tfy-step-item {
+      display: flex; align-items: center; gap: 11px; text-align: left;
+      padding: 9px 10px; border-radius: 9px; border: 1px solid transparent;
+      background: none; cursor: pointer; font-size: 12.5px; color: var(--muted); font-family: inherit;
+    }
+    .tfy-step-item:hover:not(.locked):not(.active) { background: #eef1f7; }
+    .tfy-step-item.active { background: var(--info-bg); border-color: #d9e3ff; font-weight: 700; color: var(--ink); }
+    .tfy-step-item.locked { opacity: .5; cursor: not-allowed; }
+    .tfy-step-item.done .tfy-step-label { color: var(--ok-fg); }
+    .tfy-step-icon { width: 22px; height: 22px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 12px; }
+    .tfy-step-restart { margin-top: 12px; font-size: 11px; color: var(--faint); background: none; border: none; cursor: pointer; text-align: left; padding: 4px 8px; font-family: inherit; }
+    .tfy-step-restart:hover { color: var(--royal); }
+
+    .tfy-step-panel { flex: 1; min-width: 0; border: 1px solid var(--border); border-radius: 12px; padding: 24px; background: #fff; }
+    .tfy-step-header-title { font-size: 15px; font-weight: 700; color: var(--ink); margin-bottom: 5px; }
+    .tfy-step-header-help { font-size: 12.5px; line-height: 1.55; color: var(--muted); margin-bottom: 18px; max-width: 620px; }
+    .tfy-iframe-mount { position: relative; }
+    .tfy-iframe-holder { width: 100%; }
+    .tfy-iframe { width: 100%; height: 560px; border: 1px solid var(--border); border-radius: var(--radius); background: #fff; }
+    .tfy-step-footer { margin-top: 18px; padding-top: 18px; border-top: 1px solid var(--line); display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .tfy-problem-list { font-size: 12.5px; max-height: 170px; overflow: auto; margin: 8px 0; }
 
     /* ── DEADLINE TRACKER ── */
-    .dtk-header { display:flex; align-items:baseline; justify-content:space-between; margin-bottom:18px; }
-    .dtk-title { font-size:18px; font-weight:700; color:#1a2f5e; }
-    .dtk-today { font-size:12px; color:#6b7280; }
-    .dtk-filter-bar { display:flex; gap:8px; margin-bottom:16px; flex-wrap:wrap; }
-    .dtk-filter-btn { font-size:11px; padding:4px 12px; border:1px solid #d1d5db; border-radius:20px; background:#fff; cursor:pointer; font-weight:500; color:#374151; }
-    .dtk-filter-btn.active { background:#1a2f5e; color:#fff; border-color:#1a2f5e; }
-    .dtk-grid { display:flex; flex-direction:column; gap:8px; }
-    .dtk-card { display:grid; grid-template-columns:80px 1fr auto; align-items:center; gap:12px; padding:12px 16px; border-radius:10px; border:1px solid #e5e7eb; background:#fff; }
-    .dtk-card.overdue { border-left:4px solid #ef4444; background:#fff5f5; }
-    .dtk-card.due-soon { border-left:4px solid #f59e0b; background:#fffbeb; }
-    .dtk-card.upcoming { border-left:4px solid #3b82f6; background:#eff6ff; }
-    .dtk-card.done { border-left:4px solid #10b981; background:#f0fdf4; opacity:.7; }
-    .dtk-date-box { text-align:center; }
-    .dtk-date-month { font-size:10px; text-transform:uppercase; letter-spacing:.05em; color:#6b7280; font-weight:600; }
-    .dtk-date-day { font-size:22px; font-weight:800; color:#1a2f5e; line-height:1; }
-    .dtk-date-year { font-size:10px; color:#9ca3af; }
-    .dtk-info-form { font-size:12px; font-weight:700; color:#1a2f5e; }
-    .dtk-info-name { font-size:12px; color:#374151; }
-    .dtk-info-freq { font-size:10px; color:#9ca3af; margin-top:2px; }
-    .dtk-badge { font-size:10px; font-weight:600; padding:3px 10px; border-radius:20px; white-space:nowrap; }
-    .dtk-badge.overdue { background:#fee2e2; color:#991b1b; }
-    .dtk-badge.due-soon { background:#fef3c7; color:#92400e; }
-    .dtk-badge.upcoming { background:#dbeafe; color:#1e40af; }
-    .dtk-badge.done { background:#d1fae5; color:#065f46; }
-    .dtk-section-label { font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.06em; color:#9ca3af; margin:16px 0 8px; }
-    .dtk-empty { text-align:center; padding:40px; color:#9ca3af; font-size:13px; }
-    .dtk-badge.filed { background:#d1fae5; color:#065f46; }
-    .dtk-card-filed { opacity:.6; }
-    .dtk-action-btn { font-size:11px; padding:4px 10px; border-radius:6px; cursor:pointer; font-weight:500; border:1px solid #d1d5db; background:#fff; color:#374151; white-space:nowrap; }
-    .dtk-action-btn:hover { background:#f3f4f6; }
-    .dtk-filed-active { background:#d1fae5; color:#065f46; border-color:#6ee7b7; }
-    .dtk-filed-active:hover { background:#a7f3d0; }
-    .dtk-dismiss-btn { background:#fff; color:#9ca3af; border-color:#e5e7eb; }
-    .dtk-dismiss-btn:hover { background:#fee2e2; color:#991b1b; border-color:#fca5a5; }
-    .dtk-start-btn { background:#1a2f5e; color:#fff; border-color:#1a2f5e; }
-    .dtk-start-btn:hover { background:#243d73; }
+    .dtk-header { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 18px; }
+    .dtk-title { font-size: 20px; font-weight: 700; letter-spacing: -0.01em; color: var(--ink); }
+    .dtk-today { font-size: 12.5px; color: var(--muted); }
+    .dtk-filter-bar { display: flex; gap: 8px; margin-bottom: 18px; flex-wrap: wrap; }
+    .dtk-filter-btn {
+      font-size: 11.5px; padding: 6px 14px; border: 1px solid #d6dced; border-radius: 20px;
+      background: #fff; cursor: pointer; font-weight: 600; color: var(--muted); font-family: inherit;
+      transition: background .15s, border-color .15s, color .15s;
+    }
+    .dtk-filter-btn:hover { border-color: var(--royal); color: var(--royal); }
+    .dtk-filter-btn.active { background: var(--royal); color: #fff; border-color: var(--royal); }
+    .dtk-grid { display: flex; flex-direction: column; gap: 10px; }
+    .dtk-card {
+      display: grid; grid-template-columns: 72px 1fr auto; align-items: center; gap: 16px;
+      padding: 14px 18px; border-radius: 12px; border: 1px solid var(--border);
+      border-left: 4px solid var(--sky); background: #fff;
+    }
+    .dtk-card.overdue  { border-left-color: #ef4444; }
+    .dtk-card.due-soon { border-left-color: #f59e0b; }
+    .dtk-card.upcoming { border-left-color: var(--sky); }
+    .dtk-card.done     { border-left-color: #16a34a; }
+    .dtk-card-filed    { opacity: .6; }
+    .dtk-date-box { text-align: center; }
+    .dtk-date-month { font-size: 10px; text-transform: uppercase; letter-spacing: .05em; color: var(--faint); font-weight: 700; }
+    .dtk-date-day { font-size: 24px; font-weight: 800; color: var(--ink); line-height: 1; font-family: 'IBM Plex Mono', monospace; }
+    .dtk-date-year { font-size: 10px; color: #a6b0c8; }
+    .dtk-info-form { font-size: 13px; font-weight: 700; color: var(--ink); }
+    .dtk-info-name { font-size: 12.5px; color: #3a4a75; margin-top: 1px; }
+    .dtk-info-freq { font-size: 11px; color: #a6b0c8; margin-top: 2px; }
+    .dtk-badge { font-size: 10.5px; font-weight: 700; padding: 3px 10px; border-radius: 20px; white-space: nowrap; }
+    .dtk-badge.overdue  { background: var(--bad-bg); color: var(--bad-fg); }
+    .dtk-badge.due-soon { background: var(--warn-bg); color: var(--warn-fg); }
+    .dtk-badge.upcoming { background: #e0f2fe; color: #0369a1; }
+    .dtk-badge.done     { background: var(--info-bg); color: var(--info-fg); }
+    .dtk-badge.filed    { background: var(--ok-bg); color: var(--ok-fg); }
+    .dtk-section-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--faint); margin: 16px 0 8px; }
+    .dtk-empty { text-align: center; padding: 44px; color: var(--faint); font-size: 13px; }
+    .dtk-action-btn { font-size: 11px; padding: 5px 12px; border-radius: 7px; cursor: pointer; font-weight: 600; border: 1px solid #d6dced; background: #fff; color: #3a4a75; white-space: nowrap; font-family: inherit; }
+    .dtk-action-btn:hover { background: var(--bg); }
+    .dtk-filed-active { background: var(--ok-bg); color: var(--ok-fg); border-color: #86e0aa; }
+    .dtk-filed-active:hover { background: #bff0cf; }
+    .dtk-dismiss-btn { background: #fff; color: var(--faint); border-color: var(--border); }
+    .dtk-dismiss-btn:hover { background: var(--bad-bg); color: var(--bad-fg); border-color: #fca5a5; }
+    .dtk-start-btn { background: var(--royal); color: #fff; border-color: var(--royal); }
+    .dtk-start-btn:hover { background: var(--royal-dark); }
   </style>
 </head>
 <body>
@@ -84,18 +145,26 @@
 <div class="tfy-shell">
 
   <nav class="tfy-sidenav">
+    <div class="tfy-brand">
+      <span class="tfy-brand-mark"><span class="tfy-brand-letter">T</span></span>
+      <span class="tfy-brand-name">Taxify <em>it!</em></span>
+    </div>
     <div class="tfy-sidenav-biz" id="tfy-biz-name">Detecting business…</div>
     <div class="tfy-sidenav-nav">
-      <button type="button" class="tfy-nav-item active" data-nav="data-intake">📥 Data Intake</button>
-      <button type="button" class="tfy-nav-item" data-nav="vat">VAT</button>
+      <div class="tfy-navgroup">Prepare</div>
+      <button type="button" class="tfy-nav-item active" data-nav="data-intake">Data Intake</button>
+      <div class="tfy-navgroup">File returns</div>
+      <button type="button" class="tfy-nav-item" data-nav="vat">Value Added Tax</button>
       <button type="button" class="tfy-nav-item" data-nav="expanded">Expanded Withholding Tax</button>
       <button type="button" class="tfy-nav-item" data-nav="compensation">Withholding Tax on Compensation</button>
       <button type="button" class="tfy-nav-item" data-nav="income">Income Tax</button>
       <button type="button" class="tfy-nav-item" data-nav="others">Others</button>
-      <button type="button" class="tfy-nav-item" data-nav="deadlines">📅 Deadline Tracker</button>
+      <div class="tfy-navgroup">Track</div>
+      <button type="button" class="tfy-nav-item" data-nav="deadlines">Deadline Tracker</button>
     </div>
     <div class="tfy-sidenav-bottom">
-      <button type="button" class="tfy-nav-item" data-nav="settings">⚙️ Settings</button>
+      <div class="tfy-status-line"><span class="tfy-status-dot"></span> Connected to Manager.io</div>
+      <button type="button" class="tfy-nav-item" data-nav="settings">Settings</button>
     </div>
   </nav>
 
@@ -104,7 +173,7 @@
     <div id="biz-context-wrap"></div>
 
     <!-- ── DEADLINE TRACKER MODE ──────────────────────────────── -->
-    <div id="deadlines-mode" hidden></div>
+    <div id="deadlines-mode" hidden style="padding:24px;"></div>
 
     <!-- ── DATA INTAKE MODE (Batch Upload: Sales / Purchases / Payroll) ── -->
     <div id="data-intake-mode" hidden>
@@ -157,7 +226,7 @@
         </ol>
         <p class="muted">Customer / Supplier / Employee BIR details (TIN, addresses, SSS / PhilHealth / Pag-IBIG
         numbers, etc.) are filled in directly within the relevant report screens, not here.</p>
-        <p class="muted">Once setup is done, go back to <strong>Dashboard</strong> in the sidebar to start preparing filings.</p>
+        <p class="muted">Once setup is done, go back to <strong>Data Intake</strong> in the sidebar to start preparing filings.</p>
       </div>
 
       <!-- ── REPORTS ──────────────────────────────────────────────── -->
