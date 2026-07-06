@@ -241,6 +241,14 @@ h3 { font-size: 13px; font-weight: 600; color: var(--ink); }
 .tax-tab-btn:hover { color: var(--ink); }
 .tax-tab-btn.active { color: var(--ink); border-bottom-color: var(--royal); }
 
+/* Report-page tabs (Report / Tax Codes / Suppliers / Customers, etc.) */
+.tab-bar { display: flex; gap: 0; border-bottom: 2px solid var(--border); margin-bottom: 18px; }
+.tab-btn { padding: 8px 16px; font-size: 12px; font-weight: 600; color: var(--faint); background: none; border: none; cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -2px; transition: color 0.15s, border-color 0.15s; font-family: inherit; }
+.tab-btn:hover { color: var(--ink); }
+.tab-btn.active { color: var(--ink); border-bottom-color: var(--royal); }
+.tab-panel { display: none; }
+.tab-panel.active { display: block; }
+
 /* ── SUMMARY STAT CARDS ── */
 .stats-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 18px; }
 .stat-card { background: #fff; border: 1px solid var(--border); border-radius: var(--radius); padding: 16px 18px; border-left: 3px solid var(--sky); }
