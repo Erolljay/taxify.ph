@@ -6,48 +6,86 @@
   <title>Batch Collect — Payables</title>
   <link rel="stylesheet" href="styles.css">
   <style>
-    body { background: white; overflow: auto; height: auto; }
-    #app-header { display: none; }
-    .report-wrap { max-width: 1200px; margin: 0 auto; padding: 16px; }
-    .bi-table { width: 100%; border-collapse: collapse; font-size: 11.5px; }
-    .bi-table th { background: #0d1b3e; color: white; padding: 6px 8px; text-align: left; position: sticky; top: 0; }
-    .bi-table td { padding: 5px 8px; border-bottom: 1px solid #f0f0f0; white-space: nowrap; }
-    .bi-table tr.row-error { background: #fef2f2; }
-    .bi-table tr.row-skip  { background: #f9fafb; color: #9ca3af; }
-    .bi-table tr.row-ok    { background: #f0fdf4; }
-    .bi-err { color: #c0392b; font-size: 10.5px; }
-    .bi-wrap { max-height: 480px; overflow: auto; border: 1px solid #e5e7eb; border-radius: 6px; }
-    .bi-stat { display: inline-block; margin-right: 16px; font-size: 12px; }
-    .bi-stat b { font-size: 15px; }
+    body { background:#f5f7fb; overflow:auto; height:auto; }
+    #app-header { display:none; }
+    .report-wrap { max-width:1000px; margin:0 auto; padding:24px; font-family:'Inter',system-ui,-apple-system,'Segoe UI',sans-serif; color:#1a2340; }
+    .page-header .page-title { font-size:18px; font-weight:700; color:#0b1f4d; letter-spacing:-0.01em; }
+    .page-header .page-subtitle { font-size:12.5px; color:#6b7794; margin-top:2px; }
+
+    .di-grid { display:flex; gap:20px; align-items:flex-start; margin:18px 0; }
+    .di-drop { flex:1; min-width:0; background:#fff; border:1px solid #e4e8f0; border-radius:12px; padding:22px; }
+    .di-drop-title { font-size:13px; font-weight:700; color:#0b1f4d; margin-bottom:14px; }
+    .di-zone { border:2px dashed #c3cee0; border-radius:12px; background:#fbfcfe; padding:30px 20px; text-align:center; display:flex; flex-direction:column; align-items:center; gap:10px; transition:border-color .15s, background .15s; }
+    .di-zone.drag { border-color:#0540f2; background:#eef2ff; }
+    .di-ic { width:46px; height:46px; border-radius:12px; background:#eef2ff; color:#0540f2; font-size:22px; display:flex; align-items:center; justify-content:center; }
+    .di-h { font-size:13.5px; font-weight:600; color:#1a2340; }
+    .di-or { font-size:12px; color:#8a95b0; }
+    .di-browse { border:none; background:#0540f2; color:#fff; font-family:inherit; font-size:12.5px; font-weight:600; padding:8px 18px; border-radius:8px; cursor:pointer; }
+    .di-browse:hover { background:#0435c4; }
+    .di-fname { font-size:12px; color:#3a4a75; font-weight:600; margin-top:8px; min-height:14px; text-align:center; }
+    .di-links { display:flex; align-items:center; gap:8px; margin-top:14px; font-size:12px; color:#6b7794; flex-wrap:wrap; }
+    .di-link { color:#0540f2; font-weight:600; cursor:pointer; background:none; border:none; font-family:inherit; font-size:12px; padding:0; }
+    .di-link:hover { text-decoration:underline; }
+    .di-actions { display:flex; gap:10px; margin-top:16px; }
+    .di-btn { border:none; background:#0540f2; color:#fff; font-family:inherit; font-size:12.5px; font-weight:600; padding:9px 18px; border-radius:8px; cursor:pointer; }
+    .di-btn:hover { background:#0435c4; }
+    .di-btn:disabled { opacity:.5; cursor:not-allowed; }
+
+    .di-help { width:290px; flex-shrink:0; background:#f0f4ff; border:1px solid #d9e3ff; border-radius:12px; padding:18px; }
+    .di-help-t { font-size:12px; font-weight:700; color:#2440b0; margin-bottom:10px; }
+    .di-help p { font-size:12px; line-height:1.55; color:#3a4a75; margin:0; }
+
+    .bi-table { width:100%; border-collapse:collapse; font-size:12px; }
+    .bi-table th { background:#f7f9fc; color:#8a95b0; padding:9px 12px; text-align:left; position:sticky; top:0; font-size:10.5px; font-weight:700; text-transform:uppercase; letter-spacing:.04em; border-bottom:1px solid #e4e8f0; }
+    .bi-table td { padding:9px 12px; border-bottom:1px solid #f0f2f7; white-space:nowrap; background:#fff; vertical-align:top; }
+    .bi-table tr.row-error { background:#fef2f2; }
+    .bi-table tr.row-warn  { background:#fffbeb; }
+    .bi-table tr.row-skip  { background:#f9fafb; color:#9ca3af; }
+    .bi-table tr.row-ok    { background:#fff; }
+    .bi-err { color:#b91c1c; font-size:11px; }
+    .bi-wrap { max-height:480px; overflow:auto; border:1px solid #e4e8f0; border-radius:12px; background:#fff; }
+    .bi-stat { display:inline-block; margin-right:18px; font-size:12px; color:#6b7794; }
+    .bi-stat b { font-size:16px; color:#0b1f4d; }
+    .bi-party-pick { font-family:inherit; font-size:11.5px; padding:4px 8px; border:1.5px solid #e0e5f0; border-radius:6px; background:#fff; }
+
+    @media print { .di-grid, .page-header { display:none !important; } body { background:#fff; } }
   </style>
 </head>
 <body>
 <div class="report-wrap">
   <div class="page-header no-print">
     <div>
-      <div class="page-title">💸 Batch Collect — Payables</div>
+      <div class="page-title">Batch Collect — Payables</div>
       <div class="page-subtitle">Download open Purchase Invoices, fill in Payment Date / Bank Account / Amount Paid, then post Payments directly to Manager</div>
     </div>
   </div>
   <div id="biz-selector-wrap" class="no-print"></div>
 
-  <div class="filter-bar no-print" style="margin-bottom:14px;">
-    <button class="btn btn-outline" id="bic-download">📥 Download Open Invoices</button>
-    <input type="file" id="bic-file" accept=".xlsx,.xls" style="display:none;">
-    <button class="btn btn-outline" id="bic-upload-btn">📂 Choose File</button>
-    <span id="bic-filename" style="font-size:12px;color:#6b7280;"></span>
-    <div class="filter-sep"></div>
-    <button class="btn btn-primary" id="bic-validate" style="display:none;">🔍 Validate</button>
-    <button class="btn btn-primary" id="bic-post" style="display:none;">🚀 Post to Manager</button>
-  </div>
+  <div class="di-grid no-print">
 
-  <div class="alert alert-info" style="margin-bottom:14px;">
-    ℹ️ "Download Open Invoices" pulls every Purchase Invoice that isn't fully paid as of today, one row per
-    invoice. Fill in only the <strong>Payment Date</strong>, <strong>Bank/Cash Account</strong>, and
-    <strong>Amount Paid</strong> columns for whichever invoices actually got paid — leave a row blank if it
-    hasn't been paid yet. Re-upload the same file, click Validate, then Post to Manager to record a Payment
-    against each matching invoice. Don't edit the Invoice ID, Invoice Date, Supplier, Reference, Invoice Amount,
-    or Balance Due columns — those are used to match each row back to its invoice and aren't sent to Manager.
+      <div class="di-drop">
+        <div class="di-drop-title">Upload filled workbook</div>
+        <div class="di-zone" id="di-zone">
+          <div class="di-ic">↧</div>
+          <div class="di-h">Drop your Excel file here</div>
+          <div class="di-or">or</div>
+          <button type="button" class="di-browse" id="bic-upload-btn">Browse files</button>
+          <input type="file" id="bic-file" accept=".xlsx,.xls" style="display:none;">
+        </div>
+        <div class="di-fname" id="bic-filename"></div>
+        <div class="di-links">
+          <button type="button" class="di-link" id="bic-download">↓ Download open invoices</button>
+          <span style="color:#c3cee0;">·</span> .xlsx
+        </div>
+        <div class="di-actions">
+          <button type="button" class="di-btn" id="bic-validate" style="display:none;">Validate</button>
+          <button type="button" class="di-btn" id="bic-post" style="display:none;">Post to Manager</button>
+        </div>
+      </div>
+    <div class="di-help">
+      <div class="di-help-t">How it works</div>
+      <p><strong>Download open invoices</strong> pulls every Purchase Invoice not fully paid as of today, one row each. Fill in only Payment Date, Bank/Cash Account and Amount Paid for invoices that got paid — leave a row blank otherwise. Re-upload, Validate, then Post to record a Payment against each. Don't edit the ID / Date / Supplier / Reference / Amount / Balance columns.</p>
+    </div>
   </div>
 
   <div id="bic-output"></div>
@@ -59,6 +97,20 @@
 <script src="batch-import-collect.js"></script>
 <script>
   document.addEventListener('DOMContentLoaded', () => initBatchCollect());
+  // Drag-and-drop onto the dropzone — feeds the same hidden <input> the logic reads.
+  document.addEventListener('DOMContentLoaded', () => {
+    var zone = document.getElementById('di-zone');
+    var input = document.getElementById('bic-file');
+    if (!zone || !input) return;
+    ['dragenter','dragover'].forEach(function(ev){ zone.addEventListener(ev, function(e){ e.preventDefault(); zone.classList.add('drag'); }); });
+    ['dragleave','drop'].forEach(function(ev){ zone.addEventListener(ev, function(e){ e.preventDefault(); zone.classList.remove('drag'); }); });
+    zone.addEventListener('drop', function(e){
+      var f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+      if (!f) return;
+      try { var dt = new DataTransfer(); dt.items.add(f); input.files = dt.files; } catch (err) { return; }
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+  });
 </script>
 </body>
 </html>
