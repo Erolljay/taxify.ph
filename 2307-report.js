@@ -332,11 +332,6 @@ function renderCertificate(suppKey, atcMap, start, end, setup, periodLabel) {
   const repSig   = setup.authRepSignature || '';
   const blankDate = segCells('', 8);
 
-  const payorCap = repName
-    ? `<strong>${escHtml(repName)}</strong><br>Signature over Printed Name of Payor/Payor's Authorized Representative/Tax Agent`
-    : `Signature over Printed Name of Payor/Payor's Authorized Representative/Tax Agent`;
-  const payorSub = repTitle ? escHtml(repTitle) : '(Indicate Title/Designation and TIN)';
-
   return `
   <div class="bir-form">
     <div class="hdr-strip">
@@ -416,7 +411,7 @@ function renderCertificate(suppKey, atcMap, start, end, setup, periodLabel) {
           <td colspan="2">Money Payments Subject to Withholding of<br>Business Tax (Government &amp; Private)</td>
           <td class="gray"></td><td class="gray"></td><td class="gray"></td><td class="gray"></td><td class="gray"></td>
         </tr>
-        ${emptyRows2307(13)}
+        ${emptyRows2307(3)}
         <tr class="total-row">
           <td class="left lbl">Total</td><td class="lbl"></td>
           <td>—</td><td>—</td><td>—</td><td>—</td><td>—</td>
@@ -431,10 +426,14 @@ function renderCertificate(suppKey, atcMap, start, end, setup, periodLabel) {
       information as contemplated under the *Data Privacy Act of 2012 (R.A. No. 10173) for legitimate and lawful purposes.
     </div>
 
-    <div class="sig-box">${repSig ? `<img src="${repSig}" alt="Signature">` : ''}</div>
+    <div class="sig-box">
+      ${repSig ? `<img src="${repSig}" alt="Signature">` : ''}
+      ${repName ? `<div class="sig-name">${escHtml(repName)}</div>` : ''}
+      ${repTitle ? `<div class="sig-pos">${escHtml(repTitle)}</div>` : ''}
+    </div>
     <div class="sig-cap">
-      <div class="cap">${payorCap}</div>
-      <div class="sub">${payorSub}</div>
+      <div class="cap">Signature over Printed Name of Payor/Payor's Authorized Representative/Tax Agent</div>
+      <div class="sub">(Indicate Title/Designation and TIN)</div>
     </div>
     <div class="acc-row">
       <div class="cell w40"><span class="acc-lbl">Tax Agent Accreditation No./<br>Attorney's Roll No. <span class="lbl-i">(if applicable)</span></span><span class="wbox"></span></div>

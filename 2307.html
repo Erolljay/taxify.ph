@@ -84,8 +84,10 @@
 
     .cert-box { padding:6px 10px; font-size:8pt; line-height:1.5; text-align:justify; border-bottom:2px solid #000; border-top:2px solid #000; }
 
-    .sig-box { background:#fff; height:44px; border-bottom:1px solid #000; display:flex; align-items:flex-end; justify-content:center; }
-    .sig-box img { max-height:42px; max-width:220px; }
+    .sig-box { background:#fff; min-height:52px; border-bottom:1px solid #000; display:flex; flex-direction:column; align-items:center; justify-content:flex-end; padding:8px 8px 4px; }
+    .sig-box img { max-height:30px; max-width:220px; margin-bottom:2px; }
+    .sig-box .sig-name { font-weight:bold; font-size:9pt; text-transform:uppercase; }
+    .sig-box .sig-pos { font-size:8pt; }
     .sig-cap { background:#d7d7d7; text-align:center; font-size:8pt; padding:3px 8px; border-bottom:1px solid #000; }
     .sig-cap .cap { font-weight:normal; }
     .sig-cap .cap strong { font-weight:bold; }
