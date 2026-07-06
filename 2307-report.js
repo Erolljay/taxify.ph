@@ -1,8 +1,13 @@
 /* ============================================================
-   Tallo CPA – BIR Tax App
+   Tallo CPA – BIR Tax App  ·  Taxify it!
    2307-report.js  –  BIR Form 2307 Certificate of Creditable
                        Tax Withheld at Source, per-supplier,
-                       generated from purchase invoices/payments
+                       generated from purchase invoices/payments.
+
+   Redesign 2026: renderCertificate() output now matches the
+   official January 2018 (ENCS) form 1:1 — boxed 4-segment TIN,
+   Field 5 (Foreign Address), "BIR Form No." header, CONFORME
+   block. All data aggregation logic below is unchanged.
    ============================================================ */
 
 let _f2307Setup = null;
@@ -11,6 +16,46 @@ let _f2307SuppMap = {};
 function tinDashed(t) {
   const d = (t || '').replace(/\D/g, '').padEnd(9, '0').substring(0, 9);
   return `${d.substring(0,3)}-${d.substring(3,6)}-${d.substring(6,9)}`;
+}
+
+// Segmented white boxes used throughout the official 2307 form.
+function segCells(str, count) {
+  const s = (str == null ? '' : String(str));
+  let html = '<span class="seg">';
+  for (let i = 0; i < count; i++) {
+    const ch = s[i];
+    html += `<i>${ch != null && ch !== '' ? escHtml(ch) : '&nbsp;'}</i>`;
+  }
+  return html + '</span>';
+}
+
+// TIN: 9-digit TIN + 5-digit branch code, shown as 3-3-3-5 white boxes
+// separated by gray dash blocks. Empty boxes when no TIN is on file.
+function tinBoxesHtml(tin) {
+  const digits = (tin || '').replace(/\D/g, '');
+  const full = digits.length ? (digits + '00000000000000').substring(0, 14) : '';
+  const g = (a, b) => segCells(full.substring(a, b), b - a);
+  return '<span class="tin">' +
+    g(0,3) + '<span class="dash"></span>' +
+    g(3,6) + '<span class="dash"></span>' +
+    g(6,9) + '<span class="dash"></span>' +
+    g(9,14) + '</span>';
+}
+
+// Date across 8 white boxes (MMDDYYYY); blank when no date.
+function dateSegHtml(d) {
+  let s = '';
+  if (d) {
+    const dt = (d instanceof Date) ? d : new Date(d);
+    if (!isNaN(dt)) s = String(dt.getMonth()+1).padStart(2,'0') + String(dt.getDate()).padStart(2,'0') + dt.getFullYear();
+  }
+  return segCells(s, 8);
+}
+
+// ZIP across 4 white boxes.
+function zipSegHtml(zip) {
+  const d = (zip == null ? '' : String(zip)).replace(/\D/g, '').substring(0, 4);
+  return segCells(d, 4);
 }
 
 async function init2307Report() {
@@ -31,7 +76,7 @@ async function init2307Report() {
   _f2307Setup = setup;
 
   if (!setup) {
-    outputEl.innerHTML = `<div class="alert alert-warn">⚠️ Business info not configured. Fill in the <strong>Business</strong> tab in the Tallo CPA extension first.</div>`;
+    outputEl.innerHTML = `<div class="alert alert-warn">⚠️ Business info not configured. Fill in the <strong>Business</strong> tab in the Taxify it! extension first.</div>`;
     return;
   }
   outputEl.innerHTML = '';
@@ -77,7 +122,7 @@ async function init2307Report() {
       <button class="btn btn-primary" id="f2307-gen">⚡ Generate</button>
       <button class="btn btn-outline" id="f2307-print" style="display:none;" onclick="window.print()">🖨 Print</button>
     </div>
-    <div style="font-size:11px;color:#6b7280;margin-top:4px;">
+    <div style="font-size:11px;color:#6b7794;margin-top:4px;">
       Business: <strong>${escHtml(biz)}</strong> &nbsp;|&nbsp;
       TIN: <strong>${escHtml(setup.tin||'—')}</strong>
     </div>`;
@@ -108,7 +153,6 @@ async function buildEWTBySupplier(biz, start, end) {
   taxCodes.forEach(tc => { tcNameByKey[tc.key] = tc.name; rateByKey[tc.key] = tc.rate; });
 
   const items = [...invItems, ...paymentItems];
-  // supplierKey -> { atc -> { atc, desc, rate, months:[base/ewt x3], totalBase, totalEwt } }
   const bySupplier = {};
 
   for (const { item } of items) {
@@ -144,8 +188,6 @@ async function buildEWTBySupplier(biz, start, end) {
 }
 
 // Build one EWT row-set per individual transaction (purchase invoice / payment).
-// Returns array of { suppKey, date, ref, atcMap } — atcMap has the same shape
-// as buildEWTBySupplier's per-supplier map, but for a single transaction.
 async function buildEWTByTransaction(biz, start, end) {
   const customAtcMap = loadAtcMapping();
   const [invItems, paymentItems, { tcKeyToAtc, taxCodes }] = await Promise.all([
@@ -249,26 +291,25 @@ async function generate2307(biz, setup, outputEl) {
   }
 }
 
-// ── RENDER ONE CERTIFICATE ───────────────────────────────────
+// ── RENDER ONE CERTIFICATE (official Jan 2018 ENCS layout) ────
 function renderCertificate(suppKey, atcMap, start, end, setup, periodLabel) {
   const supp = _f2307SuppMap[suppKey] || {};
   const payeeName = supp.companyName ||
     [supp.lastName, [supp.firstName, supp.middleName].filter(Boolean).join(' ')].filter(Boolean).join(', ') ||
     supp.name || suppKey;
-  const payeeTin  = supp.tin ? tinDashed(supp.tin) : '— — — — — — — — —';
-  const payeeAddr = [supp.address1, supp.address2].filter(Boolean).join(', ') || '—';
+  const payeeAddr = [supp.address1, supp.address2].filter(Boolean).join(', ') || '';
+  const payeeForeign = supp.foreignAddress || '';
 
   const ownerIsInd = setup.classification === 'Individual';
   const payorName = ownerIsInd
     ? [setup.lastName, [setup.firstName, setup.middleName].filter(Boolean).join(' ')].filter(Boolean).join(', ')
-    : (setup.companyName || setup.taxpayerName || '—');
-  const payorTin  = setup.tin ? tinDashed(setup.tin) : '— — — — — — — — —';
-  const payorAddr = setup.address || '—';
+    : (setup.companyName || setup.taxpayerName || '');
+  const payorAddr = setup.address || '';
 
   const rows = Object.values(atcMap).sort((a, b) => a.atc.localeCompare(b.atc));
   let totM = [0,0,0], totEwtQ = 0, totBaseAll = 0;
 
-  const bodyRows = rows.map(r => {
+  const detailRows = rows.map(r => {
     const m1 = r.months[0], m2 = r.months[1], m3 = r.months[2];
     const total = m1.base + m2.base + m3.base;
     totM[0] += m1.base; totM[1] += m2.base; totM[2] += m3.base;
@@ -282,89 +323,89 @@ function renderCertificate(suppKey, atcMap, start, end, setup, periodLabel) {
       <td>${fmt(total)}</td>
       <td>${fmt(r.totalEwt)}</td>
     </tr>`;
-  }).join('') + emptyRows2307(Math.max(0, 4 - rows.length));
+  }).join('') + emptyRows2307(Math.max(0, 10 - rows.length));
 
-  const fromStr = fmtDateMDY(start);
-  const toStr   = fmtDateMDY(end);
+  const fromSeg = dateSegHtml(start);
+  const toSeg   = dateSegHtml(end);
   const repName  = setup.authRep || '';
   const repTitle = setup.authRepTitle || '';
   const repSig   = setup.authRepSignature || '';
+  const blankDate = segCells('', 8);
+
+  const payorCap = repName
+    ? `<strong>${escHtml(repName)}</strong><br>Signature over Printed Name of Payor/Payor's Authorized Representative/Tax Agent`
+    : `Signature over Printed Name of Payor/Payor's Authorized Representative/Tax Agent`;
+  const payorSub = repTitle ? escHtml(repTitle) : '(Indicate Title/Designation and TIN)';
 
   return `
   <div class="bir-form">
-    <div class="bir-top">
+    <div class="hdr-strip">
+      <div class="hdr-biruse"><span>For BIR<br>Use Only</span><span>BCS/<br>Item:</span></div>
+      <img class="hdr-seal" src="bir-logo.png" alt="BIR">
+      <div class="hdr-gov">Republic of the Philippines<br>Department of Finance<br>Bureau of Internal Revenue</div>
+    </div>
+    <div class="hdr-band">
       <div class="formno-box">
+        <div class="lbl">BIR Form No.</div>
         <div class="big">2307</div>
         <div class="small">January 2018 (ENCS)</div>
       </div>
-      <div class="title-box">
-        <div class="republic">Republic of the Philippines<br>Department of Finance<br>Bureau of Internal Revenue</div>
-        <div class="formname">Certificate of Creditable Tax<br>Withheld at Source</div>
+      <div class="formname-box"><div class="t">Certificate of Creditable Tax<br>Withheld at Source</div></div>
+      <div class="barcode-box">
+        <img src="bir-barcode.png" alt="">
+        <div class="code">2307 01/18ENCS</div>
       </div>
-      <div class="barcode-box">For BIR Use Only<br>BCS/Item:</div>
     </div>
+
     <div class="bir-note">Fill in all applicable spaces. Mark all appropriate boxes with an "X".</div>
 
     <div class="period-row">
       <span class="num">1</span> For the Period
-      <span>From</span><div class="period-box">${fromStr}</div>
-      <span style="font-size:6.5pt;">(MM/DD/YYYY)</span>
-      <span>To</span><div class="period-box">${toStr}</div>
-      <span style="font-size:6.5pt;">(MM/DD/YYYY)</span>
+      <span style="margin-left:40px;">From</span>${fromSeg}<span class="tiny">(MM/DD/YYYY)</span>
+      <span style="margin-left:40px;">To</span>${toSeg}<span class="tiny">(MM/DD/YYYY)</span>
     </div>
 
-    <div class="bir-section-title">Part I – Payee Information</div>
-    <div class="bir-row first">
-      <div class="bir-cell w50"><span class="num">2</span> Taxpayer Identification Number (TIN)
-        <span class="val">${escHtml(payeeTin)}</span></div>
+    <div class="section-title">Part I – Payee Information</div>
+    <div class="row"><div class="cell"><span class="num">2</span> Taxpayer Identification Number <span class="lbl-i">(TIN)</span>
+      ${tinBoxesHtml(supp.tin)}</div></div>
+    <div class="row"><div class="cell"><span class="num">3</span> Payee's Name <span class="lbl-i">(Last Name, First Name, Middle Name for Individual OR Registered Name for Non-Individual)</span>
+      <div class="field">${escHtml(payeeName)}</div></div></div>
+    <div class="row">
+      <div class="cell w60"><span class="num">4</span> Registered Address<div class="field">${escHtml(payeeAddr)}</div></div>
+      <div class="cell zip"><span class="num">4A</span> ZIP Code${zipSegHtml(supp.zipCode)}</div>
     </div>
-    <div class="bir-row">
-      <div class="bir-cell"><span class="num">3</span> Payee's Name <span class="lbl">(Last Name, First Name, Middle Name for Individual OR Registered Name for Non-Individual)</span>
-        <span class="val">${escHtml(payeeName)}</span></div>
-    </div>
-    <div class="bir-row">
-      <div class="bir-cell w50"><span class="num">4</span> Registered Address
-        <span class="val">${escHtml(payeeAddr)}</span></div>
-      <div class="bir-cell"><span class="num">4A</span> ZIP Code
-        <span class="val">${escHtml(supp.zipCode || '')}</span></div>
+    <div class="row"><div class="cell"><span class="num">5</span> Foreign Address, <span class="lbl-i">if applicable</span><div class="field">${escHtml(payeeForeign)}</div></div></div>
+
+    <div class="section-title">Part II – Payor Information</div>
+    <div class="row"><div class="cell"><span class="num">6</span> Taxpayer Identification Number <span class="lbl-i">(TIN)</span>
+      ${tinBoxesHtml(setup.tin)}</div></div>
+    <div class="row"><div class="cell"><span class="num">7</span> Payor's Name <span class="lbl-i">(Last Name, First Name, Middle Name for Individual OR Registered Name for Non-Individual)</span>
+      <div class="field">${escHtml(payorName)}</div></div></div>
+    <div class="row">
+      <div class="cell w60"><span class="num">8</span> Registered Address<div class="field">${escHtml(payorAddr)}</div></div>
+      <div class="cell zip"><span class="num">8A</span> ZIP Code${zipSegHtml(setup.zipCode)}</div>
     </div>
 
-    <div class="bir-section-title">Part II – Payor Information</div>
-    <div class="bir-row first">
-      <div class="bir-cell w50"><span class="num">6</span> Taxpayer Identification Number (TIN)
-        <span class="val">${escHtml(payorTin)}</span></div>
-    </div>
-    <div class="bir-row">
-      <div class="bir-cell"><span class="num">7</span> Payor's Name <span class="lbl">(Last Name, First Name, Middle Name for Individual OR Registered Name for Non-Individual)</span>
-        <span class="val">${escHtml(payorName)}</span></div>
-    </div>
-    <div class="bir-row">
-      <div class="bir-cell w50"><span class="num">8</span> Registered Address
-        <span class="val">${escHtml(payorAddr)}</span></div>
-      <div class="bir-cell"><span class="num">8A</span> ZIP Code
-        <span class="val">${escHtml(setup.zipCode || '')}</span></div>
-    </div>
-
-    <div class="bir-section-title">Part III – Details of Monthly Income Payments and Taxes Withheld</div>
-    <table class="bir-detail-table">
+    <div class="section-title">Part III – Details of Monthly Income Payments and Taxes Withheld</div>
+    <table class="det">
       <thead>
         <tr>
-          <th rowspan="2" style="width:32%">Income Payments Subject to Expanded Withholding Tax</th>
+          <th rowspan="2" style="width:32%">Income Payments Subject to Expanded<br>Withholding Tax</th>
           <th rowspan="2" style="width:8%">ATC</th>
-          <th colspan="4">Amount of Income Payments</th>
-          <th rowspan="2" style="width:12%">Tax Withheld for the Quarter</th>
+          <th colspan="4">AMOUNT OF INCOME PAYMENTS</th>
+          <th rowspan="2" style="width:14%">Tax Withheld for the<br>Quarter</th>
         </tr>
         <tr>
-          <th>1st Month of the Quarter</th>
-          <th>2nd Month of the Quarter</th>
-          <th>3rd Month of the Quarter</th>
+          <th>1st Month of the<br>Quarter</th>
+          <th>2nd Month of the<br>Quarter</th>
+          <th>3rd Month of the<br>Quarter</th>
           <th>Total</th>
         </tr>
       </thead>
       <tbody>
-        ${bodyRows}
+        ${detailRows}
         <tr class="total-row">
-          <td colspan="2" class="left">Total</td>
+          <td class="left lbl">Total</td><td class="lbl"></td>
           <td>${totM[0] ? fmt(totM[0]) : '—'}</td>
           <td>${totM[1] ? fmt(totM[1]) : '—'}</td>
           <td>${totM[2] ? fmt(totM[2]) : '—'}</td>
@@ -372,11 +413,12 @@ function renderCertificate(suppKey, atcMap, start, end, setup, periodLabel) {
           <td>${fmt(totEwtQ)}</td>
         </tr>
         <tr class="section-row">
-          <td colspan="7" class="left">Money Payments Subject to Withholding of Business Tax (Government &amp; Private)</td>
+          <td colspan="2">Money Payments Subject to Withholding of<br>Business Tax (Government &amp; Private)</td>
+          <td class="gray"></td><td class="gray"></td><td class="gray"></td><td class="gray"></td><td class="gray"></td>
         </tr>
-        ${emptyRows2307(2)}
+        ${emptyRows2307(13)}
         <tr class="total-row">
-          <td colspan="2" class="left">Total</td>
+          <td class="left lbl">Total</td><td class="lbl"></td>
           <td>—</td><td>—</td><td>—</td><td>—</td><td>—</td>
         </tr>
       </tbody>
@@ -389,28 +431,27 @@ function renderCertificate(suppKey, atcMap, start, end, setup, periodLabel) {
       information as contemplated under the *Data Privacy Act of 2012 (R.A. No. 10173) for legitimate and lawful purposes.
     </div>
 
-    <div class="sig-area">
-      <div class="sig-line">${repSig ? `<img src="${repSig}" alt="Signature" style="max-height:34px;max-width:180px;">` : ''}</div>
-      ${repName ? `<strong>${escHtml(repName)}</strong><br>` : ''}
-      Signature over Printed Name of Payor/Payor's Authorized Representative/Tax Agent<br>
-      <span class="sig-sub">${repTitle ? escHtml(repTitle) : '(Indicate Title/Designation and TIN)'}</span>
+    <div class="sig-box">${repSig ? `<img src="${repSig}" alt="Signature">` : ''}</div>
+    <div class="sig-cap">
+      <div class="cap">${payorCap}</div>
+      <div class="sub">${payorSub}</div>
     </div>
-    <div class="sig-meta-row">
-      <div class="bir-cell w50">Tax Agent Accreditation No./Attorney's Roll No. (if applicable)</div>
-      <div class="bir-cell w25">Date of Issue<br><span class="sig-sub">(MM/DD/YYYY)</span></div>
-      <div class="bir-cell">Date of Expiry<br><span class="sig-sub">(MM/DD/YYYY)</span></div>
+    <div class="acc-row">
+      <div class="cell w40"><span class="acc-lbl">Tax Agent Accreditation No./<br>Attorney's Roll No. <span class="lbl-i">(if applicable)</span></span><span class="wbox"></span></div>
+      <div class="cell"><span class="acc-lbl">Date of Issue<br><span class="lbl-i">(MM/DD/YYYY)</span></span>${blankDate}</div>
+      <div class="cell"><span class="acc-lbl">Date of Expiry<br><span class="lbl-i">(MM/DD/YYYY)</span></span>${blankDate}</div>
     </div>
 
-    <div class="conforme-title">CONFORME</div>
-    <div class="sig-area">
-      <div class="sig-line"></div>
-      Signature over Printed Name of Payee/Payee's Authorized Representative/Tax Agent<br>
-      <span class="sig-sub">(Indicate Title/Designation and TIN)</span>
+    <div class="conforme">CONFORME:</div>
+    <div class="sig-box"></div>
+    <div class="sig-cap">
+      <div class="cap">Signature over Printed Name of Payee/Payee's Authorized Representative/Tax Agent</div>
+      <div class="sub">(Indicate Title/Designation and TIN)</div>
     </div>
-    <div class="sig-meta-row">
-      <div class="bir-cell w50">Tax Agent Accreditation No./Attorney's Roll No. (if applicable)</div>
-      <div class="bir-cell w25">Date of Issue<br><span class="sig-sub">(MM/DD/YYYY)</span></div>
-      <div class="bir-cell">Date of Expiry<br><span class="sig-sub">(MM/DD/YYYY)</span></div>
+    <div class="acc-row">
+      <div class="cell w40"><span class="acc-lbl">Tax Agent Accreditation No./<br>Attorney's Roll No. <span class="lbl-i">(if applicable)</span></span><span class="wbox"></span></div>
+      <div class="cell"><span class="acc-lbl">Date of Issue<br><span class="lbl-i">(MM/DD/YYYY)</span></span>${blankDate}</div>
+      <div class="cell"><span class="acc-lbl">Date of Expiry<br><span class="lbl-i">(MM/DD/YYYY)</span></span>${blankDate}</div>
     </div>
 
     <div class="footer-note">*NOTE: The BIR Data Privacy is in the BIR website (www.bir.gov.ph)</div>
