@@ -381,7 +381,13 @@ function recompute1701Q(el, thisQ, prevQ, method) {
 
   const penalties = ['c1701q-64','c1701q-65','c1701q-66'].reduce((s, id) => s + val(id), 0);
   setText(el, 'c1701q-line67', penalties);
-  setText(el, 'c1701q-line30', line28 + penalties);
+  const totalPayable = line28 + penalties;
+  setText(el, 'c1701q-line30', totalPayable);
+
+  // Exposed for the "Record Payment / Journal Entry" workflow step
+  // (step-engine.js's mountItrPaymentStepContent), which reads this straight
+  // out of this report's iframe rather than recomputing anything itself.
+  window._itr = { totalPayable };
 }
 
 function setText(el, id, amount) {

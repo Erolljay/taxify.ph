@@ -349,11 +349,11 @@ const WORKFLOWS = {
       },
       {
         key: 'itr-record-payment',
-        type: 'review',
+        type: 'payment',
         label: 'Record Payment / Journal Entry',
-        help: 'Use the "Record a Carry-Forward Entry" panel on the return to post the payment once made to BIR.',
-        file: findReport('1701q.html').file,
-        iframeId: 'itr-payment',
+        help: "Posts the total amount payable from the return into Manager. Pick which account it clears (e.g. a Deferred Tax Asset - ITR Payments role) — that choice is yours, not automated.",
+        paymentFlavor: 'itr',
+        sourceStepKey: 'itr-review',
       },
       {
         key: 'itr-final',
@@ -391,11 +391,11 @@ const WORKFLOWS = {
       },
       {
         key: 'itr-record-payment',
-        type: 'review',
+        type: 'payment',
         label: 'Record Payment / Journal Entry',
-        help: 'Use the "Record a Carry-Forward Entry" panel on the return to post the payment once made to BIR.',
-        file: findReport('1702q.html').file,
-        iframeId: 'itr-payment',
+        help: "Posts the total amount payable from the return into Manager. Pick which account it clears (e.g. a Deferred Tax Asset - ITR Payments role) — that choice is yours, not automated.",
+        paymentFlavor: 'itr',
+        sourceStepKey: 'itr-review',
       },
       {
         key: 'itr-final',
