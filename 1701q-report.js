@@ -120,6 +120,7 @@ async function generate1701Q(biz, setup, outputEl) {
       cwtPrevQuarters: cwtPrepaid2306PrevQ,
       priorYearExcessCredit,
       itrPaymentsPrevQ,
+      coa, dtaMap,
     }, setup, period, method, deduction);
 
     ['c1701q-print', 'c1701q-pdf'].forEach(id => {
@@ -179,6 +180,8 @@ function render1701Q(el, data, setup, period, method, deduction) {
       <div class="return-line"><div class="return-line-num">62</div><div class="return-line-label" style="font-weight:700;">Total Tax Credits/Payments</div><div class="return-line-amt" id="c1701q-line62">₱ 0.00</div></div>
     </div>
 
+    ${renderDtaEntryPanelHtml1701Q()}
+
     <div class="return-section">
       <div class="return-section-header">Part III – Total Tax Payable</div>
       <div class="return-line"><div class="return-line-num">26</div><div class="return-line-label" style="font-weight:700;">Tax Due</div><div class="return-line-amt" id="c1701q-line26">₱ 0.00</div></div>
@@ -204,6 +207,7 @@ function render1701Q(el, data, setup, period, method, deduction) {
   bindIncomeTaxTabs(el);
   el.querySelectorAll('.recon-manual-input').forEach(inp => inp.addEventListener('input', () => recompute1701Q(el, thisQ, prevQ, method)));
   bindDeductionMappingTable(el, App.currentBusiness, () => render1701Q(el, data, setup, period, method, deduction));
+  bindDtaEntryPanel1701Q(el, App.currentBusiness, data.coa, data.dtaMap, () => generate1701Q(App.currentBusiness, setup, el));
   recompute1701Q(el, thisQ, prevQ, method);
 }
 
@@ -246,6 +250,97 @@ function manualLine(num, label, inputId) {
     <div class="return-line-label">${escHtml(label)}</div>
     <div class="return-line-amt"><input type="number" step="0.01" class="recon-manual-input" id="${inputId}" value="0" style="width:120px;text-align:right;font-size:12px;"></div>
   </div>`;
+}
+
+// Same panel as 1702q-report.js's renderDtaEntryPanelHtml/bindDtaEntryPanel,
+// trimmed to the roles that apply to individuals — no MCIT concept here, so
+// no itrPaymentsMcit/mcitCarryforward options.
+const DTA_ROLES_1701Q = ['priorYearExcessCredit', 'itrPaymentsRegular', 'cwt2306'];
+
+function renderDtaEntryPanelHtml1701Q() {
+  const roleOpts = DTA_ROLES.filter(r => DTA_ROLES_1701Q.includes(r.key))
+    .map(r => `<option value="${r.key}">${escHtml(r.label)}</option>`).join('');
+  const today = new Date().toISOString().slice(0, 10);
+  return `
+    <details class="no-print" style="margin:10px 0;border:1px solid #e5e7eb;border-radius:6px;padding:8px;">
+      <summary style="cursor:pointer;font-size:12px;font-weight:600;">📝 Record a Carry-Forward Entry</summary>
+      <p style="font-size:11px;color:#6b7280;margin:8px 0;">Posts a journal entry to Manager so the balance is picked up automatically on future returns — no manual re-entry needed. The account for each role is whatever's mapped in Settings → Chart of Accounts (or its default name, if unmapped).</p>
+      <div class="filter-bar" style="flex-wrap:wrap;gap:8px;">
+        <label>Date</label>
+        <input type="date" id="c1701q-dta-date" value="${today}" style="width:130px;">
+        <label>Role</label>
+        <select id="c1701q-dta-role" style="min-width:180px;">${roleOpts}</select>
+        <label>Direction</label>
+        <select id="c1701q-dta-direction" style="min-width:220px;">
+          <option value="increase">Increase (payment made / balance established)</option>
+          <option value="decrease">Decrease (applied against tax due / written off)</option>
+        </select>
+      </div>
+      <div class="filter-bar" style="flex-wrap:wrap;margin-top:6px;gap:8px;">
+        <label>Amount</label>
+        <input type="number" step="0.01" id="c1701q-dta-amount" style="width:140px;text-align:right;">
+        <label>Counter-account</label>
+        <select id="c1701q-dta-counter" style="min-width:220px;"><option value="">Loading accounts…</option></select>
+        <label>Description</label>
+        <input type="text" id="c1701q-dta-desc" style="width:200px;" placeholder="optional">
+      </div>
+      <div style="margin-top:8px;">
+        <button type="button" class="btn btn-primary btn-sm" id="c1701q-dta-post">Post Entry</button>
+        <span id="c1701q-dta-status" style="font-size:11px;color:#6b7280;margin-left:8px;"></span>
+      </div>
+    </details>`;
+}
+
+function bindDtaEntryPanel1701Q(el, biz, coa, dtaMap, onPosted) {
+  const counterSel = el.querySelector('#c1701q-dta-counter');
+  const postBtn = el.querySelector('#c1701q-dta-post');
+  if (!counterSel || !postBtn) return;
+
+  const allAccts = Object.values(coa || {})
+    .filter(a => a.name)
+    .sort((a, b) => a.name.localeCompare(b.name));
+  counterSel.innerHTML = allAccts.map(a => `<option value="${a.key}">${escHtml(a.name)}</option>`).join('');
+
+  postBtn.addEventListener('click', async () => {
+    const statusEl = el.querySelector('#c1701q-dta-status');
+    const date = el.querySelector('#c1701q-dta-date').value;
+    const roleKey = el.querySelector('#c1701q-dta-role').value;
+    const isIncrease = el.querySelector('#c1701q-dta-direction').value === 'increase';
+    const amount = parseFloat(el.querySelector('#c1701q-dta-amount').value) || 0;
+    const counterGuid = counterSel.value;
+    const desc = el.querySelector('#c1701q-dta-desc').value.trim();
+
+    if (!date) { statusEl.textContent = '❌ Pick a date.'; return; }
+    if (amount <= 0.005) { statusEl.textContent = '❌ Enter an amount greater than zero.'; return; }
+    if (!counterGuid) { statusEl.textContent = '❌ Pick a counter-account.'; return; }
+
+    const dtaAccount = findDtaAccount(coa, dtaMap, roleKey);
+    if (!dtaAccount) {
+      statusEl.textContent = '❌ No account is mapped to this role yet — map or create one in Settings → Chart of Accounts first.';
+      return;
+    }
+
+    const role = DTA_ROLES.find(r => r.key === roleKey);
+    const lineDesc = desc || role.label;
+    const lines = [
+      { account: dtaAccount.key, lineDescription: lineDesc, debit: isIncrease ? amount : 0, credit: isIncrease ? 0 : amount },
+      { account: counterGuid, lineDescription: lineDesc, debit: isIncrease ? 0 : amount, credit: isIncrease ? amount : 0 },
+    ];
+
+    statusEl.textContent = 'Posting…';
+    postBtn.disabled = true;
+    try {
+      await apiRequest('PUT', '/api4/journal-entry', {
+        key: crypto.randomUUID(),
+        value: { date, narration: `${role.label} — ${isIncrease ? 'established/payment' : 'applied/written off'}`, lines },
+      });
+      statusEl.textContent = '✅ Posted — refreshing figures…';
+      await onPosted();
+    } catch (err) {
+      statusEl.textContent = `❌ ${err.message}`;
+      postBtn.disabled = false;
+    }
+  });
 }
 
 function val(id) {
