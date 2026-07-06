@@ -58,64 +58,115 @@
   .form-title h2 { margin:0; font-size:16px; }
   .form-title .sub { font-size:11px; color:#6b7280; }
 
-  /* BIR Form 2316 replica */
-  .f2316 { font-size:10px; border:1.5px solid #000; padding:8px; max-width:1000px; margin:0 auto 24px; }
-  .f2316-head { display:flex; align-items:stretch; border:1px solid #000; margin-bottom:6px; }
-  .f2316-head .hd-form { flex:0 0 100px; border-right:1px solid #000; padding:3px 6px; text-align:center; }
-  .f2316-head .hd-form .for-bir { font-size:6.5px; text-align:left; border-bottom:1px solid #000; margin:-3px -6px 3px; padding:2px 4px; }
-  .f2316-head .hd-form .form-label { font-size:6.5px; }
-  .f2316-head .hd-form .form-no { font-size:16px; font-weight:700; line-height:1; margin:1px 0; }
-  .f2316-head .hd-form .form-rev { font-size:6.5px; }
-  .f2316-head .hd-mid { flex:1; padding:4px 8px; text-align:center; }
-  .f2316-head .hd-mid .gov-lines { font-size:7px; line-height:1.2; margin-bottom:2px; }
-  .f2316-head .bir-no { font-size:8px; }
-  .f2316-head .bir-title { font-size:12px; font-weight:700; margin-top:2px; }
-  .f2316-head .bir-sub { font-size:8px; font-style:italic; }
-  .f2316-head .hd-code { flex:0 0 90px; border-left:1px solid #000; padding:4px 6px; display:flex; align-items:center; justify-content:center; }
-  .f2316-head .hd-code .form-tag { font-size:7px; font-weight:700; }
-  .f2316-fill-note { font-size:8px; padding:2px 0 4px; }
-  .f2316-yp { display:flex; gap:16px; border-bottom:1px solid #000; padding:4px 0; margin-bottom:4px; }
-  .f2316-yp .box { border:1px solid #9ca3af; padding:2px 6px; font-weight:600; }
-  .f2316-cols { display:grid; grid-template-columns:1fr 1fr; gap:0 10px; align-items:start; }
-  .f2316-col { border-left:1px solid #000; padding-left:8px; }
-  .f2316-col:first-child { border-left:none; padding-left:0; }
-  .f2316-part-title { background:#1f2937; color:#fff; font-weight:700; padding:2px 6px; margin:6px 0 2px; font-size:9.5px; }
-  .f2316-field { display:flex; gap:6px; margin-bottom:3px; align-items:baseline; }
-  .f2316-num { font-weight:700; min-width:14px; }
-  .f2316-label { color:#374151; flex:0 0 auto; }
-  .f2316-fill { flex:1; border-bottom:1px dotted #9ca3af; font-weight:600; padding-left:4px; }
-  .f2316-item { display:flex; justify-content:space-between; border-bottom:1px dotted #d1d5db; padding:1.5px 0; }
-  .f2316-item .lbl { color:#374151; }
-  .f2316-item .amt { font-weight:600; font-family:monospace; min-width:90px; text-align:right; }
-  .f2316-item.total { border-top:1px solid #000; border-bottom:1px solid #000; font-weight:700; margin-top:2px; }
-  .f2316-mwe-box { border:1px solid #000; padding:4px; margin:6px 0; font-size:9.5px; }
+  /* BIR Form 2316 — official-replica layout (matches printed form) */
+  .f2316-page { font-family: Arial, Helvetica, sans-serif; width:862px; margin:0 auto 24px; page-break-after: always; color:#000; }
+  .f2316-page:last-child { page-break-after: auto; }
+  .f2316-page * { box-sizing: border-box; }
 
-  .f2316-declaration { background:#d9d9d9; border-top:1px solid #000; padding:3px 6px; font-size:7px; line-height:1.2; text-align:justify; margin-top:8px; }
-  .f2316-sig2 { font-size:8.5px; }
-  .f2316-sig-row { display:flex; align-items:flex-end; justify-content:space-between; gap:16px; border-top:1px solid #000; padding-top:14px; margin-top:6px; }
-  .f2316-sig-block { flex:1; max-width:300px; }
-  .f2316-sig-block .line { position:relative; border-bottom:1px solid #000; width:300px; min-height:32px; display:flex; align-items:flex-end; justify-content:center; padding-bottom:1px; margin-bottom:2px; }
-  .f2316-sig-block .line .sig-img { position:absolute; bottom:10px; left:50%; transform:translateX(-50%); max-height:26px; max-width:95%; }
-  .f2316-sig-block .line .name-text { font-size:11px; font-weight:700; }
-  .f2316-sig-block .cap { text-align:center; width:300px; line-height:1.2; }
-  .f2316-conforme { font-weight:700; margin-top:10px; }
-  .f2316-sig-date { flex:0 0 auto; white-space:nowrap; }
-  .date-fill { display:inline-block; width:90px; border-bottom:1px solid #000; margin-left:2px; vertical-align:bottom; }
-  .f2316-ctc-row { display:flex; gap:14px; align-items:flex-end; border-top:1px solid #000; padding-top:6px; margin-top:10px; flex-wrap:wrap; }
-  .f2316-ctc-row .ctc-field { flex:1; min-width:140px; }
-  .f2316-ctc-row .fill { display:inline-block; border-bottom:1px solid #000; width:100%; min-width:90px; height:12px; vertical-align:bottom; margin-left:4px; }
-  .f2316-ctc-row .ctc-date { flex:0 0 auto; white-space:nowrap; }
-  .f2316-ctc-row .ctc-amount { flex:0 0 140px; text-align:right; }
+  .f2316-topstrip { position:relative; padding:0 0 6px; min-height:40px; }
+  .f2316-topstrip .biruse { position:absolute; left:0; bottom:0; display:flex; font-weight:700; line-height:1.2; font-size:7px; }
+  .f2316-topstrip .biruse span { border:1px solid #000; padding:2px 5px; white-space:nowrap; }
+  .f2316-topstrip .biruse span.gray { background:#cfcfcf; border-right:none; }
+  .f2316-topstrip .gov { display:flex; align-items:center; justify-content:center; gap:10px; }
+  .f2316-topstrip .gov img { width:40px; height:auto; }
+  .f2316-topstrip .gov .lines { font-weight:700; font-size:9px; line-height:1.3; text-align:center; }
 
-  .f2316-subfiling { margin-top:10px; border:1px solid #000; font-size:7px; }
-  .f2316-subfiling-title { text-align:center; font-weight:700; border-bottom:1px solid #000; padding:2px 0; }
-  .f2316-subfiling-cols { display:grid; grid-template-columns:1fr 1fr; }
-  .f2316-subfiling-col { padding:5px 8px; border-left:1px solid #000; line-height:1.2; }
-  .f2316-subfiling-col:first-child { border-left:none; }
-  .f2316-subfiling-col .f2316-sig-block { margin-top:18px; max-width:none; }
-  .f2316-subfiling-col .f2316-sig-block .line { width:100%; }
-  .f2316-subfiling-col .f2316-sig-block .cap { width:100%; }
-  .f2316-note { font-size:7.5px; font-style:italic; margin-top:4px; }
+  .f2316-outer { width:100%; background:#fff; border:2px solid #000; font-size:8px; line-height:1.28; }
+
+  .f2316-headband { display:flex; border-bottom:2px solid #000; }
+  .f2316-headband .formno { width:230px; border-right:2px solid #000; display:flex; flex-direction:column; justify-content:center; padding:5px 8px; text-align:center; }
+  .f2316-headband .formno .lbl { font-weight:700; }
+  .f2316-headband .formno .big { font-size:26px; font-weight:800; line-height:.95; letter-spacing:1px; }
+  .f2316-headband .formno .rev { font-size:7.5px; }
+  .f2316-headband .title { flex:1; border-right:2px solid #000; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:6px; text-align:center; min-height:72px; }
+  .f2316-headband .title .t { font-weight:800; font-size:13px; line-height:1.12; }
+  .f2316-headband .title .sub { font-size:7.5px; margin-top:3px; }
+  .f2316-headband .barcode { width:210px; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:8px 10px 4px; }
+  .f2316-headband .barcode img { width:186px; height:auto; }
+  .f2316-headband .barcode .code { align-self:flex-end; font-weight:700; margin-top:4px; }
+
+  .f2316-fillnote { border-bottom:2px solid #000; padding:2px 8px; font-weight:700; }
+
+  .f2316-yp { display:flex; border-bottom:2px solid #000; background:#cfcfcf; }
+  .f2316-yp .a { flex:1; border-right:2px solid #000; padding:4px 8px; display:flex; align-items:center; gap:8px; }
+  .f2316-yp .b { flex:1; padding:4px 8px; display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
+  .f2316-boxcell { width:21px; height:22px; line-height:22px; text-align:center; border:1px solid #000; margin-left:-1px; background:#fff; font-family:'Courier New',monospace; font-weight:700; display:inline-block; }
+  .f2316-boxwrap { display:inline-flex; }
+
+  .f2316-main { display:flex; border-bottom:2px solid #000; background:#cfcfcf; }
+  .f2316-col { flex:1; }
+  .f2316-col.left { border-right:2px solid #000; }
+
+  .f2316-parttitle { text-align:center; font-weight:700; border-bottom:1px solid #000; padding:2px; background:#d7d7d7; }
+
+  .f2316-tin-row { border-bottom:1px solid #000; padding:3px 6px; display:flex; align-items:center; gap:8px; }
+  .f2316-tin-cell { display:inline-block; width:15px; height:19px; line-height:19px; text-align:center; border:1px solid #000; margin:0 0 0 -1px; font-family:'Courier New',monospace; font-weight:700; background:#fff; }
+  .f2316-tin-cell.dash { background:#9c9c9c; }
+  .f2316-tin-wrap { display:inline-flex; align-items:center; }
+
+  .f2316-row2 { display:flex; border-bottom:1px solid #000; }
+  .f2316-fieldbox { flex:1; border-right:1px solid #000; padding:3px 6px; }
+  .f2316-fieldbox:last-child { border-right:none; }
+  .f2316-fieldbox.narrow { flex:0 0 120px; }
+  .f2316-fieldbox .val { background:#fff; border:1px solid #000; min-height:20px; padding:2px 5px; font-weight:700; margin-top:3px; }
+  .f2316-fieldbox .val.center { text-align:center; letter-spacing:3px; }
+  .f2316-fieldbox-single { border-bottom:1px solid #000; padding:3px 6px; }
+
+  .f2316-ticks { display:flex; margin-top:3px; background:#fff; border:1px solid #000; height:24px; }
+  .f2316-ticks .tick { flex:1; position:relative; text-align:center; line-height:24px; font-family:'Courier New',monospace; font-weight:700; }
+  .f2316-ticks .tick::after { content:''; position:absolute; right:0; bottom:0; width:1px; height:10px; background:#000; }
+  .f2316-ticks .tick:last-child::after { display:none; }
+
+  .f2316-inline-row { display:flex; align-items:center; border-bottom:1px solid #000; padding:3px 6px; gap:8px; }
+  .f2316-amtbox { width:170px; background:#fff; border:1px solid #000; min-height:20px; padding:2px 6px; font-weight:700; text-align:right; }
+
+  .f2316-mwe { display:flex; border-bottom:1px solid #000; padding:3px 6px; gap:8px; align-items:flex-start; }
+  .f2316-checkbox { width:22px; height:22px; background:#fff; border:1px solid #000; text-align:center; line-height:22px; font-weight:800; flex-shrink:0; }
+  .f2316-checkbox.sm { width:20px; height:20px; line-height:20px; }
+
+  .f2316-item-row { display:flex; align-items:center; min-height:30px; }
+  .f2316-item-row .lbl { flex:1; padding:3px 6px; line-height:1.2; }
+  .f2316-item-row .amt { width:170px; margin:3px 8px 3px 0; background:#fff; border:1px solid #000; padding:3px 6px; text-align:right; font-weight:700; min-height:20px; }
+  .f2316-item-row.total .amt { font-weight:800; }
+
+  .f2316-cathdr { display:flex; border-bottom:1px solid #000; font-weight:700; }
+  .f2316-cathdr .lbl { flex:1; padding:3px 6px; }
+  .f2316-cathdr .amtcol { width:180px; border-left:1px solid #000; padding:3px 6px; text-align:center; }
+  .f2316-subhdr { font-weight:700; border-bottom:1px solid #000; padding:3px 6px; }
+
+  .f2316-declaration { border-bottom:2px solid #000; padding:5px 10px; text-align:justify; line-height:1.2; font-size:7px; background:#cfcfcf; }
+
+  .f2316-sigrow { display:flex; border-bottom:1px solid #000; }
+  .f2316-sigblock { flex:1; border-right:1px solid #000; padding:14px 10px 4px; }
+  .f2316-sigblock:last-child { border-right:none; }
+  .f2316-line { display:flex; align-items:flex-end; gap:8px; }
+  .f2316-line .val { flex:1; border-bottom:1px solid #000; text-align:center; font-weight:700; padding-bottom:1px; position:relative; min-height:16px; }
+  .f2316-line .val img.sig { position:absolute; bottom:14px; left:50%; transform:translateX(-50%); max-height:24px; max-width:90%; }
+  .f2316-cap { text-align:center; font-size:7.5px; margin-top:2px; padding-left:16px; line-height:1.25; }
+  .f2316-datesigned { width:250px; padding:14px 10px 4px; display:flex; align-items:flex-start; gap:8px; }
+  .f2316-datebox { flex:1; height:20px; background:#fff; border:1px solid #000; margin-left:-1px; }
+  .f2316-datewrap { flex:1; display:flex; }
+
+  .f2316-conforme { border-bottom:1px solid #000; padding:2px 10px; font-weight:700; }
+
+  .f2316-ctcrow { display:flex; border-bottom:2px solid #000; }
+  .f2316-ctcfield { flex:1; border-right:1px solid #000; padding:4px 10px; display:flex; align-items:center; gap:6px; }
+  .f2316-ctcfield .l { line-height:1.15; }
+  .f2316-ctcfield .box { flex:1; background:#fff; border:1px solid #000; height:26px; }
+  .f2316-ctc-date { width:250px; padding:4px 10px; }
+  .f2316-ctc-date .amtbox { flex:1; background:#fff; border:1px solid #000; height:22px; }
+
+  .f2316-subfiling-title { text-align:center; font-weight:700; border-bottom:2px solid #000; padding:2px; background:#d7d7d7; }
+  .f2316-subfiling-cols { display:flex; }
+  .f2316-subfiling-col { flex:1; border-right:1px solid #000; padding:6px 10px; }
+  .f2316-subfiling-col:last-child { border-right:none; }
+  .f2316-subfiling-text { text-align:justify; line-height:1.2; font-size:7px; }
+
+  .f2316-note { border-top:2px solid #000; padding:2px 8px; font-weight:700; }
+
+  @media print {
+    .f2316-page { width:100%; }
+  }
 </style>
 <script src="shared.js"></script>
 <script src="custom-fields.js"></script>

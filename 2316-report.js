@@ -7,6 +7,36 @@
 
 let _form2316State = { biz: null, setup: null, employees: null, year: null };
 
+// ── FORM-FIELD CELL HELPERS (match the official printed layout) ──
+function tinCellsHtml2316(tin) {
+  const digits = (tin || '').replace(/\D/g, '').padEnd(12, ' ').substring(0, 12);
+  const groups = [digits.slice(0, 3), digits.slice(3, 6), digits.slice(6, 9), digits.slice(9, 12)];
+  let html = '<span class="f2316-tin-wrap">';
+  groups.forEach((g, gi) => {
+    g.split('').forEach(ch => { html += `<span class="f2316-tin-cell">${ch.trim() ? escHtml(ch) : '&nbsp;'}</span>`; });
+    if (gi < groups.length - 1) html += `<span class="f2316-tin-cell dash"></span>`;
+  });
+  return html + '</span>';
+}
+function tickCellsHtml2316(str, count) {
+  const s = (str || '').replace(/\D/g, '').padEnd(count, ' ').substring(0, count);
+  let html = '<div class="f2316-ticks">';
+  for (let i = 0; i < count; i++) {
+    const ch = s[i];
+    html += `<span class="tick">${ch && ch.trim() ? escHtml(ch) : '&nbsp;'}</span>`;
+  }
+  return html + '</div>';
+}
+function boxCellsHtml2316(str, count) {
+  const s = (str || '').padEnd(count, ' ').substring(0, count);
+  let html = '<span class="f2316-boxwrap">';
+  for (let i = 0; i < count; i++) {
+    const ch = s[i];
+    html += `<span class="f2316-boxcell">${ch && ch.trim() ? escHtml(ch) : '&nbsp;'}</span>`;
+  }
+  return html + '</span>';
+}
+
 async function init2316Tab(biz, setup) {
   _form2316State.biz = biz;
   _form2316State.setup = setup;
@@ -171,176 +201,165 @@ function render2316Cert(emp, monthly, months, setup, year) {
     ? [setup.lastName, setup.firstName, setup.middleName].filter(Boolean).join(', ')
     : (setup.companyName || setup.taxpayerName || '');
 
-  const field = (num, label, value) => `
-    <div class="f2316-field"><span class="f2316-num">${escHtml(String(num))}</span>
-      <span class="f2316-label">${label}</span><span class="f2316-fill">${escHtml(value || '')}</span>
-    </div>`;
-  const item = (num, label, amount, totalCls = '') => `
-    <div class="f2316-item ${totalCls}"><span class="lbl"><strong>${escHtml(String(num))}</strong> ${label}</span><span class="amt">${fmt(amount)}</span></div>`;
+  const itemRow = (num, label, amount, totalCls = '') => `
+    <div class="f2316-item-row ${totalCls}"><div class="lbl"><strong>${escHtml(String(num))}</strong> ${label}</div><div class="amt">${fmt(amount)}</div></div>`;
+
+  const sigName = setup.authRep || '';
+  const sigImg = setup.authRepSignature ? `<img class="sig" src="${setup.authRepSignature}" alt="Signature">` : '';
 
   return `
-    <div class="f2316">
-      <div class="f2316-head">
-        <div class="hd-form">
-          <div class="for-bir">For BIR<br>Use Only&nbsp;&nbsp;BCS/<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Item:</div>
-          <div class="form-label">BIR Form No.</div>
-          <div class="form-no">2316</div>
-          <div class="form-rev">September 2021(ENCS)</div>
+    <div class="f2316-page">
+      <div class="f2316-topstrip">
+        <div class="biruse"><span class="gray">For BIR<br>Use Only</span><span>BCS/<br>Item:</span></div>
+        <div class="gov">
+          <img src="bir-logo.png" alt="BIR">
+          <div class="lines">Republic of the Philippines<br>Department of Finance<br>Bureau of Internal Revenue</div>
         </div>
-        <div class="hd-mid">
-          <div class="gov-lines">
-            Republic of the Philippines<br>
-            Department of Finance<br>
-            <strong>Bureau of Internal Revenue</strong>
+      </div>
+      <div class="f2316-outer">
+        <div class="f2316-headband">
+          <div class="formno"><div class="lbl">BIR Form No.</div><div class="big">2316</div><div class="rev">September 2021(ENCS)</div></div>
+          <div class="title"><div class="t">Certificate of Compensation<br>Payment/Tax Withheld</div><div class="sub">For Compensation Payment With or Without Tax Withheld</div></div>
+          <div class="barcode"><img src="bir-barcode-2316.png" alt=""><div class="code">2316 9/21ENCS</div></div>
+        </div>
+        <div class="f2316-fillnote">Fill in all applicable spaces. Mark all appropriate boxes with an "X".</div>
+
+        <div class="f2316-yp">
+          <div class="a"><span><strong>1</strong> For the Year<br><span style="font-style:italic;">(YYYY)</span></span>${boxCellsHtml2316(String(year), 4)}</div>
+          <div class="b"><span><strong>2</strong> For the Period</span><span>From <span style="font-style:italic;">(MM/DD)</span></span>${boxCellsHtml2316('0101', 4)}<span>To <span style="font-style:italic;">(MM/DD)</span></span>${boxCellsHtml2316('1231', 4)}</div>
+        </div>
+
+        <div class="f2316-main">
+          <div class="f2316-col left">
+            <div class="f2316-parttitle">Part I - Employee Information</div>
+            <div class="f2316-tin-row"><span><strong>3</strong> TIN</span>${tinCellsHtml2316(emp.tin)}</div>
+            <div class="f2316-row2">
+              <div class="f2316-fieldbox"><div><strong>4</strong> Employee's Name <span style="font-style:italic;">(Last Name, First Name, Middle Name)</span></div><div class="val">${escHtml(name || '')}</div></div>
+              <div class="f2316-fieldbox narrow"><div><strong>5</strong> RDO Code</div><div class="val center">${escHtml(setup.rdoCode || '')}</div></div>
+            </div>
+            <div class="f2316-row2">
+              <div class="f2316-fieldbox"><div><strong>6</strong> Registered Address</div><div class="val">${escHtml(emp.address || '')}</div></div>
+              <div class="f2316-fieldbox narrow"><div><strong>6A</strong> ZIP Code</div><div class="val center">${escHtml(emp.zipCode || '')}</div></div>
+            </div>
+            <div class="f2316-fieldbox-single"><div><strong>6D</strong> Foreign Address</div><div class="val"></div></div>
+            <div class="f2316-row2">
+              <div class="f2316-fieldbox" style="flex:0 0 225px;"><div><strong>7</strong> Date of Birth <span style="font-style:italic;">(MM/DD/YYYY)</span></div>${tickCellsHtml2316(emp.dateOfBirth, 8)}</div>
+              <div class="f2316-fieldbox"><div><strong>8</strong> Contact Number</div>${tickCellsHtml2316(emp.contactNumber, 11)}</div>
+            </div>
+            <div class="f2316-inline-row"><div style="flex:1;"><strong>9</strong> Statutory Minimum Wage rate per day</div><div class="f2316-amtbox"></div></div>
+            <div class="f2316-inline-row"><div style="flex:1;"><strong>10</strong> Statutory Minimum Wage rate per month</div><div class="f2316-amtbox"></div></div>
+            <div class="f2316-mwe"><span><strong>11</strong></span><span class="f2316-checkbox">${isMWE ? 'X' : ''}</span><span style="flex:1;">Minimum Wage Earner (MWE) whose compensation is exempt from withholding tax and not subject to income tax</span></div>
+
+            <div class="f2316-parttitle">Part II - Employer Information <span style="font-style:italic;">(Present)</span></div>
+            <div class="f2316-tin-row"><span><strong>12</strong> TIN</span>${tinCellsHtml2316(setup.tin)}</div>
+            <div class="f2316-fieldbox-single"><div><strong>13</strong> Employer's Name</div><div class="val">${escHtml(employerName || '')}</div></div>
+            <div class="f2316-row2">
+              <div class="f2316-fieldbox"><div><strong>14</strong> Registered Address</div><div class="val">${escHtml(setup.address || '')}</div></div>
+              <div class="f2316-fieldbox narrow"><div><strong>14A</strong> ZIP Code</div><div class="val center">${escHtml(setup.zipCode || '')}</div></div>
+            </div>
+            <div class="f2316-inline-row" style="gap:14px;">
+              <span><strong>15</strong> Type of Employer</span>
+              <span style="display:flex;align-items:center;gap:5px;"><span class="f2316-checkbox sm">X</span> Main Employer</span>
+              <span style="display:flex;align-items:center;gap:5px;"><span class="f2316-checkbox sm"></span> Secondary Employer</span>
+            </div>
+
+            <div class="f2316-parttitle">Part III - Employer Information <span style="font-style:italic;">(Previous)</span></div>
+            <div class="f2316-tin-row"><span><strong>16</strong> TIN</span>${tinCellsHtml2316('')}</div>
+            <div class="f2316-fieldbox-single"><div><strong>17</strong> Employer's Name</div><div class="val"></div></div>
+            <div class="f2316-row2">
+              <div class="f2316-fieldbox"><div><strong>18</strong> Registered Address</div><div class="val"></div></div>
+              <div class="f2316-fieldbox narrow"><div><strong>18A</strong> ZIP Code</div><div class="val"></div></div>
+            </div>
+
+            <div class="f2316-parttitle">Part IV-A - Summary</div>
+            ${itemRow(19, 'Gross Compensation Income from Present Employer', grossComp)}
+            ${itemRow(20, 'Less: Total Non-Taxable/Exempt Compensation Income', item38)}
+            ${itemRow(21, 'Taxable Compensation Income from Present Employer', item52)}
+            ${itemRow(22, 'Add: Taxable Compensation Income from Previous Employer', 0)}
+            ${itemRow(23, 'Gross Taxable Compensation Income', taxableComp)}
+            ${itemRow(24, 'Tax Due', taxDue, 'total')}
+            ${itemRow('25A', 'Amount of Taxes Withheld — Present Employer', taxWithheld)}
+            ${itemRow('25B', 'Amount of Taxes Withheld — Previous Employer', 0)}
+            ${itemRow(26, 'Total Amount of Taxes Withheld as Adjusted', taxWithheld)}
+            ${itemRow(27, '5% Tax Credit (PERA Act of 2008)', 0)}
+            ${itemRow(28, 'Total Taxes Withheld', taxWithheld, 'total')}
           </div>
-          <div class="bir-title">Certificate of Compensation Payment / Tax Withheld</div>
-          <div class="bir-sub">For Compensation Payment With or Without Tax Withheld</div>
-        </div>
-        <div class="hd-code">
-          <div class="form-tag">2316 9/21ENCS</div>
-        </div>
-      </div>
-      <div class="f2316-fill-note">Fill in all applicable spaces. Mark all appropriate boxes with an "X".</div>
 
-      <div class="f2316-yp">
-        <div>1 For the Year <span class="box">${escHtml(String(year))}</span></div>
-        <div>2 For the Period <span class="box">01/01</span> To <span class="box">12/31</span></div>
-      </div>
+          <div class="f2316-col">
+            <div class="f2316-parttitle">Part IV-B Details of Compensation Income &amp; Tax Withheld from Present Employer</div>
+            <div class="f2316-cathdr"><div class="lbl">A. NON-TAXABLE/EXEMPT COMPENSATION INCOME</div><div class="amtcol">Amount</div></div>
+            ${itemRow(29, 'Basic Salary (incl. exempt P250,000 &amp; below) or SMW of the MWE', item29)}
+            ${itemRow(30, 'Holiday Pay (MWE)', item30)}
+            ${itemRow(31, 'Overtime Pay (MWE)', item31)}
+            ${itemRow(32, 'Night Shift Differential (MWE)', item32)}
+            ${itemRow(33, 'Hazard Pay (MWE)', item33)}
+            ${itemRow(34, '13th Month Pay and Other Benefits (max. P90,000)', item34)}
+            ${itemRow(35, 'De Minimis Benefits', item35)}
+            ${itemRow(36, 'SSS, GSIS, PHIC &amp; HDMF Contributions and Union Dues (Employee share)', item36)}
+            ${itemRow(37, 'Salaries and Other Forms of Compensation', item37)}
+            ${itemRow(38, 'Total Non-Taxable/Exempt Compensation Income', item38, 'total')}
 
-      <div class="f2316-cols">
-        <div class="f2316-col">
-          <div class="f2316-part-title">Part I – Employee Information</div>
-          ${field(3, 'TIN', tinDashed1601(emp.tin))}
-          ${field(4, "Employee's Name (Last, First, Middle)", name)}
-          ${field(5, 'RDO Code', setup.rdoCode)}
-          ${field(6, 'Registered Address', emp.address)}
-          ${field('6A', 'ZIP Code', emp.zipCode)}
-          ${field(7, 'Date of Birth', emp.dateOfBirth)}
-          ${field(8, 'Contact Number', emp.contactNumber)}
-          <div class="f2316-mwe-box">
-            <strong>11</strong> Minimum Wage Earner (MWE) whose compensation is exempt from withholding tax and not subject to income tax:
-            <strong>${isMWE ? '☑ YES' : '☐ NO'}</strong>
+            <div class="f2316-subhdr">B. TAXABLE COMPENSATION INCOME REGULAR</div>
+            ${itemRow(39, 'Basic Salary', item39)}
+            ${itemRow(40, 'Representation', 0)}
+            ${itemRow(41, 'Transportation', 0)}
+            ${itemRow(42, 'Cost of Living Allowance (COLA)', 0)}
+            ${itemRow(43, 'Fixed Housing Allowance', 0)}
+            ${itemRow('44A', 'Others — Other Taxable Compensation', item44)}
+            <div class="f2316-subhdr">SUPPLEMENTARY</div>
+            ${itemRow(45, 'Commission', item45)}
+            ${itemRow(46, 'Profit Sharing', item46)}
+            ${itemRow(47, "Fees Including Director's Fees", item47)}
+            ${itemRow(48, 'Taxable 13th Month Benefits', item48)}
+            ${itemRow(49, 'Hazard Pay', item49)}
+            ${itemRow(50, 'Overtime Pay', item50)}
+            ${itemRow('51A', 'Others — Holiday Pay / Night Shift Differential', item51a)}
+            ${itemRow(52, 'Total Taxable Compensation Income', item52, 'total')}
           </div>
-
-          <div class="f2316-part-title">Part II – Employer Information (Present)</div>
-          ${field(12, 'TIN', tinDashed1601(setup.tin))}
-          ${field(13, "Employer's Name", employerName)}
-          ${field(14, 'Registered Address', setup.address)}
-          ${field('14A', 'ZIP Code', setup.zipCode)}
-
-          <div class="f2316-part-title">Part III – Employer Information (Previous)</div>
-          ${field(16, 'TIN', '')}
-          ${field(17, "Employer's Name", '')}
-          ${field(18, 'Registered Address', '')}
-
-          <div class="f2316-part-title">Part IV-A – Summary</div>
-          ${item(19, 'Gross Compensation Income from Present Employer', grossComp)}
-          ${item(20, 'Less: Total Non-Taxable/Exempt Compensation Income', item38)}
-          ${item(21, 'Taxable Compensation Income from Present Employer', item52)}
-          ${item(22, 'Add: Taxable Compensation Income from Previous Employer', 0)}
-          ${item(23, 'Gross Taxable Compensation Income', taxableComp)}
-          ${item(24, 'Tax Due', taxDue, 'total')}
-          ${item('25A', 'Amount of Taxes Withheld — Present Employer', taxWithheld)}
-          ${item('25B', 'Amount of Taxes Withheld — Previous Employer', 0)}
-          ${item(26, 'Total Amount of Taxes Withheld as Adjusted', taxWithheld)}
-          ${item(27, '5% Tax Credit (PERA Act of 2008)', 0)}
-          ${item(28, 'Total Taxes Withheld', taxWithheld, 'total')}
         </div>
 
-        <div class="f2316-col">
-          <div class="f2316-part-title">Part IV-B – Details of Compensation Income &amp; Tax Withheld from Present Employer</div>
-          <div style="font-weight:700;margin-bottom:2px;">A. NON-TAXABLE/EXEMPT COMPENSATION INCOME</div>
-          ${item(29, 'Basic Salary (incl. exempt P250,000 & below) or SMW of the MWE', item29)}
-          ${item(30, 'Holiday Pay (MWE)', item30)}
-          ${item(31, 'Overtime Pay (MWE)', item31)}
-          ${item(32, 'Night Shift Differential (MWE)', item32)}
-          ${item(33, 'Hazard Pay (MWE)', item33)}
-          ${item(34, '13th Month Pay and Other Benefits (max. P90,000)', item34)}
-          ${item(35, 'De Minimis Benefits', item35)}
-          ${item(36, 'SSS, GSIS, PHIC & HDMF Contributions and Union Dues (Employee share)', item36)}
-          ${item(37, 'Salaries and Other Forms of Compensation', item37)}
-          ${item(38, 'Total Non-Taxable/Exempt Compensation Income', item38, 'total')}
-
-          <div style="font-weight:700;margin:6px 0 2px;">B. TAXABLE COMPENSATION INCOME REGULAR</div>
-          ${item(39, 'Basic Salary', item39)}
-          ${item(40, 'Representation', 0)}
-          ${item(41, 'Transportation', 0)}
-          ${item(42, 'Cost of Living Allowance (COLA)', 0)}
-          ${item(43, 'Fixed Housing Allowance', 0)}
-          ${item('44A', 'Others — Other Taxable Compensation', item44)}
-          <div style="font-weight:700;margin:6px 0 2px;">SUPPLEMENTARY</div>
-          ${item(45, 'Commission', item45)}
-          ${item(46, 'Profit Sharing', item46)}
-          ${item(47, "Fees Including Director's Fees", item47)}
-          ${item(48, 'Taxable 13th Month Benefits', item48)}
-          ${item(49, 'Hazard Pay', item49)}
-          ${item(50, 'Overtime Pay', item50)}
-          ${item('51A', 'Others — Holiday Pay / Night Shift Differential', item51a)}
-          ${item(52, 'Total Taxable Compensation Income', item52, 'total')}
+        <div class="f2316-declaration">
+          I/We declare, under the penalties of perjury that this certificate has been made in good faith, verified by me/us, and to the best of my/our knowledge and belief, is true and correct, pursuant to the provisions of the National Internal Revenue Code, as amended, and the regulations issued under authority thereof. Further, I/we give my/our consent to the processing of my/our information as contemplated under the *Data Privacy Act of 2012 (R.A. No. 10173) for legitimate and lawful purposes.
         </div>
-      </div>
 
-      <div class="f2316-declaration">
-        I/We declare, under the penalties of perjury that this certificate has been made in good faith, verified by me/us,
-        and to the best of my/our knowledge and belief, is true and correct, pursuant to the provisions of the National
-        Internal Revenue Code, as amended, and the regulations issued under authority thereof. Further, I/we give my/our
-        consent to the processing of my/our information as contemplated under the *Data Privacy Act of 2012 (R.A. No. 10173)
-        for legitimate and lawful purposes.
-      </div>
-
-      <div class="f2316-sig2">
-        <div class="f2316-sig-row">
-          <div class="f2316-sig-block">
-            <div class="line">${setup.authRepSignature ? `<img class="sig-img" src="${setup.authRepSignature}" alt="Signature">` : ''}<span class="name-text">${escHtml(setup.authRep || '')}</span></div>
-            <div class="cap"><strong>53</strong><br>Present Employer/Authorized Agent Signature over Printed Name</div>
+        <div class="f2316-sigrow">
+          <div class="f2316-sigblock">
+            <div class="f2316-line"><strong>53</strong><span class="val">${sigImg}${escHtml(sigName)}</span></div>
+            <div class="f2316-cap">Present Employer/Authorized Agent Signature over Printed Name</div>
           </div>
-          <div class="f2316-sig-date">Date Signed: <span class="date-fill"></span></div>
+          <div class="f2316-datesigned"><span>Date Signed</span><span class="f2316-datewrap">${'<span class="f2316-datebox"></span>'.repeat(8)}</span></div>
         </div>
-
         <div class="f2316-conforme">CONFORME:</div>
-
-        <div class="f2316-sig-row">
-          <div class="f2316-sig-block">
-            <div class="line"><span class="name-text">${escHtml(name || '')}</span></div>
-            <div class="cap"><strong>54</strong><br>Employee Signature over Printed Name</div>
+        <div class="f2316-sigrow">
+          <div class="f2316-sigblock">
+            <div class="f2316-line"><strong>54</strong><span class="val">${escHtml(name || '')}</span></div>
+            <div class="f2316-cap">Employee Signature over Printed Name</div>
           </div>
-          <div class="f2316-sig-date">Date Signed: <span class="date-fill"></span></div>
+          <div class="f2316-datesigned"><span>Date Signed</span><span class="f2316-datewrap">${'<span class="f2316-datebox"></span>'.repeat(8)}</span></div>
+        </div>
+        <div class="f2316-ctcrow">
+          <div class="f2316-ctcfield"><span class="l">CTC/Valid ID No.<br>of Employee</span><span class="box"></span></div>
+          <div class="f2316-ctcfield"><span class="l">Place of<br>Issue</span><span class="box"></span></div>
+          <div class="f2316-ctc-date">
+            <div style="display:flex;align-items:center;gap:6px;"><span>Date Issued</span><span class="f2316-datewrap">${'<span class="f2316-datebox"></span>'.repeat(8)}</span></div>
+            <div style="display:flex;align-items:center;gap:6px;margin-top:5px;"><span>Amount paid, if CTC</span><span class="amtbox"></span></div>
+          </div>
         </div>
 
-        <div class="f2316-ctc-row">
-          <div class="ctc-field">CTC/Valid ID No.<br>of Employee<span class="fill"></span></div>
-          <div class="ctc-field">Place of<br>Issue<span class="fill"></span></div>
-          <div class="ctc-date">Date Issued: <span class="date-fill"></span></div>
-          <div class="ctc-amount">Amount paid, if CTC<span class="fill"></span></div>
-        </div>
-      </div>
-
-      <div class="f2316-subfiling">
         <div class="f2316-subfiling-title">To be accomplished under substituted filing</div>
         <div class="f2316-subfiling-cols">
           <div class="f2316-subfiling-col">
-            I declare, under the penalties of perjury that the information herein stated are reported under
-            BIR Form No. 1604-C which has been filed with the Bureau of Internal Revenue.
-            <div class="f2316-sig-block">
-              <div class="line">${setup.authRepSignature ? `<img class="sig-img" src="${setup.authRepSignature}" alt="Signature">` : ''}<span class="name-text">${escHtml(setup.authRep || '')}</span></div>
-              <div class="cap"><strong>55</strong><br>Present Employer/Authorized Agent Signature over Printed Name<br>(Head of Accounting/Human Resource or Authorized Representative)</div>
-            </div>
+            <div class="f2316-subfiling-text">I declare, under the penalties of perjury that the information herein stated are reported under BIR Form No. 1604-C which has been filed with the Bureau of Internal Revenue.</div>
+            <div class="f2316-line" style="margin-top:26px;"><strong>55</strong><span class="val">${sigImg}${escHtml(sigName)}</span></div>
+            <div class="f2316-cap">Present Employer/Authorized Agent Signature over Printed Name<br>(Head of Accounting/Human Resource or Authorized Representative)</div>
           </div>
           <div class="f2316-subfiling-col">
-            I declare, under the penalties of perjury that I am qualified under substituted filing of Income Tax Return
-            (BIR Form No. 1700), since I received purely compensation income from only one employer in the Philippines
-            for the calendar year; that taxes have been correctly withheld by my employer (tax due equals tax withheld);
-            that the BIR Form No. 1604-C filed by my employer to the BIR shall constitute as my income tax return; and
-            that BIR Form No. 2316 shall serve the same purpose as if BIR Form No. 1700 has been filed pursuant to the
-            provisions of Revenue Regulations (RR) No. 3-2002, as amended.
-            <div class="f2316-sig-block">
-              <div class="line"><span class="name-text">${escHtml(name || '')}</span></div>
-              <div class="cap"><strong>56</strong><br>Employee Signature over Printed Name</div>
-            </div>
+            <div class="f2316-subfiling-text">I declare, under the penalties of perjury that I am qualified under substituted filing of Income Tax Return (BIR Form No. 1700), since I received purely compensation income from only one employer in the Philippines for the calendar year; that taxes have been correctly withheld by my employer (tax due equals tax withheld); that the BIR Form No. 1604-C filed by my employer to the BIR shall constitute as my income tax return; and that BIR Form No. 2316 shall serve the same purpose as if BIR Form No. 1700 has been filed pursuant to the provisions of Revenue Regulations (RR) No. 3-2002, as amended.</div>
+            <div class="f2316-line" style="margin-top:6px;"><strong>56</strong><span class="val">${escHtml(name || '')}</span></div>
+            <div class="f2316-cap">Employee Signature over Printed Name</div>
           </div>
         </div>
+        <div class="f2316-note">*NOTE: The BIR Data Privacy is in the BIR website (www.bir.gov.ph)</div>
       </div>
-
-      <div class="f2316-note">*NOTE: The BIR Data Privacy is in the BIR website (www.bir.gov.ph)</div>
     </div>`;
 }
