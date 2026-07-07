@@ -323,7 +323,7 @@ function renderCertificate(suppKey, atcMap, start, end, setup, periodLabel) {
       <td>${fmt(total)}</td>
       <td>${fmt(r.totalEwt)}</td>
     </tr>`;
-  }).join('') + emptyRows2307(Math.max(0, 10 - rows.length));
+  }).join('') + emptyRows2307(Math.max(0, 5 - rows.length));
 
   const fromSeg = dateSegHtml(start);
   const toSeg   = dateSegHtml(end);
