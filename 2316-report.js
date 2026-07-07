@@ -18,6 +18,10 @@ function tinCellsHtml2316(tin) {
   });
   return html + '</span>';
 }
+function mmddyyyy2316(iso) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso || '');
+  return m ? `${m[2]}${m[3]}${m[1]}` : (iso || '');
+}
 function tickCellsHtml2316(str, count) {
   const s = (str || '').replace(/\D/g, '').padEnd(count, ' ').substring(0, count);
   let html = '<div class="f2316-ticks">';
@@ -243,7 +247,7 @@ function render2316Cert(emp, monthly, months, setup, year) {
             </div>
             <div class="f2316-fieldbox-single"><div><strong>6D</strong> Foreign Address</div><div class="val"></div></div>
             <div class="f2316-row2">
-              <div class="f2316-fieldbox" style="flex:0 0 225px;"><div><strong>7</strong> Date of Birth <span style="font-style:italic;">(MM/DD/YYYY)</span></div>${tickCellsHtml2316(emp.dateOfBirth, 8)}</div>
+              <div class="f2316-fieldbox" style="flex:0 0 225px;"><div><strong>7</strong> Date of Birth <span style="font-style:italic;">(MM/DD/YYYY)</span></div>${tickCellsHtml2316(mmddyyyy2316(emp.dateOfBirth), 8)}</div>
               <div class="f2316-fieldbox"><div><strong>8</strong> Contact Number</div>${tickCellsHtml2316(emp.contactNumber, 11)}</div>
             </div>
             <div class="f2316-inline-row"><div style="flex:1;"><strong>9</strong> Statutory Minimum Wage rate per day</div><div class="f2316-amtbox"></div></div>
@@ -251,7 +255,7 @@ function render2316Cert(emp, monthly, months, setup, year) {
             <div class="f2316-mwe"><span><strong>11</strong></span><span class="f2316-checkbox">${isMWE ? 'X' : ''}</span><span style="flex:1;">Minimum Wage Earner (MWE) whose compensation is exempt from withholding tax and not subject to income tax</span></div>
 
             <div class="f2316-parttitle">Part II - Employer Information <span style="font-style:italic;">(Present)</span></div>
-            <div class="f2316-tin-row"><span><strong>12</strong> TIN</span>${tinCellsHtml2316(setup.tin)}</div>
+            <div class="f2316-tin-row"><span><strong>12</strong> TIN</span>${tinCellsHtml2316((setup.tin || '') + (setup.branchCode || '').replace(/\D/g, '').padStart(3, '0').slice(-3))}</div>
             <div class="f2316-fieldbox-single"><div><strong>13</strong> Employer's Name</div><div class="val">${escHtml(employerName || '')}</div></div>
             <div class="f2316-row2">
               <div class="f2316-fieldbox"><div><strong>14</strong> Registered Address</div><div class="val">${escHtml(setup.address || '')}</div></div>
