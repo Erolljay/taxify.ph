@@ -44,13 +44,14 @@ function biHeaders() {
     'Date (YYYY-MM-DD)', 'Customer Name', 'Reference', 'Revenue Account',
     'VATable Sales', 'VAT Exempt Sales', 'Zero-Rated Sales',
     'CWT Account', 'CWT ATC Code', 'CWT Amount', 'WV Account', 'WV ATC Code', 'WV Amount',
-    'Paid Same Day (Yes/No)', 'Paid Amount', 'Paid Date (YYYY-MM-DD)', 'Payment Account (Cash/Bank)',
+    'Other Ded. Account', 'Other Ded. Amount',
+    'Paid Same Day (Yes/No)', 'Paid Amount', 'Payment Account (Cash/Bank)',
   ] : [
     'Date (YYYY-MM-DD)', 'Supplier Name', 'Reference', 'Account',
     'Input VAT 12% (Capital Goods)', 'Input VAT 12% (Other Goods)', 'Input VAT 12% (Services)',
     'Zero-Rated Purchases', 'VAT Exempt Purchases',
     'Withholding Tax Account', 'ATC Code', 'Withholding Tax Amount',
-    'Paid Same Day (Yes/No)', 'Paid Amount', 'Paid Date (YYYY-MM-DD)', 'Payment Account (Cash/Bank)',
+    'Paid Same Day (Yes/No)', 'Paid Amount', 'Payment Account (Cash/Bank)',
   ];
 }
 
@@ -64,13 +65,14 @@ function biSampleRows() {
     ['2026-06-18', '48 Coffee Co.', 'INV-1001', 'Sales Revenue',
       5600, '', '',
       '', '', '', '', '', '',
-      'Yes', 5600, '2026-06-18', 'Cash on Hand'],
+      '', '',
+      'Yes', 5600, 'Cash on Hand'],
   ] : [
     ['2026-06-18', 'ABC Trading', 'BILL-2001', 'Professional Fees',
       '', 2000, '',
       '', '',
       'Withholding Tax Payable', 'WI010 – Prof. fees ≤3M (5%)', 100,
-      'No', '', '', ''],
+      'No', '', ''],
   ];
 }
 
@@ -201,8 +203,10 @@ function downloadTemplate() {
       BI_IS_SALE
         ? '4. CWT/WV ATC Code columns: pick a value from the dropdown (sourced from the "ATC Codes" sheet).'
         : '4. ATC Code column: pick a value from the dropdown (sourced from the "ATC Codes" sheet).',
-      '5. Withholding amounts (CWT, WV, Withholding Tax) — enter as a positive number; they are recorded as deductions automatically.',
-      '6. "Paid Same Day" — enter Yes only if the invoice was settled in cash/bank on the same day; otherwise leave it as No.',
+      BI_IS_SALE
+        ? '5. Withholding amounts (CWT, WV) and the "Other Ded. Amount" (e.g. SC/PWD Discount) — enter as a positive number; they are recorded as deductions from the sale automatically. Leave "Other Ded. Account"/"Other Ded. Amount" blank if there is no such deduction on that invoice.'
+        : '5. Withholding amounts (CWT, WV, Withholding Tax) — enter as a positive number; they are recorded as deductions automatically.',
+      '6. "Paid Same Day" — enter Yes only if the invoice was settled in cash/bank on the same day as the Date in column 1 (that date is used as the payment date too); otherwise leave it as No.',
       '7. Do not rename, delete, or reorder the columns in the "Batch Import" sheet — the importer reads them by position.',
       `8. When done, go back to the app, choose "Upload" and select this file, then click Validate before Post. If the ${BI_PARTY_LABEL} name on a row looks like a possible duplicate of an existing contact, the preview will flag it and let you pick the matching contact (or confirm it's new) right there — no need to edit the file and re-upload.`,
     ];
@@ -385,7 +389,9 @@ function downloadTemplate() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `batch_import_${BI_IS_PAYROLL ? 'payroll' : (BI_IS_SALE ? 'sales' : 'purchase')}_template.xlsx`;
+    const typeLabel = BI_IS_PAYROLL ? 'Payroll' : (BI_IS_SALE ? 'Sales' : 'Purchase');
+    const bizLabel = (_biBiz || 'Business').replace(/[\\/:*?"<>|]+/g, '').trim().replace(/\s+/g, '_');
+    a.download = `Batch_Import_${typeLabel}_Template_${bizLabel}.xlsx`;
     document.body.appendChild(a);
     a.click();
     a.remove();
@@ -672,11 +678,11 @@ function parseSaleRow(r, idx, cache) {
     reference: get(2),
     amountsIncludeTax: true,
     lines: [],
-    paid: /^y/i.test(get(13)),
-    paidAmount: parseFloat(get(14)) || 0,
-    paidDate: getDate(15),
-    paymentAccount: get(16),
+    paid: /^y/i.test(get(15)),
+    paidAmount: parseFloat(get(16)) || 0,
+    paymentAccount: get(17),
   };
+  row.paidDate = row.date; // Paid Same Day — payment date always equals the invoice date
 
   const revenueAcctName = get(3);
   const vatable    = num(4);
@@ -688,6 +694,8 @@ function parseSaleRow(r, idx, cache) {
   const wvAcctName  = get(10);
   const wvAtcCode  = get(11);
   const wv         = Math.abs(num(12));
+  const otherDedAcctName = get(13);
+  const otherDed    = Math.abs(num(14));
 
   const resolveAcct = (name, label) => {
     if (!name) { errors.push(`${label} account is blank — copy an Account Title from the Chart of Accounts sheet`); return null; }
@@ -710,6 +718,7 @@ function parseSaleRow(r, idx, cache) {
   if (zeroRated > 0) row.lines.push({ acctKey: revenueAcctKey, acctName: revenueAcctName || 'Revenue', amount: zeroRated, tcName: 'Zero-Rated Sales' });
   if (cwt > 0)       row.lines.push({ acctKey: resolveAcct(cwtAcctName, 'CWT'), acctName: cwtAcctName || 'CWT', amount: -cwt, tcName: cwtAtcCode, tcKey: resolveAtc(cwtAtcCode, 'CWT') });
   if (wv > 0)        row.lines.push({ acctKey: resolveAcct(wvAcctName, 'WV'), acctName: wvAcctName || 'WV', amount: -wv, tcName: wvAtcCode, tcKey: resolveAtc(wvAtcCode, 'WV') });
+  if (otherDed > 0)  row.lines.push({ acctKey: resolveAcct(otherDedAcctName, 'Other Deduction'), acctName: otherDedAcctName || 'Other Deduction', amount: -otherDed });
 
   ['Output VAT 12%', 'VAT Exempt Sales', 'Zero-Rated Sales'].forEach(tc => {
     if (row.lines.some(l => l.tcName === tc) && !cache.taxCodeKeyByName.has(tc.toLowerCase())) {
@@ -725,7 +734,6 @@ function parseSaleRow(r, idx, cache) {
 
   if (row.paid) {
     if (!row.paidAmount) errors.push(`Paid = Yes but Paid Amount is blank`);
-    if (!row.paidDate || isNaN(new Date(row.paidDate).getTime())) errors.push(`Paid = Yes but Paid Date is missing/invalid`);
     if (!row.paymentAccount) errors.push(`Paid = Yes but Payment Account is blank`);
     else checkAccount(errors, 'Payment', row.paymentAccount, cache);
   }
@@ -751,9 +759,9 @@ function parsePurchaseRow(r, idx, cache) {
     lines: [],
     paid: /^y/i.test(get(12)),
     paidAmount: parseFloat(get(13)) || 0,
-    paidDate: getDate(14),
-    paymentAccount: get(15),
+    paymentAccount: get(14),
   };
+  row.paidDate = row.date; // Paid Same Day — payment date always equals the bill date
 
   const acctName    = get(3);
   const capGoods    = num(4);
@@ -806,7 +814,6 @@ function parsePurchaseRow(r, idx, cache) {
 
   if (row.paid) {
     if (!row.paidAmount) errors.push(`Paid = Yes but Paid Amount is blank`);
-    if (!row.paidDate || isNaN(new Date(row.paidDate).getTime())) errors.push(`Paid = Yes but Paid Date is missing/invalid`);
     if (!row.paymentAccount) errors.push(`Paid = Yes but Payment Account is blank`);
     else checkAccount(errors, 'Payment', row.paymentAccount, cache);
   }

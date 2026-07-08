@@ -1,8 +1,8 @@
 /* ============================================================
-   Taxify it! — app shell logic
+   Txform Now! — app shell logic
    Settings mode: ported from app.js, but resolves a single business via
    getReportBusiness() instead of a manual <select id="business">, since
-   each Taxify it! install is scoped to one business.
+   each Txform Now! install is scoped to one business.
    User mode: category-card landing screen + StepEngine workflows.
    ============================================================ */
 

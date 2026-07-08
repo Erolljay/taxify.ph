@@ -99,7 +99,7 @@ function getPageContextBusiness() {
 }
 
 async function getReportBusiness(containerEl) {
-  // When embedded inside the Taxify workflow wizard, the business is already
+  // When embedded inside the Txform workflow wizard, the business is already
   // known (the user picked it before entering the workflow) and passed along
   // as a query param — skip Manager's own page-context lookup and the
   // multi-business picker entirely in that case.

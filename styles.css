@@ -1,6 +1,6 @@
 /* ============================================================
-   Taxify it! — Philippines BIR extension for Manager.io
-   styles.css  ·  Redesign 2026 (Taxify brand)
+   Txform Now! — Philippines BIR extension for Manager.io
+   styles.css  ·  Redesign 2026 (Txform brand)
    ------------------------------------------------------------
    Shared stylesheet loaded by taxify.html AND every embedded
    report page (2550q.html, sls.html, 1601c.html, …). Class
@@ -13,7 +13,7 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap');
 
 :root {
-  /* Brand — from the Taxify logo */
+  /* Brand — from the Txform logo */
   --navy:        #061b52;
   --navy-2:      #0b2e86;
   --sidebar:     #061b52;

@@ -1,5 +1,5 @@
 /* ============================================================
-   Taxify it! — generic step engine
+   Txform Now! — generic step engine
    Drives an ordered sequence of steps (review / validate / download /
    final) for one tax-filing workflow (VAT, EWT, Compensation, Income Tax).
    Each step is locked until the previous one is marked complete.

@@ -1,5 +1,5 @@
 /* ============================================================
-   Tallo CPA – BIR Tax App  ·  Taxify it!
+   Tallo CPA – BIR Tax App  ·  Txform Now!
    2307-report.js  –  BIR Form 2307 Certificate of Creditable
                        Tax Withheld at Source, per-supplier,
                        generated from purchase invoices/payments.
@@ -76,7 +76,7 @@ async function init2307Report() {
   _f2307Setup = setup;
 
   if (!setup) {
-    outputEl.innerHTML = `<div class="alert alert-warn">⚠️ Business info not configured. Fill in the <strong>Business</strong> tab in the Taxify it! extension first.</div>`;
+    outputEl.innerHTML = `<div class="alert alert-warn">⚠️ Business info not configured. Fill in the <strong>Business</strong> tab in the Txform Now! extension first.</div>`;
     return;
   }
   outputEl.innerHTML = '';
