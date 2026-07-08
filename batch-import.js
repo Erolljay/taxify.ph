@@ -423,7 +423,7 @@ async function buildLookupCache(biz) {
   };
 
   if (BI_IS_PAYROLL) {
-    const [bsAccounts, plAccounts, bankCashAccounts, employees, earningsItems, deductionItems, contributionItems] = await Promise.all([
+    const [bsAccounts, plAccounts, bankCashAccounts, employees, earningsItems, deductionItems, contributionItems, lockDateModel] = await Promise.all([
       fetchAllBatch('/api4/balance-sheet-account-batch', biz).catch(() => []),
       fetchAllBatch('/api4/profit-and-loss-statement-account-batch', biz).catch(() => []),
       fetchAllBatch('/api4/bank-or-cash-account-batch', biz).catch(() => []),
@@ -431,7 +431,9 @@ async function buildLookupCache(biz) {
       fetchAllBatch('/api4/payslip-earnings-item-batch', biz).catch(() => []),
       fetchAllBatch('/api4/payslip-deduction-item-batch', biz).catch(() => []),
       fetchAllBatch('/api4/payslip-contribution-item-batch', biz).catch(() => []),
+      loadLockDate(biz).catch(() => ({})),
     ]);
+    const lockDate = parseLockDate(lockDateModel);
     const accounts = [...bsAccounts, ...plAccounts, ...bankCashAccounts];
     const accountList = accounts.map(row => {
       const d = row?.item || row?.value || row || {};
@@ -489,11 +491,12 @@ async function buildLookupCache(biz) {
       itemNameByKey,
       itemGroupByKey,
       payrollCols,
+      lockDate,
     };
     return _biCache;
   }
 
-  const [taxCodes, bsAccounts, plAccounts, bankCashAccounts, apControlAccounts, arControlAccounts, parties, partyBIR] = await Promise.all([
+  const [taxCodes, bsAccounts, plAccounts, bankCashAccounts, apControlAccounts, arControlAccounts, parties, partyBIR, lockDateModel] = await Promise.all([
     fetchManagerTaxCodes(biz),
     fetchAllBatch('/api4/balance-sheet-account-batch', biz).catch(() => []),
     fetchAllBatch('/api4/profit-and-loss-statement-account-batch', biz).catch(() => []),
@@ -502,7 +505,9 @@ async function buildLookupCache(biz) {
     fetchAllBatch('/api4/accounts-receivable-control-account-batch', biz).catch(() => []),
     fetchAllBatch(BI_IS_SALE ? '/api4/customer-batch' : '/api4/supplier-batch', biz),
     loadPartyBIR(biz, BI_IS_SALE ? 'customer' : 'supplier').catch(() => ({})),
+    loadLockDate(biz).catch(() => ({})),
   ]);
+  const lockDate = parseLockDate(lockDateModel);
   const accounts = [...bsAccounts, ...plAccounts, ...bankCashAccounts, ...apControlAccounts, ...arControlAccounts];
   const accountList = accounts.map(row => {
     const d = row?.item || row?.value || row || {};
@@ -544,8 +549,18 @@ async function buildLookupCache(biz) {
     partyList,
     apAccountKey,
     arAccountKey,
+    lockDate,
   };
   return _biCache;
+}
+
+// Normalizes Manager's /api4/lock-date response ({ lockAccountingPeriods,
+// date }) into { locked, date } with date as a plain "YYYY-MM-DD" string,
+// so row dates (also normalized to "YYYY-MM-DD" by parseBiDate) can be
+// compared with a plain string comparison.
+function parseLockDate(model) {
+  if (!model || !model.lockAccountingPeriods || !model.date) return { locked: false, date: null };
+  return { locked: true, date: String(model.date).slice(0, 10) };
 }
 
 // ── PARSE + VALIDATE ─────────────────────────────────────────
@@ -578,6 +593,7 @@ function parseRow(r, idx, cache) {
 
 function parsePayrollRow(r, idx, cache) {
   const errors = [];
+  const warnings = [];
   const get = i => (r[i] !== undefined ? String(r[i]).trim() : '');
   const num = i => parseFloat(get(i)) || 0;
 
@@ -612,6 +628,8 @@ function parsePayrollRow(r, idx, cache) {
   if (!hasAmount) errors.push(`No earnings/deduction/contribution amount entered`);
 
   resolvePartyMatch(row, cache);
+  checkFutureDate(row, warnings);
+  checkLockedPeriod(row, cache, errors);
 
   row.paidAmount = row.lines.filter(l => l.group === 'earnings').reduce((s, l) => s + l.amount, 0)
     - row.lines.filter(l => l.group === 'deductions').reduce((s, l) => s + l.amount, 0);
@@ -622,7 +640,8 @@ function parsePayrollRow(r, idx, cache) {
   else checkAccount(errors, 'Payment', row.paymentAccount, cache);
 
   row.errors = errors;
-  row.status = errors.length ? 'error' : (row.partyMissing ? 'warn' : 'ok');
+  row.warnings = warnings;
+  row.status = errors.length ? 'error' : (row.partyMissing || warnings.length ? 'warn' : 'ok');
   row.posted = false;
   return row;
 }
@@ -665,8 +684,35 @@ function parseBiDate(v) {
   return String(v).trim();
 }
 
+// Flags a row whose date is after today. This is a non-blocking warning
+// (the row can still be posted) since post-dated entries are sometimes
+// intentional, but far more often a typo (e.g. year 2206 instead of 2026).
+function checkFutureDate(row, warnings) {
+  if (!row.date) return;
+  const d = new Date(row.date);
+  if (isNaN(d.getTime())) return;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  if (d.getTime() > today.getTime()) {
+    row.futureDated = true;
+    warnings.push(`Date ${row.date} is in the future`);
+  }
+}
+
+// Blocks a row dated on/before Manager's lock date (Settings > Lock Date,
+// closed accounting periods). Manager rejects posts to a locked date, so
+// this is flagged as an error, not a warning — the row cannot be posted
+// until the lock date is moved or the row's date is corrected.
+function checkLockedPeriod(row, cache, errors) {
+  if (!row.date || !cache.lockDate || !cache.lockDate.locked) return;
+  if (row.date <= cache.lockDate.date) {
+    errors.push(`Date ${row.date} falls within a locked accounting period (locked through ${cache.lockDate.date}) — move the lock date in Manager or correct this row's date`);
+  }
+}
+
 function parseSaleRow(r, idx, cache) {
   const errors = [];
+  const warnings = [];
   const get = i => (r[i] !== undefined ? String(r[i]).trim() : '');
   const num = i => parseFloat(get(i)) || 0;
   const getDate = i => parseBiDate(r[i]);
@@ -731,6 +777,8 @@ function parseSaleRow(r, idx, cache) {
   if (vatable === 0 && exempt === 0 && zeroRated === 0) errors.push(`No sales amount entered (VATable / VAT Exempt / Zero-Rated Sales)`);
 
   resolvePartyMatch(row, cache);
+  checkFutureDate(row, warnings);
+  checkLockedPeriod(row, cache, errors);
 
   if (row.paid) {
     if (!row.paidAmount) errors.push(`Paid = Yes but Paid Amount is blank`);
@@ -739,13 +787,15 @@ function parseSaleRow(r, idx, cache) {
   }
 
   row.errors = errors;
-  row.status = errors.length ? 'error' : ((row.partyMissing) ? 'warn' : 'ok');
+  row.warnings = warnings;
+  row.status = errors.length ? 'error' : ((row.partyMissing || warnings.length) ? 'warn' : 'ok');
   row.posted = false;
   return row;
 }
 
 function parsePurchaseRow(r, idx, cache) {
   const errors = [];
+  const warnings = [];
   const get = i => (r[i] !== undefined ? String(r[i]).trim() : '');
   const num = i => parseFloat(get(i)) || 0;
   const getDate = i => parseBiDate(r[i]);
@@ -811,6 +861,8 @@ function parsePurchaseRow(r, idx, cache) {
   if (!hasCategoryAmount) errors.push(`No purchase amount entered (Capital Goods / Other Goods / Services / Zero-Rated / Exempt)`);
 
   resolvePartyMatch(row, cache);
+  checkFutureDate(row, warnings);
+  checkLockedPeriod(row, cache, errors);
 
   if (row.paid) {
     if (!row.paidAmount) errors.push(`Paid = Yes but Paid Amount is blank`);
@@ -819,7 +871,8 @@ function parsePurchaseRow(r, idx, cache) {
   }
 
   row.errors = errors;
-  row.status = errors.length ? 'error' : (row.partyMissing ? 'warn' : 'ok');
+  row.warnings = warnings;
+  row.status = errors.length ? 'error' : (row.partyMissing || warnings.length ? 'warn' : 'ok');
   row.posted = false;
   return row;
 }
@@ -830,6 +883,7 @@ function renderPreview() {
   const okCount  = _biRows.filter(r => r.status !== 'error').length;
   const errCount = _biRows.filter(r => r.status === 'error').length;
   const newParty = _biRows.filter(r => r.partyMissing).length;
+  const futureDated = _biRows.filter(r => r.futureDated).length;
 
   const rowsHtml = _biRows.map((r, i) => `
     <tr class="row-${r.status}" id="bi-row-${i}">
@@ -848,6 +902,7 @@ function renderPreview() {
       <span class="bi-stat" style="color:#16a34a;"><b>${okCount}</b> ready</span>
       <span class="bi-stat" style="color:#c0392b;"><b>${errCount}</b> with errors</span>
       <span class="bi-stat" style="color:#92400e;"><b>${newParty}</b> new ${BI_PARTY_LABEL.toLowerCase()}</span>
+      ${futureDated ? `<span class="bi-stat" style="color:#92400e;"><b>${futureDated}</b> future-dated</span>` : ''}
     </div>
     <div class="bi-wrap">
       <table class="bi-table">
@@ -867,14 +922,22 @@ function renderPreview() {
 // instead of editing the spreadsheet and re-uploading.
 function statusCellHtml(r, i) {
   if (r.errors.length) return `<div class="bi-err">${r.errors.map(escHtml).join('<br>')}</div>`;
-  if (!r.partyMissing) return '✅ OK';
-  if (!r.nearDupCandidates.length) return `⚠️ New ${BI_PARTY_LABEL.toLowerCase()}`;
+
+  const parts = (r.warnings || []).map(w => `<div style="color:#92400e;">⚠️ ${escHtml(w)}</div>`);
+
+  if (!r.partyMissing) return parts.length ? parts.join('') : '✅ OK';
+
+  if (!r.nearDupCandidates.length) {
+    parts.push(`⚠️ New ${BI_PARTY_LABEL.toLowerCase()}`);
+    return parts.join('');
+  }
   const chosen = r.userPartyChoice || 'new';
   const opts = [`<option value="new"${chosen === 'new' ? ' selected' : ''}>+ Create new contact "${escHtml(r.partyName)}"</option>`]
     .concat(r.nearDupCandidates.map(c =>
       `<option value="${c.key}"${chosen === c.key ? ' selected' : ''}>Use existing: ${escHtml(c.name)}${c.tin ? ' (TIN ' + escHtml(c.tin) + ')' : ''}</option>`));
-  return `<div style="color:#92400e;">⚠️ Possible duplicate —
-    <select class="bi-party-pick" data-row="${i}">${opts.join('')}</select></div>`;
+  parts.push(`<div style="color:#92400e;">⚠️ Possible duplicate —
+    <select class="bi-party-pick" data-row="${i}">${opts.join('')}</select></div>`);
+  return parts.join('');
 }
 
 function onPartyPickChange(e) {

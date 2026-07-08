@@ -387,6 +387,12 @@ async function loadBizDetails(biz) {
   return model || {};
 }
 
+// Load lock-date (closed accounting period) settings from Manager
+async function loadLockDate(biz) {
+  const model = await apiRequest('GET', `/api4/lock-date?business=${encodeURIComponent(biz)}`);
+  return model || {};
+}
+
 // ── BUSINESS-LEVEL BIR DATA STORE ────────────────────────────
 // PUT /api4/business-details does not persist customFields2 via this bridge
 // (confirmed Manager platform limitation). As a workaround, business-level
