@@ -96,6 +96,39 @@ function dateOnlyStr(d) {
   return m ? m[1] : String(d).trim();
 }
 
+// Normalizes Manager's /api4/lock-date response into { locked, date } —
+// same shape/logic as batch-import.js's parseLockDate, kept local since
+// these two pages don't load batch-import.js.
+function parseLockDateC(model) {
+  if (!model || !model.lockAccountingPeriods || !model.date) return { locked: false, date: null };
+  return { locked: true, date: String(model.date).slice(0, 10) };
+}
+
+// Flags a settlement date after today. Non-blocking — the row can still be
+// posted — since post-dated receipts/payments are sometimes intentional,
+// but far more often a typo.
+function checkFutureDateC(dateStr, warnings) {
+  if (!dateStr) return false;
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return false;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  if (d.getTime() > today.getTime()) {
+    warnings.push(`${BI_SETTLE_NOUN} Date ${dateStr} is in the future`);
+    return true;
+  }
+  return false;
+}
+
+// Blocks a settlement dated on/before Manager's lock date — Manager rejects
+// posts to a locked date, so this is an error, not a warning.
+function checkLockedPeriodC(dateStr, cache, errors) {
+  if (!dateStr || !cache.lockDate || !cache.lockDate.locked) return;
+  if (dateStr <= cache.lockDate.date) {
+    errors.push(`${BI_SETTLE_NOUN} Date ${dateStr} falls within a locked accounting period (locked through ${cache.lockDate.date}) — move the lock date in Manager or correct this row's date`);
+  }
+}
+
 // ── INVOICE / SETTLEMENT MATH ──────────────────────────────────
 // Manager has no native "balance" field on an invoice — it's derived by
 // summing the invoice's own lines, then subtracting whatever Receipts
@@ -174,13 +207,15 @@ async function buildCollectCache(biz) {
   if (_bicCache && _bicCache.biz === biz) return _bicCache;
 
   const isSale = BI_IS_SALE_C;
-  const [invoiceMap, bsAccounts, plAccounts, bankCashAccounts, controlAccounts] = await Promise.all([
+  const [invoiceMap, bsAccounts, plAccounts, bankCashAccounts, controlAccounts, lockDateModel] = await Promise.all([
     buildOpenInvoiceMap(biz),
     fetchAllBatch('/api4/balance-sheet-account-batch', biz).catch(() => []),
     fetchAllBatch('/api4/profit-and-loss-statement-account-batch', biz).catch(() => []),
     fetchAllBatch('/api4/bank-or-cash-account-batch', biz).catch(() => []),
     fetchAllBatch(isSale ? '/api4/accounts-receivable-control-account-batch' : '/api4/accounts-payable-control-account-batch', biz).catch(() => []),
+    loadLockDate(biz).catch(() => ({})),
   ]);
+  const lockDate = parseLockDateC(lockDateModel);
 
   const bankCashAccountList = bankCashAccounts.map(row => {
     const d = row?.item || row?.value || row || {};
@@ -203,7 +238,7 @@ async function buildCollectCache(biz) {
     || allAccountKeyByName.get(isSale ? 'accounts receivable' : 'accounts payable')
     || (isSale ? 'd1489e95-bb28-4f5d-b42e-67d3291b3893' : 'dac7ba37-0ccd-45e5-906e-548e6c50df37');
 
-  _bicCache = { biz, invoiceMap, bankCashAccountList, accountKeyByName, controlAccountKey };
+  _bicCache = { biz, invoiceMap, bankCashAccountList, accountKeyByName, controlAccountKey, lockDate };
   return _bicCache;
 }
 
@@ -306,8 +341,9 @@ async function downloadOpenInvoices() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    const stamp = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-    a.download = `batch_collect_${BI_IS_SALE_C ? 'receivables' : 'payables'}_${stamp}.xlsx`;
+    const typeLabel = BI_IS_SALE_C ? 'Receivables' : 'Payables';
+    const bizLabel = (_bicBiz || 'Business').replace(/[\\/:*?"<>|]+/g, '').trim().replace(/\s+/g, '_');
+    a.download = `Batch_Collect_${typeLabel}_${bizLabel}.xlsx`;
     document.body.appendChild(a);
     a.click();
     a.remove();
@@ -378,6 +414,7 @@ function parseCollectRow(r, idx, cache) {
   }
 
   const errors = [];
+  const warnings = [];
   if (!row.settleDate || isNaN(new Date(row.settleDate).getTime())) errors.push(`${BI_SETTLE_NOUN} Date is missing/invalid`);
   if (!row.account) errors.push(`Bank/Cash Account is blank`);
   else if (cache.accountKeyByName.size && !cache.accountKeyByName.has(row.account.trim().toLowerCase())) {
@@ -386,17 +423,22 @@ function parseCollectRow(r, idx, cache) {
   if (fresh.balance <= 0.005) errors.push(`This invoice is already fully settled in Manager — remove this row or re-download the file`);
   else if (row.amount - fresh.balance > 0.01) errors.push(`Amount (${fmt(row.amount)}) exceeds the current balance due (${fmt(fresh.balance)}) — check for a typo, or a ${BI_SETTLE_NOUN.toLowerCase()} already recorded elsewhere`);
 
+  row.futureDated = checkFutureDateC(row.settleDate, warnings);
+  checkLockedPeriodC(row.settleDate, cache, errors);
+
   row.errors = errors;
-  row.status = errors.length ? 'error' : 'ok';
+  row.warnings = warnings;
+  row.status = errors.length ? 'error' : (warnings.length ? 'warn' : 'ok');
   return row;
 }
 
 // ── PREVIEW ───────────────────────────────────────────────────
 function renderPreviewC() {
   const out = document.getElementById('bic-output');
-  const okCount   = _bicRows.filter(r => r.status === 'ok').length;
+  const okCount   = _bicRows.filter(r => r.status === 'ok' || r.status === 'warn').length;
   const errCount  = _bicRows.filter(r => r.status === 'error').length;
   const skipCount = _bicRows.filter(r => r.status === 'skip').length;
+  const futureDated = _bicRows.filter(r => r.futureDated).length;
 
   const rowsHtml = _bicRows.map((r, i) => `
     <tr class="row-${r.status}" id="bic-row-${i}">
@@ -416,6 +458,7 @@ function renderPreviewC() {
       <span class="bi-stat" style="color:#16a34a;"><b>${okCount}</b> ready to post</span>
       <span class="bi-stat" style="color:#c0392b;"><b>${errCount}</b> with errors</span>
       <span class="bi-stat" style="color:#9ca3af;"><b>${skipCount}</b> not yet collected</span>
+      ${futureDated ? `<span class="bi-stat" style="color:#92400e;"><b>${futureDated}</b> future-dated</span>` : ''}
     </div>
     <div class="bi-wrap">
       <table class="bi-table">
@@ -431,6 +474,7 @@ function renderPreviewC() {
 function statusCellHtmlC(r) {
   if (r.status === 'error') return `<div class="bi-err">${r.errors.map(escHtml).join('<br>')}</div>`;
   if (r.status === 'skip') return '—';
+  if (r.warnings && r.warnings.length) return r.warnings.map(w => `<div style="color:#92400e;">⚠️ ${escHtml(w)}</div>`).join('');
   return '✅ OK';
 }
 
@@ -471,7 +515,7 @@ async function postSettleRow(row, cache) {
 
 async function postAllToManagerC() {
   const cache = await buildCollectCache(_bicBiz);
-  const okIdx = _bicRows.map((r, i) => i).filter(i => _bicRows[i].status === 'ok' && !_bicRows[i].posted);
+  const okIdx = _bicRows.map((r, i) => i).filter(i => (_bicRows[i].status === 'ok' || _bicRows[i].status === 'warn') && !_bicRows[i].posted);
 
   document.getElementById('bic-post').disabled = true;
   let successCount = 0;
