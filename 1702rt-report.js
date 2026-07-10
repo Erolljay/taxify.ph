@@ -46,10 +46,7 @@ async function init1702RTReport() {
       <label>Year</label>
       <select id="c1702rt-year">${years.map(y => `<option value="${y}"${y === now.getFullYear() - 1 ? ' selected' : ''}>${y}</option>`).join('')}</select>
       <label>Regular Rate</label>
-      <select id="c1702rt-rate">
-        <option value="0.25">25% (Domestic Corporation, In General)</option>
-        <option value="0.20">20% (Proprietary/Small Corp — Net Taxable Income ≤P5M &amp; Total Assets ≤P100M excl. land)</option>
-      </select>
+      <select id="c1702rt-rate">${corporateRateOptionsHtml()}</select>
       <label>Deduction</label>
       <select id="c1702rt-deduction">
         <option value="itemized">Itemized Deduction</option>
@@ -113,6 +110,7 @@ function render1702RT(el, data, setup, year, rate, deduction) {
   // MCIT only applies beginning the 4th taxable year following incorporation
   // (NIRC Sec. 27(E)(1)) — see isMcitApplicable in pnl-helpers.js.
   const mcitApplicable = isMcitApplicable(setup.dateOfIncorporation, year);
+  const mcitRatePct = (getMcitRate(dateForYear(year)) * 100).toFixed(0);
   const mcitExemptNote = !mcitApplicable
     ? `<div class="alert alert-info no-print" style="margin-top:6px;font-size:11px;">⏸ Not yet subject to MCIT — exempt for the first 3 taxable years from incorporation (${escHtml(setup.dateOfIncorporation)}). MCIT first applies for taxable year ${new Date(setup.dateOfIncorporation).getFullYear() + 3}.</div>`
     : '';
@@ -151,7 +149,7 @@ function render1702RT(el, data, setup, year, rate, deduction) {
       <div class="return-line"><div class="return-line-num">40</div><div class="return-line-label">Applicable Income Tax Rate</div><div class="return-line-amt">${rate * 100}%</div></div>
       <div class="return-line"><div class="return-line-num">41</div><div class="return-line-label">Income Tax Due Other than MCIT</div><div class="return-line-amt" id="c1702rt-41">₱ 0.00</div></div>
       ${mcitExemptNote}
-      <div class="return-line"><div class="return-line-num">42</div><div class="return-line-label">MCIT Due (2% of Total Taxable Income)</div><div class="return-line-amt" id="c1702rt-42">₱ 0.00</div></div>
+      <div class="return-line"><div class="return-line-num">42</div><div class="return-line-label">MCIT Due (${mcitRatePct}% of Total Taxable Income)</div><div class="return-line-amt" id="c1702rt-42">₱ 0.00</div></div>
       <div class="return-line"><div class="return-line-num">43</div><div class="return-line-label" style="font-weight:700;">Tax Due (Higher of Item 41 or 42)</div><div class="return-line-amt highlight" id="c1702rt-43">₱ 0.00</div></div>
       ${manualLine1702RT('44', "Prior Year's Excess Credits other than MCIT", 'c1702rt-44')}
       ${manualLine1702RT('45', 'Income Tax Payment under MCIT from Previous Quarter/s', 'c1702rt-45')}
@@ -189,6 +187,7 @@ function render1702RT(el, data, setup, year, rate, deduction) {
   el._deduction = deduction;
   el._cwtQ4 = data.cwtQ4;
   el._mcitApplicable = mcitApplicable;
+  el._year = year;
   bindIncomeTaxTabs(el);
   el.querySelectorAll('.recon-manual-input').forEach(inp => inp.addEventListener('input', () => recompute1702RT(el)));
   bindDeductionMappingTable(el, App.currentBusiness, () => render1702RT(el, data, setup, year, rate, deduction));
@@ -217,6 +216,7 @@ function recompute1702RT(el) {
   const { sales, cogs, opex } = el._totals;
   const rate = el._rate;
   const deduction = el._deduction;
+  const year = el._year;
 
   const returns = val1702RT('c1702rt-28');
   const netSales = sales - returns;
@@ -237,7 +237,7 @@ function recompute1702RT(el) {
   set1702RT(el, 'c1702rt-34', opex);
   set1702RT(el, 'c1702rt-37', itemizedTotal);
 
-  const osd = 0.4 * totalTaxableIncomeBase;
+  const osd = getOsdRate(dateForYear(year)) * totalTaxableIncomeBase;
   set1702RT(el, 'c1702rt-38', osd);
 
   const netTaxableIncome = deduction === 'osd' ? (totalTaxableIncomeBase - osd) : (totalTaxableIncomeBase - itemizedTotal);
@@ -248,7 +248,7 @@ function recompute1702RT(el) {
 
   // Still within the first 3 taxable years from incorporation -> not yet
   // subject to MCIT at all, regardless of gross income (NIRC Sec. 27(E)(1)).
-  const mcit = el._mcitApplicable ? Math.max(0, totalTaxableIncomeBase) * 0.02 : 0;
+  const mcit = el._mcitApplicable ? Math.max(0, totalTaxableIncomeBase) * getMcitRate(dateForYear(year)) : 0;
   set1702RT(el, 'c1702rt-42', mcit);
 
   const taxDue = Math.max(incomeTaxDueRegular, mcit);

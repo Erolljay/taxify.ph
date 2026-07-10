@@ -51,10 +51,7 @@ async function init1702QReport() {
     </div>
     <div class="filter-bar" style="margin-top:6px;">
       <label>Regular Rate</label>
-      <select id="c1702q-rate">
-        <option value="0.25">25% (Domestic Corporation, In General)</option>
-        <option value="0.20">20% (Proprietary/Small Corp — Net Taxable Income ≤P5M &amp; Total Assets ≤P100M excl. land)</option>
-      </select>
+      <select id="c1702q-rate">${corporateRateOptionsHtml()}</select>
       <label>Deduction</label>
       <select id="c1702q-deduction">
         <option value="itemized">Itemized Deduction</option>
@@ -117,13 +114,13 @@ async function generate1702Q(biz, setup, outputEl) {
   }
 }
 
-function netIncomeFor1702(totals, deduction, nonOp, itemizedTotal) {
+function netIncomeFor1702(totals, deduction, nonOp, itemizedTotal, year) {
   const sales = totals.income;
   const cogs = totals.cogs;
   const grossIncomeOps = sales - cogs;
   const totalGrossIncome = grossIncomeOps + nonOp;
   const itemized = itemizedTotal !== undefined ? itemizedTotal : totals.opex;
-  const osd = 0.4 * totalGrossIncome;
+  const osd = getOsdRate(dateForYear(year)) * totalGrossIncome;
   const allowable = deduction === 'osd' ? osd : itemized;
   return { sales, cogs, grossIncomeOps, totalGrossIncome, itemized, osd, allowable, taxableIncome: totalGrossIncome - allowable };
 }
@@ -138,6 +135,7 @@ function render1702Q(el, data, setup, period, rate, deduction) {
   // MCIT only applies beginning the 4th taxable year following incorporation
   // (NIRC Sec. 27(E)(1)) — see isMcitApplicable in pnl-helpers.js.
   const mcitApplicable = isMcitApplicable(setup.dateOfIncorporation, period.year);
+  const mcitRatePct = (getMcitRate(dateForYear(period.year)) * 100).toFixed(0);
   const mcitExemptNote = !mcitApplicable
     ? `<div class="alert alert-info no-print" style="margin-top:6px;font-size:11px;">⏸ Not yet subject to MCIT — exempt for the first 3 taxable years from incorporation (${escHtml(setup.dateOfIncorporation)}). MCIT first applies for taxable year ${new Date(setup.dateOfIncorporation).getFullYear() + 3}.</div>`
     : '';
@@ -177,7 +175,7 @@ function render1702Q(el, data, setup, period, rate, deduction) {
       <div class="return-section-header">Schedule 3 – Computation of MCIT for the Quarter/s</div>
       ${mcitExemptNote}
       <div class="return-line"><div class="return-line-num">4</div><div class="return-line-label">Total Gross Income, Year-to-Date</div><div class="return-line-amt" id="c1702q-s3-4">₱ 0.00</div></div>
-      <div class="return-line"><div class="return-line-num">5</div><div class="return-line-label">MCIT Rate</div><div class="return-line-amt">2%</div></div>
+      <div class="return-line"><div class="return-line-num">5</div><div class="return-line-label">MCIT Rate</div><div class="return-line-amt">${mcitRatePct}%</div></div>
       <div class="return-line"><div class="return-line-num">6</div><div class="return-line-label" style="font-weight:700;">Minimum Corporate Income Tax</div><div class="return-line-amt" id="c1702q-s3-6">₱ 0.00</div></div>
     </div>
 
@@ -222,6 +220,7 @@ function render1702Q(el, data, setup, period, rate, deduction) {
   el._deduction = deduction;
   el._itemizedTotal = schedule.total;
   el._mcitApplicable = mcitApplicable;
+  el._year = period.year;
   bindIncomeTaxTabs(el);
   el.querySelectorAll('.recon-manual-input').forEach(inp => inp.addEventListener('input', () => recompute1702Q(el)));
   bindDeductionMappingTable(el, App.currentBusiness, () => render1702Q(el, data, setup, period, rate, deduction));
@@ -376,11 +375,12 @@ function recompute1702Q(el) {
   } = el._data;
   const rate = el._rate;
   const deduction = el._deduction;
+  const year = el._year;
 
   const nonOp = val1702('c1702q-nonop');
-  const thisQNet = netIncomeFor1702(thisQ.totals, deduction, nonOp, el._itemizedTotal);
-  const prevQNet = netIncomeFor1702(cumPrev.totals, deduction, 0);
-  const cumNet = netIncomeFor1702(cumToDate.totals, deduction, nonOp);
+  const thisQNet = netIncomeFor1702(thisQ.totals, deduction, nonOp, el._itemizedTotal, year);
+  const prevQNet = netIncomeFor1702(cumPrev.totals, deduction, 0, undefined, year);
+  const cumNet = netIncomeFor1702(cumToDate.totals, deduction, nonOp, undefined, year);
 
   set1702(el, 'c1702q-s2-1', thisQNet.sales);
   set1702(el, 'c1702q-s2-2', thisQNet.cogs);
@@ -400,7 +400,7 @@ function recompute1702Q(el) {
   set1702(el, 'c1702q-s3-4', mcitBase);
   // Still within the first 3 taxable years from incorporation -> not yet
   // subject to MCIT at all, regardless of gross income (NIRC Sec. 27(E)(1)).
-  const mcit = el._mcitApplicable ? Math.max(0, mcitBase) * 0.02 : 0;
+  const mcit = el._mcitApplicable ? Math.max(0, mcitBase) * getMcitRate(dateForYear(year)) : 0;
   set1702(el, 'c1702q-s3-6', mcit);
   set1702(el, 'c1702q-s2-12', mcit);
 

@@ -39,22 +39,11 @@ const TAXABLE_OTHER_CATS = [
   PH_CAT.OTHER_TAXABLE, PH_CAT.COMMISSION, PH_CAT.PROFIT_SHARE, PH_CAT.DIRECTOR_FEE,
 ];
 
-const THIRTEENTH_MONTH_CAP = 90000;
-
-// ── GRADUATED TAX TABLE (TRAIN / CREATE, annual) ────────────────
-const ANNUAL_TAX_TABLE = [
-  { from: 0,        to: 250000,    rate: 0.00, fixed: 0 },
-  { from: 250000,   to: 400000,    rate: 0.15, fixed: 0 },
-  { from: 400000,   to: 800000,    rate: 0.20, fixed: 22500 },
-  { from: 800000,   to: 2000000,   rate: 0.25, fixed: 102500 },
-  { from: 2000000,  to: 8000000,   rate: 0.30, fixed: 402500 },
-  { from: 8000000,  to: Infinity,  rate: 0.35, fixed: 2202500 },
-];
-
-function computeAnnualTax(taxableIncome) {
-  const inc = Math.max(0, Number(taxableIncome) || 0);
-  const bracket = ANNUAL_TAX_TABLE.find(b => inc >= b.from && inc <= b.to) || ANNUAL_TAX_TABLE[ANNUAL_TAX_TABLE.length - 1];
-  return bracket.fixed + (inc - bracket.from) * bracket.rate;
+// Graduated tax table and 13th-month cap now live in tax-rates.js
+// (Settings → Tax Rates), keyed by effective date so annualization uses
+// whichever bracket table/cap was in force for the year being computed.
+function computeAnnualTax(taxableIncome, year) {
+  return computeGraduatedTax(taxableIncome, dateForYear(year));
 }
 
 // ── PAYSLIP ITEM -> BIR CATEGORY MAP ──────────────────────────
@@ -189,8 +178,9 @@ function sumCats(bucket, cats) {
 // Given an employee's 12-month category buckets and Tax Status (MWE/NMWE),
 // returns an array of 12 objects with the 1601-C Part II line items for
 // that employee for each month, including running 13th-month cap tracking.
-function computeEmployee1601C(months, taxStatus) {
+function computeEmployee1601C(months, taxStatus, year) {
   const isMWE = taxStatus === 'MWE';
+  const thirteenthMonthCap = getThirteenthMonthCap(dateForYear(year));
   let thirteenthYTD = 0; // cumulative 13th-month/other-benefits already treated as non-taxable
   const out = [];
 
@@ -222,7 +212,7 @@ function computeEmployee1601C(months, taxStatus) {
 
     // Line 17 — 13th Month Pay & Other Benefits, non-taxable portion (cap ₱90,000/yr cumulative)
     const thirteenthThisMonth = b[PH_CAT.THIRTEENTH] || 0;
-    const remainingCap = Math.max(0, THIRTEENTH_MONTH_CAP - thirteenthYTD);
+    const remainingCap = Math.max(0, thirteenthMonthCap - thirteenthYTD);
     const line17 = Math.min(thirteenthThisMonth, remainingCap);
     const thirteenthExcess = thirteenthThisMonth - line17;
     thirteenthYTD += line17;

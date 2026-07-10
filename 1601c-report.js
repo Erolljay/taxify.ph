@@ -193,7 +193,7 @@ async function generate1601C(biz, setup, outputEl) {
     for (const [empKey, data] of Object.entries(byEmployee)) {
       const emp = employees[empKey];
       if (!emp || !emp.taxStatus) continue; // exclude employees with no Tax Status set
-      const computed = computeEmployee1601C(data.months, emp.taxStatus);
+      const computed = computeEmployee1601C(data.months, emp.taxStatus, year);
       const m = computed[month];
       if (!m.line14) continue; // skip employees with no pay this month
 

@@ -122,7 +122,7 @@ async function generate2316() {
       .filter(key => employees[key] && employees[key].taxStatus) // exclude employees with no Tax Status set
       .map(key => {
         const emp = employees[key];
-        const monthly = computeEmployee1601C(byEmployee[key].months, emp.taxStatus);
+        const monthly = computeEmployee1601C(byEmployee[key].months, emp.taxStatus, year);
         return render2316Cert(emp, monthly, byEmployee[key].months, setup, year);
       });
 
@@ -198,7 +198,7 @@ function render2316Cert(emp, monthly, months, setup, year) {
   const item52  = item39 + item44 + item45 + item46 + item47 + item48 + item49 + item50 + item51a;
 
   // Annual tax due (per TRAIN graduated table on taxable income)
-  const taxDue = computeAnnualTax(taxableComp);
+  const taxDue = computeAnnualTax(taxableComp, year);
 
   const isInd = setup.classification === 'Individual';
   const employerName = isInd

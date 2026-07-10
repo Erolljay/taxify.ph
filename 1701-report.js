@@ -100,12 +100,12 @@ async function generate1701(biz, setup, outputEl) {
   }
 }
 
-function netIncomeFor1701(totals, deduction, itemizedTotal) {
+function netIncomeFor1701(totals, deduction, itemizedTotal, year) {
   const sales = totals.income;
   const cogs = totals.cogs;
   const grossIncome = sales - cogs;
   const itemized = itemizedTotal;
-  const osd = 0.4 * sales;
+  const osd = getOsdRate(dateForYear(year)) * sales;
   const allowable = deduction === 'osd' ? osd : itemized;
   return { sales, cogs, grossIncome, itemized, osd, allowable, netIncome: grossIncome - allowable };
 }
@@ -113,7 +113,7 @@ function netIncomeFor1701(totals, deduction, itemizedTotal) {
 function render1701(el, data, setup, year, method, deduction) {
   const taxpayerName = [setup.lastName, setup.firstName, setup.middleName].filter(Boolean).join(', ') || setup.taxpayerName;
   const schedule = buildItemizedSchedule(App.currentBusiness, data.fullYear.byAccount);
-  const biz = netIncomeFor1701(data.fullYear.totals, deduction, schedule.total);
+  const biz = netIncomeFor1701(data.fullYear.totals, deduction, schedule.total, year);
 
   const pnlHtml = renderPnLStatementHtml(data.fullYear.totals, data.fullYear.byAccount);
   const mappingHtml = renderDeductionScheduleHtml(schedule, 'Schedule 4 – Ordinary Allowable Itemized Deductions');
@@ -185,6 +185,7 @@ function render1701(el, data, setup, year, method, deduction) {
   el._biz = biz;
   el._method = method;
   el._cwtQ4 = data.cwtQ4;
+  el._year = year;
   bindIncomeTaxTabs(el);
   el.querySelectorAll('.recon-manual-input').forEach(inp => inp.addEventListener('input', () => recompute1701(el)));
   bindDeductionMappingTable(el, App.currentBusiness, () => render1701(el, data, setup, year, method, deduction));
@@ -244,12 +245,13 @@ function set1701(el, id, amount) {
 function recompute1701(el) {
   const biz = el._biz;
   const method = el._method;
+  const year = el._year;
 
   const compGross = val1701('c1701-comp-gross');
   const compExempt = val1701('c1701-comp-exempt');
   const taxableComp = Math.max(0, compGross - compExempt);
   set1701(el, 'c1701-line6', taxableComp);
-  const compTaxDue = graduatedTaxDue(taxableComp);
+  const compTaxDue = graduatedTaxDue(taxableComp, year);
   set1701(el, 'c1701-line7', compTaxDue);
 
   let businessTaxDue, totalTaxableIncome;
@@ -262,7 +264,7 @@ function recompute1701(el) {
     set1701(el, 'c1701-line29', reduction);
     const taxableIncome = Math.max(0, totalIncome - reduction);
     set1701(el, 'c1701-line30', taxableIncome);
-    businessTaxDue = taxableIncome * 0.08;
+    businessTaxDue = taxableIncome * getEightPercentRate(dateForYear(year));
     set1701(el, 'c1701-line31', businessTaxDue);
     totalTaxableIncome = taxableComp + taxableIncome;
     set1701(el, 'c1701-line32', compTaxDue + businessTaxDue);
@@ -273,11 +275,11 @@ function recompute1701(el) {
     set1701(el, 'c1701-line23', businessTaxable);
     totalTaxableIncome = taxableComp + businessTaxable;
     set1701(el, 'c1701-line24', totalTaxableIncome);
-    businessTaxDue = graduatedTaxDue(totalTaxableIncome) - compTaxDue;
-    set1701(el, 'c1701-line25', graduatedTaxDue(totalTaxableIncome));
+    businessTaxDue = graduatedTaxDue(totalTaxableIncome, year) - compTaxDue;
+    set1701(el, 'c1701-line25', graduatedTaxDue(totalTaxableIncome, year));
   }
 
-  const totalTaxDue = method === '8pct' ? (compTaxDue + businessTaxDue) : graduatedTaxDue(totalTaxableIncome);
+  const totalTaxDue = method === '8pct' ? (compTaxDue + businessTaxDue) : graduatedTaxDue(totalTaxableIncome, year);
   set1701(el, 'c1701-p6-1', totalTaxDue);
   set1701(el, 'c1701-p6-5', totalTaxDue);
   set1701(el, 'c1701-p2-22', totalTaxDue);

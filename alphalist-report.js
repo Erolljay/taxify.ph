@@ -46,7 +46,7 @@ async function generateAlphalist() {
     for (const [empKey, data] of Object.entries(byEmployee)) {
       const emp = employees[empKey];
       if (!emp || !emp.taxStatus) continue; // exclude employees with no Tax Status set
-      const monthly = computeEmployee1601C(data.months, emp.taxStatus);
+      const monthly = computeEmployee1601C(data.months, emp.taxStatus, year);
       const sum = (k) => monthly.reduce((a, m) => a + (m[k] || 0), 0);
       const catTotal = (cat) => data.months.reduce((a, b) => a + (b[cat] || 0), 0);
 
@@ -56,7 +56,7 @@ async function generateAlphalist() {
       const nonTaxable  = sum('line21');
       const taxableComp = sum('line22');
       const taxWithheld = sum('line25');
-      const taxDue      = computeAnnualTax(taxableComp);
+      const taxDue      = computeAnnualTax(taxableComp, year);
 
       const row = {
         empKey,

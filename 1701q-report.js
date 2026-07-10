@@ -18,25 +18,11 @@
    it) instead of a manual input, so it doesn't reset every session.
    ============================================================ */
 
-const TAX_TABLE_2023 = [
-  { upTo: 250000,      base: 0,        rate: 0    },
-  { upTo: 400000,      base: 0,        rate: 0.15 },
-  { upTo: 800000,      base: 22500,    rate: 0.20 },
-  { upTo: 2000000,     base: 102500,   rate: 0.25 },
-  { upTo: 8000000,     base: 402500,   rate: 0.30 },
-  { upTo: Infinity,    base: 2202500,  rate: 0.35 },
-];
-
-function graduatedTaxDue(taxableIncome) {
-  const ti = Math.max(0, taxableIncome);
-  for (let i = 0; i < TAX_TABLE_2023.length; i++) {
-    const bracket = TAX_TABLE_2023[i];
-    if (ti <= bracket.upTo) {
-      const prevCeiling = i === 0 ? 0 : TAX_TABLE_2023[i - 1].upTo;
-      return bracket.base + (ti - prevCeiling) * bracket.rate;
-    }
-  }
-  return 0;
+// Graduated tax table now lives in tax-rates.js (Settings → Tax Rates),
+// keyed by effective date so each return uses the bracket table that was
+// actually in force for the year/quarter being filed.
+function graduatedTaxDue(taxableIncome, year) {
+  return computeGraduatedTax(taxableIncome, dateForYear(year));
 }
 
 async function init1701QReport() {
@@ -132,12 +118,12 @@ async function generate1701Q(biz, setup, outputEl) {
   }
 }
 
-function netIncomeFor(totals, deduction, itemizedTotal) {
+function netIncomeFor(totals, deduction, itemizedTotal, year) {
   const sales = totals.income;
   const cogs = totals.cogs;
   const grossIncome = sales - cogs;
   const itemized = itemizedTotal !== undefined ? itemizedTotal : totals.opex;
-  const osd = 0.4 * sales;
+  const osd = getOsdRate(dateForYear(year)) * sales;
   const allowable = deduction === 'osd' ? osd : itemized;
   return { sales, cogs, grossIncome, itemized, osd, allowable, netIncome: grossIncome - allowable };
 }
@@ -146,8 +132,8 @@ function render1701Q(el, data, setup, period, method, deduction) {
   const taxpayerName = [setup.lastName, setup.firstName, setup.middleName].filter(Boolean).join(', ') || setup.taxpayerName;
 
   const schedule = buildItemizedSchedule(App.currentBusiness, data.thisQ.byAccount);
-  const thisQ = netIncomeFor(data.thisQ.totals, deduction, schedule.total);
-  const prevQ = netIncomeFor(data.cumPrev.totals, deduction);
+  const thisQ = netIncomeFor(data.thisQ.totals, deduction, schedule.total, period.year);
+  const prevQ = netIncomeFor(data.cumPrev.totals, deduction, undefined, period.year);
 
   const pnlHtml = renderPnLStatementHtml(data.thisQ.totals, data.thisQ.byAccount);
   const mappingHtml = renderDeductionScheduleHtml(schedule, 'Ordinary Allowable Itemized Deductions (This Quarter)');
@@ -206,6 +192,7 @@ function render1701Q(el, data, setup, period, method, deduction) {
   el._itrPaymentsPrevQ = data.itrPaymentsPrevQ;
   bindIncomeTaxTabs(el);
   el.querySelectorAll('.recon-manual-input').forEach(inp => inp.addEventListener('input', () => recompute1701Q(el, thisQ, prevQ, method)));
+  el._year = period.year;
   bindDeductionMappingTable(el, App.currentBusiness, () => render1701Q(el, data, setup, period, method, deduction));
   bindDtaEntryPanel1701Q(el, App.currentBusiness, data.coa, data.dtaMap, () => generate1701Q(App.currentBusiness, setup, el));
   recompute1701Q(el, thisQ, prevQ, method);
@@ -349,13 +336,14 @@ function val(id) {
 }
 
 function recompute1701Q(el, thisQ, prevQ, method) {
+  const year = el._year;
   let taxDue;
   if (method === '8pct') {
     const nonOp = val('c1701q-48');
     const line49 = thisQ.sales + nonOp;
     const line51 = line49 + prevQ.sales;
     const line53 = Math.max(0, line51 - 250000);
-    taxDue = line53 * 0.08;
+    taxDue = line53 * getEightPercentRate(dateForYear(year));
     setText(el, 'c1701q-line49', line49);
     setText(el, 'c1701q-line51', line51);
     setText(el, 'c1701q-line53', line53);
@@ -364,7 +352,7 @@ function recompute1701Q(el, thisQ, prevQ, method) {
     const nonOp = val('c1701q-43');
     const gpp = val('c1701q-44');
     const line45 = thisQ.netIncome + prevQ.netIncome + nonOp + gpp;
-    taxDue = graduatedTaxDue(line45);
+    taxDue = graduatedTaxDue(line45, year);
     setText(el, 'c1701q-line45', line45);
     setText(el, 'c1701q-line46', taxDue);
   }
