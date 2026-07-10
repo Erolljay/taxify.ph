@@ -109,6 +109,7 @@ async function generate2316() {
     const [byEmployee, employees] = await Promise.all([
       buildPayrollYear(biz, year),
       loadEmployeesBIR(biz),
+      loadTaxRatesData(),
     ]);
     _form2316State.employees = employees;
     const empKeys = wantAll ? Object.keys(byEmployee) : selected.filter(k => byEmployee[k]);

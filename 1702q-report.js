@@ -43,6 +43,7 @@ async function init1702QReport() {
   }
   outputEl.innerHTML = '';
 
+  await loadTaxRatesData();
   filterEl.innerHTML = periodFilterHTML('quarterly', 'c1702q');
   filterEl.insertAdjacentHTML('beforeend', `
     <div style="font-size:11px;color:#6b7280;margin-top:4px;">

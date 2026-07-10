@@ -325,6 +325,7 @@ async function loadTaxCodesTab() {
       apiRequest('GET', '/api4/tax-code-batch?business='+encodeURIComponent(biz)+'&Skip=0&PageSize=200'),
       (typeof loadChartOfAccounts === 'function') ? loadChartOfAccounts(biz, true) : Promise.resolve({}),
       (typeof getAccountLinkMapping === 'function') ? getAccountLinkMapping(biz) : Promise.resolve({}),
+      loadTaxRatesData(),
     ]);
     var res = results[0];
     _taxCodes = (res && res.items ? res.items : []).map(function(it){ return { key: it.key, value: it.item || {} }; });
@@ -359,8 +360,9 @@ function renderTaxCodesOutput(biz, out) {
     'Click <strong>Create</strong> to add missing codes or <strong>Create All Missing</strong> per group.' +
     '</p>';
 
+  var taxCodeTemplates = buildTaxCodeTemplates();
   TC_GROUPS.forEach(function(grp) {
-    var codes = TAX_CODE_TEMPLATES.filter(function(t){ return t.group === grp.key; });
+    var codes = taxCodeTemplates.filter(function(t){ return t.group === grp.key; });
     if (!codes.length) return;
 
     var missing = codes.filter(function(t){ return !tcByName[t.Name.toLowerCase().trim()]; });
@@ -507,7 +509,8 @@ async function onCreateGroupTaxCodes(btn, biz) {
     var n = (tc.value.Name||tc.value.name||'').toLowerCase().trim();
     if (n) tcByName[n] = true;
   });
-  var missing = TAX_CODE_TEMPLATES.filter(function(t){
+  await loadTaxRatesData();
+  var missing = buildTaxCodeTemplates().filter(function(t){
     return t.group === grpKey && !tcByName[t.Name.toLowerCase().trim()];
   });
   if (!missing.length) return;

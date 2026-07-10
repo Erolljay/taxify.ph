@@ -185,6 +185,7 @@ async function generate1601C(biz, setup, outputEl) {
     const [byEmployee, employees] = await Promise.all([
       buildPayrollYear(biz, year),
       loadEmployeesBIR(biz),
+      loadTaxRatesData(),
     ]);
 
     const rows = [];

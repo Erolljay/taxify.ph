@@ -39,6 +39,7 @@ async function init1702RTReport() {
   }
   outputEl.innerHTML = '';
 
+  await loadTaxRatesData();
   const now = new Date();
   const years = [now.getFullYear() - 2, now.getFullYear() - 1, now.getFullYear()];
   filterEl.innerHTML = `

@@ -82,6 +82,7 @@ async function generate1701Q(biz, setup, outputEl) {
   const deduction = document.getElementById('c1701q-deduction').value;
 
   try {
+    await loadTaxRatesData();
     const coa = await loadChartOfAccounts(biz);
     const yearStart = new Date(year, 0, 1);
     const { start: qStart, end: qEnd } = getPeriodDates('quarterly', quarter, year);

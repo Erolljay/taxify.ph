@@ -77,6 +77,7 @@ async function generate1701(biz, setup, outputEl) {
   const deduction = document.getElementById('c1701-deduction').value;
 
   try {
+    await loadTaxRatesData();
     const coa = await loadChartOfAccounts(biz);
     const yearStart = new Date(year, 0, 1);
     const yearEnd = new Date(year, 11, 31);
