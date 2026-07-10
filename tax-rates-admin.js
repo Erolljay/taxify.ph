@@ -4,11 +4,19 @@
 
    Lets you introduce a new rate (VAT, Percentage Tax, the individual
    graduated income tax table, corporate rates, MCIT) with an effective
-   date. This page has no write access to tax-rates-data.json — there's
-   no backend to write to — so "Add Rate" only edits an in-memory draft.
-   Publishing means copying the updated JSON and committing it through
-   GitHub (branch → PR → merge); once merged, every installed business
-   picks it up automatically, because they all fetch the same file.
+   date. "Add Rate" only edits an in-memory draft — nothing reaches any
+   business until you publish. Publishing has two paths:
+     1. Save to Server — POSTs the draft to save-tax-rates.php, which
+        overwrites tax-rates-data.json directly (see
+        DEPLOY-TAX-RATES-SAVE.md for the one-time server setup this
+        needs). Protected by an nginx login prompt only you know the
+        password to.
+     2. Copy JSON — a manual fallback if the server endpoint isn't set
+        up yet: copy the JSON and commit it through GitHub instead
+        (branch → PR → merge).
+   Either way, once the file is updated, every installed business picks
+   it up automatically next time it loads a report — they all fetch the
+   same file.
 
    Entries that were already in the published file when this page loaded
    can't be deleted here — only a rate you just added *this session* (not
@@ -366,6 +374,8 @@ function renderCorporatePanel(panel) {
 }
 
 // ── PUBLISH ──────────────────────────────────────────────────────
+const TAX_RATES_SAVE_ENDPOINT = 'save-tax-rates.php';
+
 function renderPublishPanel(panel) {
   const unpublishedCount = Object.values(_trDraft)
     .filter(Array.isArray)
@@ -380,7 +390,20 @@ function renderPublishPanel(panel) {
         : 'ℹ️ No unpublished changes — this is the currently-live data.'}
     </div>
     <div class="card">
-      <div class="card-title">How to publish</div>
+      <div class="card-title">Save to Server</div>
+      <p style="font-size:12.5px;color:#6b7280;margin:0 0 12px;">
+        Writes directly to <code>tax-rates-data.json</code> on the server. Live for every business the moment
+        it succeeds — no GitHub step needed. Your browser will ask for the admin password the first time.
+        Requires the one-time server setup in <code>DEPLOY-TAX-RATES-SAVE.md</code>.
+      </p>
+      <button type="button" class="btn btn-primary btn-sm" id="tr-publish-save">💾 Save to Server</button>
+      <span id="tr-publish-save-msg" style="font-size:11px;color:#6b7280;margin-left:8px;"></span>
+    </div>
+    <div class="card" style="margin-top:14px;">
+      <div class="card-title">Or: Copy JSON &amp; Commit via GitHub</div>
+      <p style="font-size:12.5px;color:#6b7280;margin:0 0 12px;">
+        Fallback if the server endpoint above isn't set up yet.
+      </p>
       <ol style="font-size:12.5px;line-height:1.7;color:#374151;margin:0 0 14px 18px;padding:0;">
         <li>Click <strong>Copy JSON</strong> below.</li>
         <li>On GitHub, create a new branch (or use one you already have).</li>
@@ -388,7 +411,7 @@ function renderPublishPanel(panel) {
         <li>Open a Pull Request, review the diff, and merge it.</li>
         <li>Once merged, every business's extension picks up the new rate automatically — no per-business action needed.</li>
       </ol>
-      <button type="button" class="btn btn-primary btn-sm" id="tr-publish-copy">📋 Copy JSON</button>
+      <button type="button" class="btn btn-outline btn-sm" id="tr-publish-copy">📋 Copy JSON</button>
       <span id="tr-publish-msg" style="font-size:11px;color:#6b7280;margin-left:8px;"></span>
       <textarea readonly id="tr-publish-json" style="width:100%;height:340px;margin-top:12px;font-family:'IBM Plex Mono',monospace;font-size:11.5px;padding:10px;border:1px solid #d1d5db;border-radius:6px;box-sizing:border-box;">${escHtml(json)}</textarea>
     </div>`;
@@ -398,5 +421,35 @@ function renderPublishPanel(panel) {
     navigator.clipboard?.writeText(json)
       .then(() => { msg.style.color = '#27ae60'; msg.textContent = '✅ Copied — paste it into tax-rates-data.json on GitHub.'; })
       .catch(() => { msg.style.color = '#c0392b'; msg.textContent = '❌ Copy failed — select the text box manually.'; });
+  });
+
+  document.getElementById('tr-publish-save').addEventListener('click', async () => {
+    const btn = document.getElementById('tr-publish-save');
+    const msg = document.getElementById('tr-publish-save-msg');
+    btn.disabled = true;
+    msg.style.color = '#6b7280';
+    msg.textContent = 'Saving…';
+    try {
+      const res = await fetch(TAX_RATES_SAVE_ENDPOINT, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: json,
+      });
+      const result = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(result.error || `Server returned ${res.status}`);
+      msg.style.color = '#27ae60';
+      msg.textContent = '✅ Saved — live for every business now.';
+      // What was "draft" is now "published" — reload from the server to
+      // refresh the Published/Not-published badges across every tab.
+      // `panel` (data-tr-panel="publish") is a direct child of the
+      // container renderTaxRatesTab was originally mounted into.
+      _taxRatesLoadPromise = null;
+      await renderTaxRatesTab(panel.parentElement);
+    } catch (err) {
+      msg.style.color = '#c0392b';
+      msg.textContent = `❌ ${err.message} — use Copy JSON below instead, or check DEPLOY-TAX-RATES-SAVE.md.`;
+    } finally {
+      btn.disabled = false;
+    }
   });
 }
