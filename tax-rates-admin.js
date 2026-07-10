@@ -445,8 +445,7 @@ function renderPublishPanel(panel, justSavedMsg) {
       // always resets back to the VAT sub-tab, wiping this success
       // message before it could be read — re-render just this panel
       // instead, so we stay put on Publish and the message sticks).
-      _taxRatesLoadPromise = null;
-      const published = await loadTaxRatesData();
+      const published = await loadTaxRatesData(/* forceFresh */ true);
       _trDraft = JSON.parse(JSON.stringify(published));
       _trPublishedIds = new Set();
       Object.keys(_trDraft).forEach(key => {
