@@ -1,0 +1,60 @@
+{
+  "_comment": "Single source of truth for BIR tax rates, fetched at runtime by every business's report pages. Edited only via Settings (Super Admin) in installer.html, then committed/merged through GitHub — never edited by hand for a live entry. Add a new dated entry when a rate changes; never edit or remove an entry that may already be in use, so past-period computations keep using whatever was effective at the time.",
+  "vat": [
+    { "id": "vat-1", "effectiveDate": "2006-02-01", "rate": 12, "label": "Standard VAT (RA 9337)" }
+  ],
+  "pt": [
+    { "id": "pt-1", "effectiveDate": "2018-01-01", "rate": 3, "label": "Percentage Tax — Non-VAT (NIRC Sec. 116)" },
+    { "id": "pt-2", "effectiveDate": "2020-07-01", "rate": 1, "label": "Percentage Tax — Non-VAT (CREATE Act MSME relief)" },
+    { "id": "pt-3", "effectiveDate": "2023-07-01", "rate": 3, "label": "Percentage Tax — Non-VAT (relief expired)" }
+  ],
+  "ptNonbank": [
+    { "id": "ptnb-1", "effectiveDate": "2018-01-01", "rate": 5, "label": "Percentage Tax — Nonbank Financial Intermediaries" }
+  ],
+  "eightPct": [
+    { "id": "eight-1", "effectiveDate": "2018-01-01", "rate": 8, "label": "8% Flat Tax (in lieu of graduated rate + percentage tax)" }
+  ],
+  "osd": [
+    { "id": "osd-1", "effectiveDate": "2018-01-01", "rate": 40, "label": "Optional Standard Deduction" }
+  ],
+  "thirteenthCap": [
+    { "id": "cap-1", "effectiveDate": "2018-01-01", "amount": 90000, "label": "Non-taxable ceiling — 13th month pay & other benefits" }
+  ],
+  "incomeTax": [
+    {
+      "id": "it-1",
+      "effectiveDate": "2018-01-01",
+      "label": "TRAIN Law (RA 10963), 2018–2022",
+      "brackets": [
+        { "upTo": 250000, "rate": 0.00 },
+        { "upTo": 400000, "rate": 0.20 },
+        { "upTo": 800000, "rate": 0.25 },
+        { "upTo": 2000000, "rate": 0.30 },
+        { "upTo": 8000000, "rate": 0.32 },
+        { "upTo": null, "rate": 0.35 }
+      ]
+    },
+    {
+      "id": "it-2",
+      "effectiveDate": "2023-01-01",
+      "label": "TRAIN Law step-down, 2023 onward",
+      "brackets": [
+        { "upTo": 250000, "rate": 0.00 },
+        { "upTo": 400000, "rate": 0.15 },
+        { "upTo": 800000, "rate": 0.20 },
+        { "upTo": 2000000, "rate": 0.25 },
+        { "upTo": 8000000, "rate": 0.30 },
+        { "upTo": null, "rate": 0.35 }
+      ]
+    }
+  ],
+  "corporate": [
+    { "id": "corp-1", "effectiveDate": "2018-01-01", "regular": 30, "small": 30, "label": "Pre-CREATE (flat 30%)" },
+    { "id": "corp-2", "effectiveDate": "2020-07-01", "regular": 25, "small": 20, "label": "CREATE Act (RA 11534)" }
+  ],
+  "mcit": [
+    { "id": "mcit-1", "effectiveDate": "2018-01-01", "rate": 2, "label": "MCIT standard" },
+    { "id": "mcit-2", "effectiveDate": "2020-07-01", "rate": 1, "label": "MCIT — CREATE Act relief" },
+    { "id": "mcit-3", "effectiveDate": "2023-07-01", "rate": 2, "label": "MCIT — relief expired" }
+  ]
+}

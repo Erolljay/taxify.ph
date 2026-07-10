@@ -3,25 +3,41 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Txform Now! — Admin Installer</title>
+  <title>Txform.ph Super Admin</title>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
 
-<h1>&#127477;&#127469; Txform Now! — Admin Installer</h1>
+<h1>&#127477;&#127469; Txform.ph Super Admin</h1>
 
-<div class="business-bar">
-  <label>Business
-    <select id="business" required></select>
-  </label>
+<div class="tabs" id="super-admin-tabs">
+  <button type="button" class="tab active" data-sa-tab="install">Install Extension</button>
+  <button type="button" class="tab" data-sa-tab="tax-rates">Tax Rates</button>
 </div>
 
-<p class="muted">Install the Txform Now! app for the selected business. It will appear on that business's
-<strong>Summary</strong> page.</p>
+<div data-sa-panel="install">
+  <div class="business-bar">
+    <label>Business
+      <select id="business" required></select>
+    </label>
+  </div>
 
-<div id="install-list"></div>
+  <p class="muted">Install the Txform Now! app for the selected business. It will appear on that business's
+  <strong>Summary</strong> page.</p>
+
+  <div id="install-list"></div>
+</div>
+
+<div data-sa-panel="tax-rates" hidden>
+  <p class="muted">These rates are shared by every business that has Txform Now! installed — not specific to
+  the business selected above. Add a new rate here, publish it (see the Publish tab), and it takes effect for
+  every business automatically the next time they open a report.</p>
+  <div id="tax-rates-view"></div>
+</div>
 
 <script src="shared.js"></script>
+<script src="tax-rates.js"></script>
+<script src="tax-rates-admin.js"></script>
 <script>
   const TAXIFY_EXT = {
     name: 'Txform Now!',
@@ -88,6 +104,20 @@
   }
 
   loadBusinesses('business', () => renderInstallList(App.currentBusiness));
+
+  // ── SUPER ADMIN TABS ────────────────────────────────────────
+  let _taxRatesTabLoaded = false;
+  document.getElementById('super-admin-tabs').addEventListener('click', e => {
+    const btn = e.target.closest('[data-sa-tab]');
+    if (!btn) return;
+    const tab = btn.dataset.saTab;
+    document.querySelectorAll('#super-admin-tabs [data-sa-tab]').forEach(b => b.classList.toggle('active', b === btn));
+    document.querySelectorAll('[data-sa-panel]').forEach(p => { p.hidden = p.dataset.saPanel !== tab; });
+    if (tab === 'tax-rates' && !_taxRatesTabLoaded) {
+      _taxRatesTabLoaded = true;
+      renderTaxRatesTab(document.getElementById('tax-rates-view'));
+    }
+  });
 </script>
 </body>
 </html>

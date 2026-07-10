@@ -43,7 +43,6 @@ const allViews = document.querySelectorAll('[id$="-view"]');
 const cfLoaded = {};
 const cfControllers = {};
 let setupTabLoaded = false;
-let taxRatesTabLoaded = false;
 let coaTabLoaded = false;
 let coaController = null;
 
@@ -53,7 +52,6 @@ function activateTab(view) {
 
   if (view === 'reports')            renderReportsTab(biz);
   if (view === 'setup' && !setupTabLoaded) { setupTabLoaded = true; loadTaxCodesTab(); }
-  if (view === 'tax-rates' && !taxRatesTabLoaded) { taxRatesTabLoaded = true; renderTaxRatesTab(document.getElementById('tax-rates-view')); }
   if (view === 'batch-import-setup') renderBatchImportSetupTab(biz);
   if (view === 'business')           lazyMountCF('business', biz);
   if (view === 'payslip-items')      lazyMountCF('payslipItems', biz);
@@ -272,6 +270,7 @@ async function loadTaxCodesTab() {
       apiRequest('GET', '/api4/tax-code-batch?business=' + encodeURIComponent(biz) + '&Skip=0&PageSize=200'),
       (typeof loadChartOfAccounts === 'function') ? loadChartOfAccounts(biz, true) : Promise.resolve({}),
       (typeof getAccountLinkMapping === 'function') ? getAccountLinkMapping(biz) : Promise.resolve({}),
+      loadTaxRatesData(),
     ]);
     const res = results[0];
     _taxCodes = (res?.items || []).map(it => ({ key: it.key, value: it.item || {} }));
@@ -304,8 +303,9 @@ function renderTaxCodesOutput(b, out) {
     'Click <strong>Create</strong> to add missing codes or <strong>Create All Missing</strong> per group.' +
     '</p>';
 
+  const taxCodeTemplates = buildTaxCodeTemplates();
   TC_GROUPS.forEach(grp => {
-    const codes = TAX_CODE_TEMPLATES.filter(t => t.group === grp.key);
+    const codes = taxCodeTemplates.filter(t => t.group === grp.key);
     if (!codes.length) return;
     const missing = codes.filter(t => !tcByName[t.Name.toLowerCase().trim()]);
 
@@ -433,7 +433,8 @@ async function onCreateGroupTaxCodes(btn, b) {
     const n = (tc.value.Name || tc.value.name || '').toLowerCase().trim();
     if (n) tcByName[n] = true;
   });
-  const missing = TAX_CODE_TEMPLATES.filter(t => t.group === grpKey && !tcByName[t.Name.toLowerCase().trim()]);
+  await loadTaxRatesData();
+  const missing = buildTaxCodeTemplates().filter(t => t.group === grpKey && !tcByName[t.Name.toLowerCase().trim()]);
   if (!missing.length) return;
   btn.disabled = true; btn.textContent = 'Creating…';
   try {

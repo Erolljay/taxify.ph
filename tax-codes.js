@@ -15,7 +15,12 @@
 // installed codes (and past transactions posted against them) are
 // matched/found by this exact name, and Manager doesn't retroactively
 // change a code's rate. A genuinely new rate calls for a newly named code.
-const TAX_CODE_TEMPLATES = [
+//
+// Built lazily (not a top-level const) because it depends on
+// tax-rates-data.json, which is fetched asynchronously — callers must
+// `await loadTaxRatesData()` first (report/tab init functions already do).
+function buildTaxCodeTemplates() {
+  return [
 
   // ── GROUP 1A: VALUE ADDED TAX ─────────────────────────────
   { Name: 'Output VAT 12%',                  Label: 'Standard VATable sales',                          birRate: getVatRate() * 100, managerRate: getVatRate() * 100, group: 'VAT' },
@@ -65,7 +70,8 @@ const TAX_CODE_TEMPLATES = [
   // ── GROUP 4: FINAL WITHHOLDING TAX ───────────────────────
   { Name: 'WI250 – Royalties Individual (20%)',    Label: 'FWT – Citizens, residents, NRAETB',         birRate: 20.0, managerRate: 100, group: 'FWT' },
   { Name: 'WC250 – Royalties Corporation (20%)',   Label: 'FWT – Domestic & resident foreign corps',   birRate: 20.0, managerRate: 100, group: 'FWT' },
-];
+  ];
+}
 
 // ── EWT / CWT ATC LIST ───────────────────────────────────────
 // Used in the EWT/CWT mapping section of the Tax codes tab.

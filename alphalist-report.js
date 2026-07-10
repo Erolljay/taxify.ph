@@ -39,6 +39,7 @@ async function generateAlphalist() {
     const [byEmployee, employees] = await Promise.all([
       buildPayrollYear(biz, year),
       loadEmployeesBIR(biz),
+      loadTaxRatesData(),
     ]);
 
     const nmwe = [], mwe = [];

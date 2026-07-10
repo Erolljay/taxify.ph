@@ -202,7 +202,6 @@
         <button type="button" class="tab" data-view="business">Business</button>
         <button type="button" class="tab" data-view="coa">Chart of Accounts</button>
         <button type="button" class="tab" data-view="setup">Tax codes</button>
-        <button type="button" class="tab" data-view="tax-rates">Tax Rates</button>
         <button type="button" class="tab" data-view="batch-import-setup">Setup</button>
         <button type="button" class="tab" data-view="payslip-items">Payslip items</button>
         <button type="button" class="tab" data-view="reports">Reports</button>
@@ -220,9 +219,6 @@
           Expenses, Other Income, Other Expense) so 1701/1701Q/1702Q/1702RT classify them correctly.</li>
           <li><strong>Tax codes</strong> — create standard PH tax codes, then map VAT, EWT / CWT, FWT, and Percentage
           Tax categories — including the GL account each VAT code should post to.</li>
-          <li><strong>Tax Rates</strong> — review the VAT/Percentage Tax rate, the individual graduated income tax
-          table, and corporate/MCIT rates that returns are computed with. Add a new dated entry whenever BIR
-          introduces a rate change — past returns keep using whatever rate was in force at the time.</li>
           <li><strong>Setup</strong> — install Batch Import tools for Sales, Purchases, Payroll, Receivables, and Payables.</li>
           <li><strong>Payslip items</strong> — assign payslip items to BIR reporting categories, plus the expense /
           liability account each one posts to, so values flow into 1601C, SAWT, and 2316 correctly.</li>
@@ -230,6 +226,9 @@
         </ol>
         <p class="muted">Customer / Supplier / Employee BIR details (TIN, addresses, SSS / PhilHealth / Pag-IBIG
         numbers, etc.) are filled in directly within the relevant report screens, not here.</p>
+        <p class="muted">VAT/Percentage Tax, individual income tax brackets, and corporate/MCIT rates aren't set
+        per business — they're managed centrally by your firm admin in Txform.ph Super Admin, and every business
+        picks up a published rate change automatically.</p>
         <p class="muted">Once setup is done, go back to <strong>Data Intake</strong> in the sidebar to start preparing filings.</p>
       </div>
 
@@ -247,9 +246,6 @@
         </div>
         <div id="setupOutput"></div>
       </div>
-
-      <!-- ── TAX RATES ────────────────────────────────────────────── -->
-      <div id="tax-rates-view" hidden></div>
 
       <!-- ── BATCH IMPORT SETUP ───────────────────────────────────── -->
       <div id="batch-import-setup-view" hidden>
@@ -281,7 +277,6 @@
 <script src="reports.js"></script>
 <script src="pnl-helpers.js"></script>
 <script src="tax-codes.js"></script>
-<script src="tax-rates-admin.js"></script>
 <script src="custom-fields.js"></script>
 <script src="deduction-helpers.js"></script>
 <script src="chart-of-accounts.js"></script>
