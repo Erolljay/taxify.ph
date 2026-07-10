@@ -4,7 +4,7 @@
                 Customers, Suppliers
    ============================================================ */
 
-const BASE_URL = 'https://erolljay.github.io/tallocpa-taxapp';
+const BASE_URL = 'http://extension.txform.ph';
 
 const PACKAGES = [
   { id: 'pkg-2550q', name: '2550Q Quarterly VAT Return', file: '2550q.html', uuid: 'b2c3d4e5-f6a7-4890-b123-c4d5e6f7a8b9', phase: 1, req: 'vat' },
