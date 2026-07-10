@@ -376,7 +376,7 @@ function renderCorporatePanel(panel) {
 // ── PUBLISH ──────────────────────────────────────────────────────
 const TAX_RATES_SAVE_ENDPOINT = 'save-tax-rates.php';
 
-function renderPublishPanel(panel) {
+function renderPublishPanel(panel, justSavedMsg) {
   const unpublishedCount = Object.values(_trDraft)
     .filter(Array.isArray)
     .reduce((n, arr) => n + arr.filter(e => !trIsPublished(e.id)).length, 0);
@@ -384,6 +384,7 @@ function renderPublishPanel(panel) {
   const json = JSON.stringify(_trDraft, null, 2);
 
   panel.innerHTML = `
+    ${justSavedMsg ? `<div class="alert alert-success" style="margin-bottom:14px;">✅ ${escHtml(justSavedMsg)}</div>` : ''}
     <div class="alert ${unpublishedCount ? 'alert-warn' : 'alert-info'}" style="margin-bottom:14px;">
       ${unpublishedCount
         ? `⚠️ ${unpublishedCount} new rate${unpublishedCount === 1 ? '' : 's'} added this session, not yet live for any business.`
@@ -437,14 +438,22 @@ function renderPublishPanel(panel) {
       });
       const result = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(result.error || `Server returned ${res.status}`);
-      msg.style.color = '#27ae60';
-      msg.textContent = '✅ Saved — live for every business now.';
-      // What was "draft" is now "published" — reload from the server to
-      // refresh the Published/Not-published badges across every tab.
-      // `panel` (data-tr-panel="publish") is a direct child of the
-      // container renderTaxRatesTab was originally mounted into.
+
+      // What was "draft" is now "published" — reload the just-saved data
+      // and rebuild the draft/published bookkeeping from it, WITHOUT
+      // calling renderTaxRatesTab() (that rebuilds the whole tab bar and
+      // always resets back to the VAT sub-tab, wiping this success
+      // message before it could be read — re-render just this panel
+      // instead, so we stay put on Publish and the message sticks).
       _taxRatesLoadPromise = null;
-      await renderTaxRatesTab(panel.parentElement);
+      const published = await loadTaxRatesData();
+      _trDraft = JSON.parse(JSON.stringify(published));
+      _trPublishedIds = new Set();
+      Object.keys(_trDraft).forEach(key => {
+        if (Array.isArray(_trDraft[key])) _trDraft[key].forEach(e => e.id && _trPublishedIds.add(e.id));
+      });
+      renderPublishPanel(panel, 'Saved — live for every business now.');
+      return;
     } catch (err) {
       msg.style.color = '#c0392b';
       msg.textContent = `❌ ${err.message} — use Copy JSON below instead, or check DEPLOY-TAX-RATES-SAVE.md.`;
