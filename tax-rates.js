@@ -31,10 +31,18 @@ let _taxRatesData = null;
 let _taxRatesLoadPromise = null;
 
 // Idempotent — safe to call from every report's init function; the
-// underlying fetch only happens once per page load.
-function loadTaxRatesData() {
-  if (_taxRatesLoadPromise) return _taxRatesLoadPromise;
-  _taxRatesLoadPromise = fetch(TAX_RATES_DATA_URL)
+// underlying fetch only happens once per page load. Pass forceFresh to
+// bypass the in-memory cache too (used right after a save, so the admin
+// screen reflects what was just published instead of what was loaded
+// when the page first opened).
+//
+// cache: 'no-store' + a timestamp query param bypasses both the browser's
+// HTTP cache and any intermediate proxy cache — tax-rates-data.json is a
+// plain static file, so without this a fetch() can silently return a
+// stale copy even though the file on disk has already changed.
+function loadTaxRatesData(forceFresh) {
+  if (_taxRatesLoadPromise && !forceFresh) return _taxRatesLoadPromise;
+  _taxRatesLoadPromise = fetch(`${TAX_RATES_DATA_URL}?t=${Date.now()}`, { cache: 'no-store' })
     .then(res => {
       if (!res.ok) throw new Error(`tax-rates-data.json fetch failed (${res.status})`);
       return res.json();
