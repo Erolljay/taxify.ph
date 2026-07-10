@@ -4,7 +4,7 @@
 // `available: false` = placeholder; shows as Coming Soon in the Reports tab.
 // DO NOT change the `id` GUIDs after first install — they are the stable extension keys.
 
-const BASE_URL = 'http://extension.txform.ph';
+const BASE_URL = 'https://extension.txform.ph';
 
 const REPORTS = [
 
