@@ -8,22 +8,29 @@
 //                   actual rate for VAT/PT (Manager computes tax natively)
 //   group       — one of: 'VAT' | 'PT' | 'EWT' | 'GOVT' | 'FWT'
 
+// VAT/PT rate values below are sourced from Settings → Tax Rates (see
+// tax-rates.js) so a new rate entered there is picked up next time a
+// business installs these codes. The `Name` stays fixed even if the rate
+// changes, since it's the Manager tax code's identity — existing
+// installed codes (and past transactions posted against them) are
+// matched/found by this exact name, and Manager doesn't retroactively
+// change a code's rate. A genuinely new rate calls for a newly named code.
 const TAX_CODE_TEMPLATES = [
 
   // ── GROUP 1A: VALUE ADDED TAX ─────────────────────────────
-  { Name: 'Output VAT 12%',                  Label: 'Standard VATable sales',                          birRate: 12.0, managerRate: 12.0, group: 'VAT' },
-  { Name: 'Input VAT 12% (Capital Goods)',   Label: 'Capital expenditure purchases',                   birRate: 12.0, managerRate: 12.0, group: 'VAT' },
-  { Name: 'Input VAT 12% (Other Goods)',     Label: 'Non-capital goods purchases',                     birRate: 12.0, managerRate: 12.0, group: 'VAT' },
-  { Name: 'Input VAT 12% (Services)',        Label: 'Services purchases',                              birRate: 12.0, managerRate: 12.0, group: 'VAT' },
+  { Name: 'Output VAT 12%',                  Label: 'Standard VATable sales',                          birRate: getVatRate() * 100, managerRate: getVatRate() * 100, group: 'VAT' },
+  { Name: 'Input VAT 12% (Capital Goods)',   Label: 'Capital expenditure purchases',                   birRate: getVatRate() * 100, managerRate: getVatRate() * 100, group: 'VAT' },
+  { Name: 'Input VAT 12% (Other Goods)',     Label: 'Non-capital goods purchases',                     birRate: getVatRate() * 100, managerRate: getVatRate() * 100, group: 'VAT' },
+  { Name: 'Input VAT 12% (Services)',        Label: 'Services purchases',                              birRate: getVatRate() * 100, managerRate: getVatRate() * 100, group: 'VAT' },
   { Name: 'Zero-Rated Sales',                Label: 'Export / PEZA / zero-rated',                      birRate: 0,    managerRate: 0,    group: 'VAT' },
   { Name: 'VAT Exempt Sales',                Label: 'Sales exempt from VAT',                           birRate: 0,    managerRate: 0,    group: 'VAT' },
   { Name: 'Zero-Rated Purchases',            Label: 'Zero-rated purchase inputs',                      birRate: 0,    managerRate: 0,    group: 'VAT' },
   { Name: 'VAT Exempt Purchases',            Label: 'Exempt purchase inputs',                          birRate: 0,    managerRate: 0,    group: 'VAT' },
 
   // ── GROUP 1B: PERCENTAGE TAX ──────────────────────────────
-  { Name: 'PT010 – Percentage Tax 3%',       Label: 'PT010 – Non-VAT registered taxpayers',            birRate: 3.0,  managerRate: 3.0,  group: 'PT' },
+  { Name: 'PT010 – Percentage Tax 3%',       Label: 'PT010 – Non-VAT registered taxpayers',            birRate: getPercentageTaxRate() * 100,        managerRate: getPercentageTaxRate() * 100,        group: 'PT' },
   { Name: 'PT040 – Common Carrier 3%',       Label: 'PT040 – Domestic carriers & keepers of garages',  birRate: 3.0,  managerRate: 3.0,  group: 'PT' },
-  { Name: 'PT101 – Nonbanks Financial 5%',   Label: 'PT101 – Nonbanks financial intermediaries',       birRate: 5.0,  managerRate: 5.0,  group: 'PT' },
+  { Name: 'PT101 – Nonbanks Financial 5%',   Label: 'PT101 – Nonbanks financial intermediaries',       birRate: getPercentageTaxNonbankRate() * 100, managerRate: getPercentageTaxNonbankRate() * 100, group: 'PT' },
 
   // ── GROUP 2: EWT / CWT ON INCOME PAYMENTS ────────────────
   // Manager rate = 100 (line amount = exact withholding amount; birRate used to back-calc tax base)

@@ -43,6 +43,7 @@ const allViews = document.querySelectorAll('[id$="-view"]');
 const cfLoaded = {};
 const cfControllers = {};
 let setupTabLoaded = false;
+let taxRatesTabLoaded = false;
 let coaTabLoaded = false;
 let coaController = null;
 
@@ -52,6 +53,7 @@ function activateTab(view) {
 
   if (view === 'reports')            renderReportsTab(biz);
   if (view === 'setup' && !setupTabLoaded) { setupTabLoaded = true; loadTaxCodesTab(); }
+  if (view === 'tax-rates' && !taxRatesTabLoaded) { taxRatesTabLoaded = true; renderTaxRatesTab(document.getElementById('tax-rates-view')); }
   if (view === 'batch-import-setup') renderBatchImportSetupTab(biz);
   if (view === 'business')           lazyMountCF('business', biz);
   if (view === 'payslip-items')      lazyMountCF('payslipItems', biz);
