@@ -17,8 +17,15 @@
 
 <div data-sa-panel="install">
   <div class="business-bar">
-    <label>Business
-      <select id="business" required></select>
+    <label style="display:flex;align-items:center;gap:8px;font-weight:600;">Business
+      <div style="position:relative;width:320px;">
+        <input type="text" id="business-search" autocomplete="off" placeholder="Search businesses…"
+          style="width:100%;font-size:13px;padding:8px 10px;border:1px solid #d1d5db;border-radius:6px;box-sizing:border-box;">
+        <div id="business-dropdown"
+          style="display:none;position:absolute;top:100%;left:0;right:0;background:#fff;border:1px solid #d1d5db;
+          border-top:none;border-radius:0 0 6px 6px;max-height:240px;overflow-y:auto;z-index:20;
+          box-shadow:0 4px 10px rgba(0,0,0,.08);"></div>
+      </div>
     </label>
   </div>
 
@@ -103,7 +110,77 @@
     }
   }
 
-  loadBusinesses('business', () => renderInstallList(App.currentBusiness));
+  // ── SEARCHABLE BUSINESS PICKER ──────────────────────────────
+  // A plain <select> only jumps to the option starting with whatever key
+  // you last pressed — it can't filter "concrete" against "Global Concrete
+  // Products". This is a small combobox instead: type anything and it
+  // matches that text anywhere in the name, sorted alphabetically.
+  let _allBusinesses = [];
+
+  async function loadBusinessPicker() {
+    const searchInput = document.getElementById('business-search');
+    try {
+      const res = await apiRequest('GET', '/api4/businesses');
+      _allBusinesses = (res?.businesses || [])
+        .slice()
+        .sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' }));
+    } catch (e) {
+      searchInput.placeholder = '⚠ Could not load businesses';
+      return;
+    }
+    if (!_allBusinesses.length) { searchInput.placeholder = 'No businesses found'; return; }
+
+    App.currentBusiness = _allBusinesses[0].name;
+    searchInput.value = App.currentBusiness;
+    renderInstallList(App.currentBusiness);
+
+    searchInput.addEventListener('focus', () => renderBusinessDropdown(searchInput.value));
+    searchInput.addEventListener('input', () => renderBusinessDropdown(searchInput.value));
+    searchInput.addEventListener('keydown', e => {
+      const dropdown = document.getElementById('business-dropdown');
+      if (e.key === 'Escape') { dropdown.style.display = 'none'; searchInput.blur(); }
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        const first = dropdown.querySelector('.business-option');
+        if (first) selectBusiness(first.dataset.name);
+      }
+    });
+    // mousedown (not click) fires before the input's blur, so the option
+    // is still in the DOM when the handler runs
+    document.getElementById('business-dropdown').addEventListener('mousedown', e => {
+      const opt = e.target.closest('.business-option');
+      if (!opt) return;
+      e.preventDefault();
+      selectBusiness(opt.dataset.name);
+    });
+    searchInput.addEventListener('blur', () => {
+      setTimeout(() => { document.getElementById('business-dropdown').style.display = 'none'; }, 150);
+    });
+  }
+
+  function renderBusinessDropdown(query) {
+    const dropdown = document.getElementById('business-dropdown');
+    const q = (query || '').toLowerCase().trim();
+    const matches = q ? _allBusinesses.filter(b => (b.name || '').toLowerCase().includes(q)) : _allBusinesses;
+    dropdown.innerHTML = matches.length
+      ? matches.map(b => `<div class="business-option" data-name="${escHtml(b.name)}"
+          style="padding:8px 10px;font-size:12.5px;cursor:pointer;">${escHtml(b.name)}</div>`).join('')
+      : '<div style="padding:8px 10px;font-size:12px;color:#9ca3af;">No matches</div>';
+    dropdown.querySelectorAll('.business-option').forEach(opt => {
+      opt.addEventListener('mouseenter', () => { opt.style.background = '#f3f4f6'; });
+      opt.addEventListener('mouseleave', () => { opt.style.background = ''; });
+    });
+    dropdown.style.display = 'block';
+  }
+
+  function selectBusiness(name) {
+    document.getElementById('business-search').value = name;
+    document.getElementById('business-dropdown').style.display = 'none';
+    App.currentBusiness = name;
+    renderInstallList(name);
+  }
+
+  loadBusinessPicker();
 
   // ── SUPER ADMIN TABS ────────────────────────────────────────
   let _taxRatesTabLoaded = false;
