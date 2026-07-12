@@ -1,0 +1,19 @@
+# ============================================================
+# Txform.ph — systemd timer for the provisioner (Phase 1.4)
+#
+# Runs the oneshot provisioner every 2 minutes so access changes made in
+# the portal reconcile to Manager quickly. Adjust OnUnitActiveSec to
+# trade latency against load. Enable with:
+#   sudo systemctl enable --now txform-provisioner.timer
+# ============================================================
+[Unit]
+Description=Run the Txform.ph provisioner periodically
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=2min
+AccuracySec=15s
+Unit=txform-provisioner.service
+
+[Install]
+WantedBy=timers.target

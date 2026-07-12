@@ -1,0 +1,9 @@
+{
+  "name": "txform-ph",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Txform.ph — Philippine BIR Manager.io extension and SaaS backend",
+  "scripts": {
+    "test": "node --test test/*.test.js"
+  }
+}

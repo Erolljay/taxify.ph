@@ -46,6 +46,8 @@
 <script>const REPORT_ID = "a1b2c3d4-0005-4000-8000-000000000001";</script>
 <script src="shared.js"></script>
 <script src="tax-rates.js"></script>
+<script src="entitlement-core.js"></script>
+<script src="entitlement.js"></script>
 <script src="custom-fields.js"></script>
 <script src="payroll-helpers.js"></script>
 <script src="1601c-report.js"></script>
@@ -53,6 +55,7 @@
   document.addEventListener('DOMContentLoaded', async () => {
     const biz = await init1601CReport();
     if (biz) {
+      // Entitlement gate now runs centrally in getReportBusiness() (shared.js).
       try { initEmployeeTaxStatusTab(biz); } catch (e) { console.warn(e); }
     }
     document.getElementById('c1601-tabs').addEventListener('click', e => {

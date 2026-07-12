@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Txform · Account</title>
+  <style>
+    :root {
+      --ink:#10253f; --ink2:#44566c; --muted:#75859a; --line:#dde5e1;
+      --card:#fff; --page:#f5f8f6; --accent:#0e8f66; --accent-deep:#0a6b4d;
+      --accent-wash:#e2f2ea; --navy:#0b2447; --warn-bg:#fffbeb; --warn-fg:#92400e;
+      --err-bg:#fef2f2; --err-fg:#991b1b; --radius:10px;
+      --shadow:0 1px 3px rgba(16,37,63,.08);
+    }
+    * { box-sizing:border-box; }
+    body { margin:0; background:var(--page); color:var(--ink);
+      font:15px/1.55 system-ui,-apple-system,"Segoe UI",sans-serif; -webkit-font-smoothing:antialiased; }
+    a { color:var(--accent-deep); }
+    .wrap { max-width:920px; margin:0 auto; padding:0 20px; }
+
+    header.bar { background:var(--navy); color:#fff; padding:16px 0; }
+    header.bar .wrap { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; }
+    header.bar .brand { font-weight:800; letter-spacing:-.01em; font-size:18px; }
+    header.bar .who { font-size:13px; color:#b9c8dc; display:flex; align-items:center; gap:10px; }
+
+    .badge { display:inline-block; font-size:11px; font-weight:700; letter-spacing:.04em; text-transform:uppercase;
+      padding:2px 9px; border-radius:99px; }
+    .badge.active { background:var(--accent-wash); color:var(--accent-deep); }
+    .badge.grace, .badge.suspended { background:var(--warn-bg); color:var(--warn-fg); }
+    .badge.cancelled { background:var(--err-bg); color:var(--err-fg); }
+
+    main { padding:28px 0 60px; }
+    h1 { font-size:24px; letter-spacing:-.02em; margin:0 0 4px; }
+    .sub { color:var(--muted); font-size:13.5px; margin:0 0 24px; }
+
+    .card { background:var(--card); border:1px solid var(--line); border-radius:var(--radius);
+      box-shadow:var(--shadow); padding:20px 22px; margin-bottom:20px; }
+    .card h2 { font-size:16px; margin:0; display:flex; align-items:baseline; justify-content:space-between; gap:10px; }
+    .card h2 .use { font-size:12px; font-weight:600; color:var(--muted); font-family:ui-monospace,Menlo,monospace; }
+    .card h2 .use.full { color:var(--warn-fg); }
+
+    ul.rows { list-style:none; margin:14px 0 0; padding:0; }
+    ul.rows li { display:flex; align-items:center; gap:10px; padding:9px 0; border-top:1px solid var(--line); font-size:14px; }
+    ul.rows li:first-child { border-top:none; }
+    ul.rows .role { font-size:11px; color:var(--muted); font-family:ui-monospace,Menlo,monospace; }
+    .empty { color:var(--muted); font-size:13.5px; padding:12px 0 2px; }
+
+    form.inline { display:flex; gap:8px; margin-top:16px; flex-wrap:wrap; }
+    input[type=text], input[type=email] { flex:1 1 160px; min-width:0; font:inherit; font-size:14px;
+      padding:8px 11px; border:1px solid var(--line); border-radius:8px; background:#fff; color:var(--ink); }
+    input:focus { outline:2px solid var(--accent); outline-offset:0; border-color:var(--accent); }
+    button { font:inherit; font-size:14px; font-weight:600; padding:8px 16px; border:none; border-radius:8px;
+      background:var(--accent); color:#fff; cursor:pointer; }
+    button:hover { background:var(--accent-deep); }
+    button.ghost { background:transparent; color:var(--accent-deep); border:1px solid var(--line); }
+    button.ghost:hover { background:var(--accent-wash); }
+
+    table.matrix { border-collapse:collapse; width:100%; margin-top:14px; font-size:13.5px; }
+    table.matrix th, table.matrix td { padding:9px 10px; border-bottom:1px solid var(--line); text-align:center; }
+    table.matrix th.staff, table.matrix td.staff { text-align:left; white-space:nowrap; }
+    table.matrix thead th { font-size:11px; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); font-weight:600; }
+    table.matrix input[type=checkbox] { width:17px; height:17px; accent-color:var(--accent); cursor:pointer; }
+    .scroll { overflow-x:auto; }
+
+    .alert { border-radius:8px; padding:10px 13px; font-size:13.5px; margin-top:12px; }
+    .alert.ok { background:var(--accent-wash); color:var(--accent-deep); }
+    .alert.warn { background:var(--warn-bg); color:var(--warn-fg); }
+    .alert.err { background:var(--err-bg); color:var(--err-fg); }
+
+    /* sign-in */
+    #signin-view { max-width:420px; margin:8vh auto 0; }
+    #signin-view .card { padding:28px 26px; }
+    #signin-view h1 { margin-bottom:6px; }
+  </style>
+</head>
+<body>
+
+<header class="bar">
+  <div class="wrap">
+    <div class="brand">Txform</div>
+    <div class="who" id="who" hidden></div>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <!-- ── SIGN IN ─────────────────────────────────────────── -->
+  <section id="signin-view" hidden>
+    <div class="card">
+      <h1>Sign in</h1>
+      <p class="sub">Enter your email and we'll send you a one-time sign-in link. No password needed.</p>
+      <form class="inline" id="signin-form">
+        <input type="email" id="signin-email" placeholder="you@firm.com" required autocomplete="email">
+        <button type="submit">Send link</button>
+      </form>
+      <div id="signin-msg"></div>
+    </div>
+  </section>
+
+  <!-- ── DASHBOARD ───────────────────────────────────────── -->
+  <section id="dashboard-view" hidden>
+    <h1>Your firm</h1>
+    <p class="sub">Manage staff, client businesses, and who can open which books.</p>
+    <div id="dash-msg"></div>
+
+    <div class="card">
+      <h2>Client businesses <span class="use" id="biz-use"></span></h2>
+      <ul class="rows" id="biz-list"></ul>
+      <form class="inline" id="biz-form">
+        <input type="text" id="biz-name" placeholder="Business name" required>
+        <input type="text" id="biz-guid" placeholder="Manager business GUID" required>
+        <button type="submit">Add business</button>
+      </form>
+    </div>
+
+    <div class="card">
+      <h2>Staff <span class="use" id="seat-use"></span></h2>
+      <ul class="rows" id="staff-list"></ul>
+      <form class="inline" id="staff-form">
+        <input type="email" id="staff-email" placeholder="staff@firm.com" required autocomplete="off">
+        <button type="submit">Invite staff</button>
+      </form>
+    </div>
+
+    <div class="card">
+      <h2>Access — who can open which business</h2>
+      <div class="scroll"><div id="matrix"></div></div>
+    </div>
+  </section>
+
+</main>
+
+<script src="account.js"></script>
+</body>
+</html>

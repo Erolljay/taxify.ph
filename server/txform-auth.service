@@ -1,0 +1,39 @@
+# ============================================================
+# Txform.ph — systemd unit for the Node auth service (Phase 1.3)
+#
+# Install:
+#   sudo cp server/txform-auth.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now txform-auth
+#
+# Reads/writes the SAME SQLite file the PHP entitlement endpoint reads,
+# so point TXFORM_DB at /var/www/taxify/server/txform.db. Email + base
+# URL are set here (SMTP creds via an EnvironmentFile, never in git).
+# ============================================================
+[Unit]
+Description=Txform.ph auth + tenancy service
+After=network.target
+
+[Service]
+Type=simple
+User=www-data
+WorkingDirectory=/var/www/taxify/server
+Environment=PORT=5100
+Environment=TXFORM_DB=/var/www/taxify/server/txform.db
+Environment=TXFORM_BASE_URL=https://txform.ph
+# Shared parent domain so the session cookie reaches extension.txform.ph
+# (where entitlement.php reads it), not just the portal host.
+Environment=TXFORM_COOKIE_DOMAIN=.txform.ph
+# SMTP / mailer secrets live here, root-owned 600 — NOT in the repo:
+#   EnvironmentFile=/etc/txform/auth.env
+ExecStart=/usr/bin/node /var/www/taxify/server/auth-service.js
+Restart=on-failure
+RestartSec=3
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/var/www/taxify/server
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
