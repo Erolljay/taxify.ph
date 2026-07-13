@@ -11,7 +11,7 @@ _Last updated: 2026-07-13_
 | Phase | Status | Notes |
 |-------|--------|-------|
 | **0 — Foundation hardening** | ✅ Largely done | Pull-based auto-deploy (`scripts/deploy.sh` via 2-min root cron), nginx web-root hardening, LF normalization. Hosting-license confirmed, Manager Server bought. **Backups live (2026-07-13):** AWS Backup EC2 snapshots + S3 Manager.io data backups, both 2 AM Manila, 7/56/400-day retention. Still open: UFW, fail2ban, UptimeRobot, `save-tax-rates.php` security pass. |
-| **1 — Tenancy / entitlement / provisioning** | 🟡 Substantially built | `server/auth-*.js`, `smtp-mailer.js`, `entitlement.php`, `provisioner.js` + Playwright driver, `schema.sql`, systemd units. **87 passing tests.** Email sender **wired in code** (zero-dep SMTP); remaining is dropping `/etc/txform/auth.env` on the server. Open: live Playwright selectors. |
+| **1 — Tenancy / entitlement / provisioning** | 🟡 Substantially built | `server/auth-*.js`, `smtp-mailer.js`, `entitlement.php`, `provisioner.js` + Playwright driver, `schema.sql`, systemd units. **87 passing tests.** **Email sender LIVE** — `txform-auth` service running on the server, real magic-link email delivered via Google Workspace. Open: `From` send-as alias, nginx `/api/auth` route, live Playwright selectors. |
 | **2 — Website rebuild & SEO** | 🟡 Started | `website/index.html` is real static HTML (no longer the old JS bundle); multi-page/SEO build still pending. |
 | **3 — Payments (PayMongo)** | 🔴 Not started | No PayMongo/webhook code yet. |
 | **4 — ToS / Data Privacy (RA 10173)** | 🔴 Not started | No terms/privacy pages. |
@@ -27,6 +27,27 @@ The BIR forms engine (26 form pages + report generators) is mature and fully wir
   workflow engine that replaced the old monolithic setup screen).
 
 ## Changelog
+
+### 2026-07-13 — Magic-link email sender LIVE on the server (Phase 1)
+Brought the `txform-auth` service up on `txform-server` for the first time and confirmed a real
+sign-in email delivered end-to-end:
+- **Node 24 installed system-wide** (NodeSource → `/usr/bin/node`); the box only had nvm-Node in
+  `/home/ubuntu`, which the `www-data` service can't reach (`ProtectHome=true`) — hence a fresh
+  `203/EXEC` "node not found" until the system install.
+- **systemd unit installed** (`/etc/systemd/system/txform-auth.service`), `enable --now` → `active`.
+- **DB permissions:** `chgrp www-data` + `chmod 775` on `/var/www/taxify/server` so the `www-data`
+  service (and `entitlement.php`, same user) can create/write `txform.db` there; `root` stays owner
+  so the git-pull deploy is unaffected.
+- **`/etc/txform/auth.env`** holds the Gmail SMTP creds (auth as `ejtallo@txform.ph`, App Password).
+- Seeded a test user, POSTed `/api/auth/request-link`, no `[mailer]` error → **email received.**
+
+Then closed out the click-through path: confirmed `From: hello@txform.ph` (Gmail send-as alias
+already verified), and wired nginx → service using the repo's canonical `nginx-auth-snippet.conf`
+(includes into the apex `txform.ph` 443 block; scopes `/api/auth/` + `/api/tenancy/`; rate-limits
+`request-link` via a `limit_req_zone authlink` in `/etc/nginx/conf.d/txform-ratelimit.conf`).
+Verified `/api/auth/verify` → 400 and `request-link` x8 → `200×6, 503×2` (throttle live). **Needed a
+full `systemctl restart nginx`, not `reload`.** Full first-time recipe now in
+[`instruction.md`](instruction.md) → "Auth service — first-time bring-up".
 
 ### 2026-07-13 — Magic-link email sender wired (Phase 1)
 `hello@txform.ph` mailbox exists + SMTP creds ready, so the sender is now built and wired

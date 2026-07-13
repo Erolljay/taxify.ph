@@ -27,12 +27,21 @@ _Last updated: 2026-07-13_
 
 ## Later phases (from the plan)
 - [ ] **Phase 1** — tenancy/entitlement (75 tests passing; gate with `/security-review`):
-  - [~] **Email sender** — code **DONE** (2026-07-13): zero-dep SMTP client `server/smtp-mailer.js`
-        wired into `deps.sendEmail` (`server/auth-service.js`), 12 new tests (87 total passing).
-        **Remaining (server-side, one-time):** create `/etc/txform/auth.env` with the
-        `hello@txform.ph` SMTP creds and `sudo systemctl restart txform-auth` — steps in
-        [`instruction.md`](instruction.md#email--magic-link-sign-in). Until then the service logs the
-        link instead of sending (safe fallback). Gate with `/security-review` after deploy.
+  - [x] **Email sender** — **LIVE & verified 2026-07-13.** Zero-dep SMTP client
+        `server/smtp-mailer.js` wired into `deps.sendEmail`; 12 new tests (87 total). PR #15 merged.
+        `txform-auth` systemd service installed & running on the server (Node 24 installed
+        system-wide at `/usr/bin/node`; `/etc/txform/auth.env` holds Gmail creds; server dir made
+        `www-data`-group-writable for `txform.db`). Confirmed: a real magic-link email delivered via
+        Google Workspace (`ejtallo@txform.ph` auth). Setup runbook: [`instruction.md`](instruction.md#email--magic-link-sign-in).
+  - [x] **`From` = hello@txform.ph** — confirmed 2026-07-13: delivered email shows `hello@`, so the
+        Gmail send-as alias on `ejtallo@txform.ph` is verified and working.
+  - [x] **nginx route** — LIVE 2026-07-13. Apex `txform.ph` 443 block includes the repo's canonical
+        `nginx-auth-snippet.conf` (scopes `/api/auth/` + `/api/tenancy/` → `127.0.0.1:5100`,
+        rate-limits `request-link` via `limit_req_zone authlink` added to
+        `/etc/nginx/conf.d/txform-ratelimit.conf`). Verified: `/api/auth/verify` → 400 (reaches
+        service), and `request-link` x8 → `200×6, 503×2` (throttle working). Ad-hoc
+        `nginx-api-proxy.conf` removed. Note: needed a full `systemctl restart nginx`, not `reload`.
+  - [ ] **`/security-review`** pass on the auth + mailer path now that it's live.
   - [ ] **Live Playwright selectors** — need the live books.txform.ph admin UI.
 - [ ] **Phase 2** — website multi-page/SEO rebuild (static HTML started).
 - [ ] **Phase 3** — PayMongo payments (not started; security gate).
