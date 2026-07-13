@@ -1,0 +1,47 @@
+name: Deploy to production
+
+# Push-to-deploy for extension.txform.ph.
+# On every push to main (or a manual run), SSH into the server and pull.
+# The runner uses only the OpenSSH client already present on ubuntu-latest —
+# no third-party actions, so there is no supply-chain surface here.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Never run two deploys at once; let an in-flight deploy finish rather than
+# cancelling it mid-pull.
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Deploy over SSH
+        env:
+          SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          SSH_HOST: ${{ secrets.DEPLOY_HOST }}
+          SSH_USER: ${{ secrets.DEPLOY_USER }}
+          SSH_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_KEY"         || { echo "::error::DEPLOY_SSH_KEY secret is missing"; exit 1; }
+          test -n "$SSH_HOST"        || { echo "::error::DEPLOY_HOST secret is missing"; exit 1; }
+          test -n "$SSH_USER"        || { echo "::error::DEPLOY_USER secret is missing"; exit 1; }
+          test -n "$SSH_KNOWN_HOSTS" || { echo "::error::DEPLOY_KNOWN_HOSTS secret is missing"; exit 1; }
+
+          mkdir -p ~/.ssh
+          printf '%s\n' "$SSH_KEY"         > ~/.ssh/deploy_key
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/deploy_key ~/.ssh/known_hosts
+
+          ssh -i ~/.ssh/deploy_key \
+              -o IdentitiesOnly=yes \
+              -o UserKnownHostsFile=~/.ssh/known_hosts \
+              -o StrictHostKeyChecking=yes \
+              "$SSH_USER@$SSH_HOST" \
+              'sudo /var/www/taxify/scripts/deploy.sh'
