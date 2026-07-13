@@ -58,8 +58,10 @@ _Last updated: 2026-07-13_
         existing magic-link sign-in + firm dashboard) moved into `website/` so it's served
         same-origin at `txform.ph/account.html` (needed for its session cookie + `/api/` calls);
         the duplicate `portal.html` was deleted. All "Sign in" links → `/account.html`.
-  - [ ] Fill bracketed placeholders in `terms.html`, `privacy.html`, `about.html` (firm name,
-        address, DPO, governing-law city) + **counsel review** of the legal pages.
+  - [x] Fill legal placeholders (2026-07-14): firm **TalloCPA**, **Iloilo City** (base +
+        governing-law), DPO **Erol Jay Tallo, CPA** (`privacy@txform.ph`); all footers/contact
+        moved Manila → Iloilo City. Still open: **counsel review** of the legal pages, and confirm
+        whether the firm must **register its DPO with the NPC**.
   - [ ] (Optional) Self-host the web fonts instead of Google Fonts, per ECC web perf/privacy rules.
   - [ ] Deploy: commit to `main` → 2-min cron pull, confirm `nginx` serves the new `website/` root
         (incl. `account.html`), and the apex `/api/auth/*` proxy is live for sign-in.
