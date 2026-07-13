@@ -11,7 +11,7 @@ _Last updated: 2026-07-13_
 | Phase | Status | Notes |
 |-------|--------|-------|
 | **0 — Foundation hardening** | ✅ Largely done | Pull-based auto-deploy (`scripts/deploy.sh` via 2-min root cron), nginx web-root hardening, LF normalization. Hosting-license confirmed, Manager Server bought. **Backups live (2026-07-13):** AWS Backup EC2 snapshots + S3 Manager.io data backups, both 2 AM Manila, 7/56/400-day retention. Still open: UFW, fail2ban, UptimeRobot, `save-tax-rates.php` security pass. |
-| **1 — Tenancy / entitlement / provisioning** | 🟡 Substantially built | `server/auth-*.js`, `smtp-mailer.js`, `entitlement.php`, `provisioner.js` + Playwright driver, `schema.sql`, systemd units. **87 passing tests.** **Email sender LIVE** — `txform-auth` service running on the server, real magic-link email delivered via Google Workspace. Open: `From` send-as alias, nginx `/api/auth` route, live Playwright selectors. |
+| **1 — Tenancy / entitlement / provisioning** | 🟡 Substantially built | `server/auth-*.js`, `smtp-mailer.js`, `entitlement.php`, `provisioner.js` + Playwright driver, `schema.sql`, systemd units. **95 passing tests.** **Email sender LIVE** — `txform-auth` service running, real magic-link email delivered via Google Workspace. **Magic-link now lands on the portal** — `verifyLink` 302-redirects a browser to `txform.ph/account` (cookie attached) instead of downloading `verify.json`; portal + `/api/*` share the apex origin. Open: live Playwright selectors. |
 | **2 — Website rebuild & SEO** | 🟡 Started | `website/index.html` is real static HTML (no longer the old JS bundle); multi-page/SEO build still pending. |
 | **3 — Payments (PayMongo)** | 🔴 Not started | No PayMongo/webhook code yet. |
 | **4 — ToS / Data Privacy (RA 10173)** | 🔴 Not started | No terms/privacy pages. |
@@ -27,6 +27,25 @@ The BIR forms engine (26 form pages + report generators) is mature and fully wir
   workflow engine that replaced the old monolithic setup screen).
 
 ## Changelog
+
+### 2026-07-13 — Magic-link sign-in lands on the portal (Phase 1)
+Wired the emailed link so clicking it lands the firm owner on the owner portal instead of
+downloading `verify.json`:
+- **`verifyLink` redirect** — a browser (`Accept: text/html`) is now 302-redirected: on success to
+  `TXFORM_PORTAL_URL` (`https://txform.ph/account`) with the `txfsid` cookie riding the redirect; on a
+  bad/expired/used link to `…/account?error=link_invalid|link_expired|link_used`. API clients
+  (`Accept: application/json` or none) keep the exact JSON contract. The thin `send()` glue gained a
+  `Location`-header branch. TDD: +8 tests (**95 total, green**).
+- **Same-origin portal** — chose apex option (a): `account.html`/`account.js` served at
+  `https://txform.ph/account` via new `nginx-portal-snippet.conf`, so the portal shares the origin with
+  the `/api/*` proxy already on the apex (its cookie'd `/api/auth/me` + `/api/tenancy/*` calls resolve).
+  `account.js` reads `?error=` and shows a friendly sign-in warning. `TXFORM_PORTAL_URL` added to the
+  systemd unit (defaults to `<base>/account`).
+- **`/security-review`** — clean: no user input reaches the `Location` header or the DOM (redirect target
+  is trusted env + fixed literal codes; `?error=` is compared, never rendered).
+- **Server steps (one-time):** `sudo systemctl daemon-reload && sudo systemctl restart txform-auth`;
+  add `include …/nginx-portal-snippet.conf;` to the apex 443 block, then `sudo nginx -t && sudo systemctl
+  restart nginx`. Full recipe in [`instruction.md`](instruction.md).
 
 ### 2026-07-13 — Security review passed + tracking/artifact synced
 `/security-review` on the auth + mailer path returned **no HIGH/MEDIUM findings** (CRLF

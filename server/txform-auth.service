@@ -20,6 +20,10 @@ WorkingDirectory=/var/www/taxify/server
 Environment=PORT=5100
 Environment=TXFORM_DB=/var/www/taxify/server/txform.db
 Environment=TXFORM_BASE_URL=https://txform.ph
+# Where a clicked magic link lands (must share the apex origin with the
+# /api/* proxy so the portal's cookie'd API calls work). Defaults to
+# <TXFORM_BASE_URL>/account if unset; set explicitly here for clarity.
+Environment=TXFORM_PORTAL_URL=https://txform.ph/account
 # Shared parent domain so the session cookie reaches extension.txform.ph
 # (where entitlement.php reads it), not just the portal host.
 Environment=TXFORM_COOKIE_DOMAIN=.txform.ph
