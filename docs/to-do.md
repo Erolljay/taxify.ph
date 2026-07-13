@@ -49,17 +49,20 @@ _Last updated: 2026-07-13_
       JS bundle → static multi-page site (`website/`): home + features/security/about/contact/faq/
       terms/privacy, `assets/css/site.css` design system, real favicons, `robots.txt`/`sitemap.xml`,
       per-page meta + JSON-LD. Old bundle kept as `index.legacy.html`. Follow-ups before deploy:
+  - [x] **Pivoted from waitlist → full product (2026-07-14).** Dropped the "Get early access"
+        framing entirely: removed the email-capture section + the `/api/early-access` endpoint
+        (handler/table/tests/nginx all reverted, back to 87 tests), and the fabricated testimonials.
+        CTAs are now **"Get started"** → `/contact.html` (manual onboarding — self-serve billing
+        waits on Phase 3) and **"Sign in"** → `/account.html`.
+  - [x] Sign-in consolidated onto the **real account page**. `account.html`/`account.js` (the
+        existing magic-link sign-in + firm dashboard) moved into `website/` so it's served
+        same-origin at `txform.ph/account.html` (needed for its session cookie + `/api/` calls);
+        the duplicate `portal.html` was deleted. All "Sign in" links → `/account.html`.
   - [ ] Fill bracketed placeholders in `terms.html`, `privacy.html`, `about.html` (firm name,
         address, DPO, governing-law city) + **counsel review** of the legal pages.
-  - [x] Build the `/portal` sign-in page. **DONE** — `website/portal.html`, passwordless
-        magic-link form → live `POST /api/auth/request-link`; all "Sign in" links → `/portal.html`.
-  - [x] Wire an `/api/early-access` handler. **DONE** — `earlyAccess()` in `auth-service.js`
-        (`POST /api/early-access`, idempotent), `early_access` table, nginx route, +3 tests (90 total).
-        **Needs one manual server step: add the new `/api/early-access` block from
-        `nginx-auth-snippet.conf` and `systemctl restart nginx`** — else the form uses its
-        `mailto:` fallback.
   - [ ] (Optional) Self-host the web fonts instead of Google Fonts, per ECC web perf/privacy rules.
-  - [ ] Deploy: commit to `main` → 2-min cron pull, confirm `nginx` serves the new `website/` root.
+  - [ ] Deploy: commit to `main` → 2-min cron pull, confirm `nginx` serves the new `website/` root
+        (incl. `account.html`), and the apex `/api/auth/*` proxy is live for sign-in.
 - [ ] **Phase 3** — PayMongo payments (not started; security gate).
 - [ ] **Phase 4** — ToS / RA 10173 data-privacy pages (not started).
 - [ ] **Phase 5** — beta / launch.

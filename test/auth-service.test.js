@@ -78,32 +78,6 @@ test('request-link: email is case-insensitive', () => {
   assert.equal(deps.state.sent.length, 1);
 });
 
-test('early-access: valid email is stored and returns a generic ok', () => {
-  const db = freshDb(), deps = makeDeps();
-  const r = S.earlyAccess(db, { email: 'lead@firm.ph' }, deps);
-  assert.equal(r.status, 200);
-  assert.equal(r.json.ok, true);
-  const row = db.prepare('SELECT email, created_at FROM early_access WHERE email = ?').get('lead@firm.ph');
-  assert.equal(row.email, 'lead@firm.ph');
-  assert.equal(row.created_at, deps.state.now);
-});
-
-test('early-access: is idempotent per email (double submit = one row)', () => {
-  const db = freshDb(), deps = makeDeps();
-  assert.equal(S.earlyAccess(db, { email: 'Lead@Firm.PH' }, deps).status, 200);
-  assert.equal(S.earlyAccess(db, { email: 'lead@firm.ph' }, deps).status, 200);
-  const n = db.prepare('SELECT COUNT(*) AS n FROM early_access WHERE email = ?').get('lead@firm.ph').n;
-  assert.equal(n, 1, 'case-normalized email stored once');
-});
-
-test('early-access: junk or missing email is rejected with 400', () => {
-  const db = freshDb(), deps = makeDeps();
-  assert.equal(S.earlyAccess(db, { email: 'not-an-email' }, deps).status, 400);
-  assert.equal(S.earlyAccess(db, { email: '' }, deps).status, 400);
-  assert.equal(S.earlyAccess(db, {}, deps).status, 400);
-  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM early_access').get().n, 0);
-});
-
 test('full flow: sign in, then /me reflects the owner', () => {
   const db = freshDb(), deps = makeDeps();
   const cookie = signIn(db, deps, 'owner@x.com');

@@ -108,13 +108,3 @@ CREATE TABLE IF NOT EXISTS session (
   last_seen     INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_session_user ON session(user_id);
-
--- ── Phase 2: marketing early-access list ─────────────────────────
--- Emails captured by the public website's "Get early access" form. The
--- one unauthenticated write endpoint; idempotent per email (UNIQUE).
-CREATE TABLE IF NOT EXISTS early_access (
-  id          INTEGER PRIMARY KEY,
-  email       TEXT    NOT NULL UNIQUE,
-  created_at  INTEGER NOT NULL,
-  request_ip  TEXT
-);

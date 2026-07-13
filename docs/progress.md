@@ -12,7 +12,7 @@ _Last updated: 2026-07-13_
 |-------|--------|-------|
 | **0 — Foundation hardening** | ✅ Largely done | Pull-based auto-deploy (`scripts/deploy.sh` via 2-min root cron), nginx web-root hardening, LF normalization. Hosting-license confirmed, Manager Server bought. **Backups live (2026-07-13):** AWS Backup EC2 snapshots + S3 Manager.io data backups, both 2 AM Manila, 7/56/400-day retention. Still open: UFW, fail2ban, UptimeRobot, `save-tax-rates.php` security pass. |
 | **1 — Tenancy / entitlement / provisioning** | 🟡 Substantially built | `server/auth-*.js`, `smtp-mailer.js`, `entitlement.php`, `provisioner.js` + Playwright driver, `schema.sql`, systemd units. **87 passing tests.** **Email sender LIVE** — `txform-auth` service running on the server, real magic-link email delivered via Google Workspace. Open: `From` send-as alias, nginx `/api/auth` route, live Playwright selectors. |
-| **2 — Website rebuild & SEO** | 🟢 Built (undeployed) | Full static multi-page site under `website/`: home + features/security/about/contact/faq/terms/privacy, shared `assets/css/site.css` design system + `assets/js/site.js`, real favicons (`.ico`/`.svg`/apple-touch), `robots.txt` + `sitemap.xml` + per-page meta & JSON-LD. Old JS bundle preserved as `index.legacy.html`. Open: fill legal/about placeholders, `/portal` sign-in page, `/api/early-access` handler, self-host fonts, then deploy. |
+| **2 — Website rebuild & SEO** | 🟢 Built (undeployed) | Full static multi-page site under `website/`: home + features/security/about/contact/faq/terms/privacy, shared `assets/css/site.css` + `assets/js/site.js`, real favicons, `robots.txt` + `sitemap.xml` + per-page meta & JSON-LD. **Positioned as a live product, not a waitlist** — early-access capture dropped; CTAs are "Get started" → contact onboarding and "Sign in" → the real `account.html` (moved into `website/`, same-origin with `/api/auth`). Old JS bundle preserved as `index.legacy.html`. Open: fill legal/about placeholders, self-host fonts, then deploy. |
 | **3 — Payments (PayMongo)** | 🔴 Not started | No PayMongo/webhook code yet. |
 | **4 — ToS / Data Privacy (RA 10173)** | 🟡 Draft pages | `website/terms.html` + `website/privacy.html` drafted (RA 10173-aligned, NPC/DPO sections) with bracketed firm placeholders; needs real firm details + counsel review before launch. |
 | **5 — Beta / launch** | 🔴 Not started | — |
@@ -27,6 +27,19 @@ The BIR forms engine (26 form pages + report generators) is mature and fully wir
   workflow engine that replaced the old monolithic setup screen).
 
 ## Changelog
+
+### 2026-07-14 — Website pivoted from waitlist to full product (Phase 2)
+Dropped the "early access" positioning; the site now presents Txform as a live product:
+- **Early-access removed:** deleted the homepage email-capture section and reverted the
+  `/api/early-access` backend (handler, `early_access` table, 3 tests, nginx route) — suite back
+  to **87 passing**. Also removed the fabricated testimonials block (dishonest on a live site).
+- **CTAs are real:** primary **"Get started"** → `/contact.html` (manual onboarding, since
+  self-serve billing is Phase 3), secondary **"Sign in"** → `/account.html`.
+- **Sign-in consolidated:** the throwaway `portal.html` was deleted in favour of the existing
+  `account.html` + `account.js` (magic-link sign-in view **and** firm dashboard), which were
+  moved into `website/` so they're served same-origin at `txform.ph/account.html` — required for
+  the httpOnly session cookie and the relative `/api/auth` + `/api/tenancy` fetches. `account.html`
+  marked `noindex`. Dead CSS/JS from the removed forms was pruned.
 
 ### 2026-07-13 — Website rebuilt as static multi-page site (Phase 2)
 Replaced the 564 KB self-unpacking JS bundle at `website/index.html` with a real, crawlable
