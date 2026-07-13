@@ -60,6 +60,47 @@ Downloadable `.tar.gz` of just the businesses. Runs on the server.
 
 ---
 
+## Auth service (`txform-auth`) — first-time bring-up
+
+The passwordless portal auth/tenancy service is a Node process on
+`127.0.0.1:5100` (`server/auth-service.js`, unit `server/txform-auth.service`),
+sharing the SQLite DB `/var/www/taxify/server/txform.db` with `entitlement.php`.
+Both run as **`www-data`**. Recipe to stand it up on a fresh box (done 2026-07-13):
+
+1. **System-wide Node** (the service can't use nvm-Node in `/home`):
+   ```bash
+   curl -fsSL https://deb.nodesource.com/setup_24.x | sudo -E bash -
+   sudo apt-get install -y nodejs   # → /usr/bin/node
+   ```
+2. **DB folder writable by `www-data`** (deploy pulls as root, so root keeps
+   ownership; `www-data` writes `txform.db` via group):
+   ```bash
+   sudo chgrp www-data /var/www/taxify/server && sudo chmod 775 /var/www/taxify/server
+   ```
+3. **Install + enable the unit:**
+   ```bash
+   sudo cp /var/www/taxify/server/txform-auth.service /etc/systemd/system/
+   sudo systemctl daemon-reload && sudo systemctl enable --now txform-auth
+   sudo systemctl status txform-auth --no-pager   # want: active (running), "[auth] listening on 5100"
+   ```
+4. **nginx → service routing.** In the `txform.ph` (apex) 443 `server { }` block of
+   `/etc/nginx/sites-available/managerserver`, add:
+   `include /var/www/taxify/nginx-auth-snippet.conf;` (proxies `/api/auth/` +
+   `/api/tenancy/` to `:5100`, throttles `request-link`). That snippet needs a
+   rate-limit zone in `http{}`:
+   ```bash
+   echo 'limit_req_zone $binary_remote_addr zone=authlink:10m rate=1r/s;' \
+     | sudo tee /etc/nginx/conf.d/txform-ratelimit.conf >/dev/null
+   sudo nginx -t && sudo systemctl restart nginx    # RESTART — a reload may not apply new locations
+   ```
+   Smoke test: `curl -s -o /dev/null -w "%{http_code}\n" https://txform.ph/api/auth/verify?token=bogus` → **400**.
+
+> **Gotchas hit the first time:** unit path `/usr/bin/node` was missing (nvm-only Node) →
+> `203/EXEC`; `www-data` couldn't write the DB in a root-owned folder; and `nginx reload`
+> silently didn't apply the new `location` — a full `restart` was required.
+
+---
+
 ## Email — magic-link sign-in
 
 The auth service (`server/auth-service.js`, systemd unit `txform-auth`) emails
