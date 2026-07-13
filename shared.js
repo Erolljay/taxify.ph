@@ -98,7 +98,22 @@ function getPageContextBusiness() {
   });
 }
 
+// Resolve the report's business, then run the entitlement gate once so
+// every report inherits it from here instead of wiring it per page. The
+// gate is UX-only and fails open (see entitlement.js); the typeof guard
+// keeps this working on any page that hasn't loaded the entitlement
+// scripts yet. containerEl (where the biz picker renders) doubles as the
+// banner host.
 async function getReportBusiness(containerEl) {
+  const name = await _resolveReportBusiness(containerEl);
+  if (name && typeof gateReport === 'function') {
+    try { await gateReport(name, containerEl); }
+    catch (e) { console.warn('entitlement gate skipped', e); }
+  }
+  return name;
+}
+
+async function _resolveReportBusiness(containerEl) {
   // When embedded inside the Txform workflow wizard, the business is already
   // known (the user picked it before entering the workflow) and passed along
   // as a query param — skip Manager's own page-context lookup and the
