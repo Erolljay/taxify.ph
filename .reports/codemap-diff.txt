@@ -1,0 +1,29 @@
+Codemap generation — 2026-07-13
+================================
+First generation (no prior codemaps under docs/CODEMAPS/).
+
+Created:
+  docs/CODEMAPS/architecture.md   — surfaces, components, auth+provisioning flow
+  docs/CODEMAPS/backend.md        — Node auth/tenancy routes, entitlement.php, provisioner
+  docs/CODEMAPS/frontend.md       — owner portal (account.html/js) + BIR extension + marketing
+  docs/CODEMAPS/data.md           — 8 SQLite tables + relationships
+  docs/CODEMAPS/dependencies.md   — zero-dep runtime, external services, infra, secrets
+
+Scan summary:
+  - Project type: static-first Manager.io BIR extension + Node/PHP SaaS backend (no build step).
+  - Entry points: server/auth-service.js (:5100), server/provisioner.js (timer),
+    server/entitlement.php (php-fpm), account.html/js (portal), taxify.html (extension).
+  - Routes mapped: 7 Node (/api/auth/*, /api/tenancy/*) + entitlement.php.
+  - Data: account, users, businesses, user_business, provision_job, audit_log, login_token, session.
+  - Dependencies: 0 npm packages; Node builtins only. External: Manager Server, Gmail SMTP (live),
+    Playwright (ready), PayMongo (Phase 3).
+
+Architecture notes surfaced during scan:
+  - The owner PORTAL FRONTEND already exists: account.html + account.js (sign-in + dashboard +
+    staff×business access matrix), wired to /api/auth + /api/tenancy.
+  - GAP: /api/auth/verify returns JSON and does NOT redirect into account.html — clicking a magic
+    link downloads verify.json. Portal is served from the extension host (repo root) while the
+    /api/* proxy is on the txform.ph apex; serving host + proxy host need aligning.
+  - save-tax-rates.php still pending a security pass (see docs/to-do.md).
+
+Staleness: n/a (first run).
