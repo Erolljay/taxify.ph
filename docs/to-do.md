@@ -41,7 +41,9 @@ _Last updated: 2026-07-13_
         `/etc/nginx/conf.d/txform-ratelimit.conf`). Verified: `/api/auth/verify` → 400 (reaches
         service), and `request-link` x8 → `200×6, 503×2` (throttle working). Ad-hoc
         `nginx-api-proxy.conf` removed. Note: needed a full `systemctl restart nginx`, not `reload`.
-  - [ ] **`/security-review`** pass on the auth + mailer path now that it's live.
+  - [x] **`/security-review`** — passed 2026-07-13. No HIGH/MEDIUM findings on the auth + mailer
+        path: CRLF header-injection guard present (`oneLine()`), TLS cert validation on by default
+        (no `rejectUnauthorized:false`), SMTP password never logged, magic-link token is CSPRNG.
   - [ ] **Live Playwright selectors** — need the live books.txform.ph admin UI.
 - [ ] **Phase 2** — website multi-page/SEO rebuild (static HTML started).
 - [ ] **Phase 3** — PayMongo payments (not started; security gate).

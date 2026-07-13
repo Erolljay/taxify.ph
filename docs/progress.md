@@ -28,6 +28,13 @@ The BIR forms engine (26 form pages + report generators) is mature and fully wir
 
 ## Changelog
 
+### 2026-07-13 — Security review passed + tracking/artifact synced
+`/security-review` on the auth + mailer path returned **no HIGH/MEDIUM findings** (CRLF
+header-injection guard, default TLS verification, no secret logging, CSPRNG magic-link token).
+Docs shipped via PRs #15 (feature) and #16 (runbook); this entry + the checkbox in
+[`to-do.md`](to-do.md) close the review gate. The visual SaaS-plan artifact was updated to show
+Phase 0 email ✅ and Phase 1 "Auth LIVE".
+
 ### 2026-07-13 — Magic-link email sender LIVE on the server (Phase 1)
 Brought the `txform-auth` service up on `txform-server` for the first time and confirmed a real
 sign-in email delivered end-to-end:
