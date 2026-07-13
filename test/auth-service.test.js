@@ -38,6 +38,7 @@ function makeDeps() {
     state,
     now: function () { return state.now; },
     baseUrl: 'https://txform.ph',
+    portalUrl: 'https://txform.ph/account',
     sendEmail: function (m) { state.sent.push(m); },
   };
 }
@@ -111,6 +112,91 @@ test('verify: a bogus token is rejected', () => {
   const r = S.verifyLink(db, { token: 'not-a-real-token' }, deps);
   assert.equal(r.status, 400);
   assert.match(r.json.error, /missing/);
+});
+
+// ── verify: browser (magic-link click) redirects vs API JSON ──────
+// A browser navigating to the emailed link sends `Accept: text/html`; it
+// should land on the portal (302) with the session cookie still attached,
+// not download a verify.json. API clients (Accept: application/json, or no
+// Accept) keep the exact JSON contract.
+
+test('verify (browser): success 302-redirects to the portal WITH the session cookie', () => {
+  const db = freshDb(), deps = makeDeps();
+  S.requestLink(db, { email: 'owner@x.com' }, deps);
+  const token = tokenFromLink(deps.state.sent[0].link);
+  const r = S.verifyLink(db, { token: token, accept: 'text/html,application/xhtml+xml,*/*' }, deps);
+  assert.equal(r.status, 302);
+  assert.equal(r.location, 'https://txform.ph/account');
+  assert.ok(r.setCookie && r.setCookie.startsWith('txfsid='), 'session cookie set on the redirect');
+  assert.equal(r.json, undefined, 'no JSON body on a browser redirect');
+});
+
+test('verify (API): success still returns 200 JSON + cookie when Accept is application/json', () => {
+  const db = freshDb(), deps = makeDeps();
+  S.requestLink(db, { email: 'owner@x.com' }, deps);
+  const token = tokenFromLink(deps.state.sent[0].link);
+  const r = S.verifyLink(db, { token: token, accept: 'application/json' }, deps);
+  assert.equal(r.status, 200);
+  assert.deepEqual(r.json, { ok: true });
+  assert.ok(r.setCookie && r.setCookie.startsWith('txfsid='));
+  assert.equal(r.location, undefined);
+});
+
+test('verify (default, no Accept): success stays JSON — API-compatible default', () => {
+  const db = freshDb(), deps = makeDeps();
+  S.requestLink(db, { email: 'owner@x.com' }, deps);
+  const token = tokenFromLink(deps.state.sent[0].link);
+  const r = S.verifyLink(db, { token: token }, deps);
+  assert.equal(r.status, 200);
+  assert.deepEqual(r.json, { ok: true });
+  assert.equal(r.location, undefined);
+});
+
+test('verify (browser): expired link 302-redirects to sign-in with ?error=link_expired and NO cookie', () => {
+  const db = freshDb(), deps = makeDeps();
+  S.requestLink(db, { email: 'owner@x.com' }, deps);
+  const token = tokenFromLink(deps.state.sent[0].link);
+  deps.state.now += 16 * 60 * 1000; // past the 15-min TTL
+  const r = S.verifyLink(db, { token: token, accept: 'text/html' }, deps);
+  assert.equal(r.status, 302);
+  assert.equal(r.location, 'https://txform.ph/account?error=link_expired');
+  assert.equal(r.setCookie, undefined, 'no session opened on a failed link');
+});
+
+test('verify (browser): replayed/consumed link 302-redirects with ?error=link_used', () => {
+  const db = freshDb(), deps = makeDeps();
+  S.requestLink(db, { email: 'owner@x.com' }, deps);
+  const token = tokenFromLink(deps.state.sent[0].link);
+  S.verifyLink(db, { token: token }, deps); // first use consumes it
+  const r = S.verifyLink(db, { token: token, accept: 'text/html' }, deps);
+  assert.equal(r.status, 302);
+  assert.equal(r.location, 'https://txform.ph/account?error=link_used');
+  assert.equal(r.setCookie, undefined);
+});
+
+test('verify (browser): bogus token 302-redirects with ?error=link_invalid', () => {
+  const db = freshDb(), deps = makeDeps();
+  const r = S.verifyLink(db, { token: 'not-a-real-token', accept: 'text/html' }, deps);
+  assert.equal(r.status, 302);
+  assert.equal(r.location, 'https://txform.ph/account?error=link_invalid');
+  assert.equal(r.setCookie, undefined);
+});
+
+test('verify (browser): missing token 302-redirects with ?error=link_invalid', () => {
+  const db = freshDb(), deps = makeDeps();
+  const r = S.verifyLink(db, { accept: 'text/html' }, deps);
+  assert.equal(r.status, 302);
+  assert.equal(r.location, 'https://txform.ph/account?error=link_invalid');
+});
+
+test('verify (browser): portal URL falls back to baseUrl + /account when portalUrl is unset', () => {
+  const db = freshDb(), deps = makeDeps();
+  delete deps.portalUrl; // only baseUrl configured
+  S.requestLink(db, { email: 'owner@x.com' }, deps);
+  const token = tokenFromLink(deps.state.sent[0].link);
+  const r = S.verifyLink(db, { token: token, accept: 'text/html' }, deps);
+  assert.equal(r.status, 302);
+  assert.equal(r.location, 'https://txform.ph/account');
 });
 
 test('request-link: rate limited after the cap within the window', () => {

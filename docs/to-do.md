@@ -26,7 +26,14 @@ _Last updated: 2026-07-13_
 - [ ] Delete the stray `test/backuptest.txt` left in the bucket from the permission test.
 
 ## Later phases (from the plan)
-- [ ] **Phase 1** — tenancy/entitlement (75 tests passing; gate with `/security-review`):
+- [ ] **Phase 1** — tenancy/entitlement (95 tests passing; gate with `/security-review`):
+  - [x] **Magic-link landing** — LIVE-pending-deploy 2026-07-13. `verifyLink` now 302-redirects a
+        browser to the owner portal (`https://txform.ph/account`) with the session cookie on success,
+        or to `…/account?error=<code>` on a bad/expired/used link (API JSON contract preserved for
+        `Accept: application/json`). Portal + `/api/*` proxy aligned on the apex origin
+        (`nginx-portal-snippet.conf`); `account.js` surfaces the `?error=` as a sign-in warning.
+        TDD (+8 tests), `/security-review` clean. **Needs server steps:** restart `txform-auth`,
+        add the portal snippet + `restart nginx` (see [`instruction.md`](instruction.md)).
   - [x] **Email sender** — **LIVE & verified 2026-07-13.** Zero-dep SMTP client
         `server/smtp-mailer.js` wired into `deps.sendEmail`; 12 new tests (87 total). PR #15 merged.
         `txform-auth` systemd service installed & running on the server (Node 24 installed

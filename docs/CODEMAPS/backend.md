@@ -11,6 +11,8 @@ thin HTTP wiring. Rules live in `server/auth-core.js` (token/session/rate-limit/
 ```
 POST /api/auth/request-link   → requestLink   → auth-core.withinRateLimit → deps.sendEmail (smtp-mailer)
 GET  /api/auth/verify         → verifyLink    → single-use token → creates session → Set-Cookie txfsid
+                                 browser (Accept: text/html): 302 → portal (ok) | portal?error=<code> (fail)
+                                 API (Accept: application/json / none): JSON {ok:true} | {error} — unchanged
 GET  /api/auth/me             → currentUser   → resolve session → {email,role,account_id}
 POST /api/tenancy/user-business → setUserBusiness → owner-only → user_business +/- → enqueue provision_job (grant|revoke)
 POST /api/tenancy/invite-staff  → inviteStaff     → owner-only → seat check → users row → enqueue 'create'
@@ -18,6 +20,7 @@ POST /api/tenancy/add-business  → addBusiness     → owner-only → biz-limit
 GET  /api/tenancy/overview      → overview        → owner-only → {account, me, users, businesses, grants}
 ```
 - Auth: passwordless magic link. Tokens + session secrets stored **hashed only** (`auth-core.hashToken`). Cookie `txfsid`, httpOnly, domain `.txform.ph`.
+- Portal landing: `verifyLink` redirects a *browser* to `TXFORM_PORTAL_URL` (`https://txform.ph/account`, defaults to `<base>/account`) with the cookie on the 302; a failed link redirects to `…/account?error=link_expired|link_used|link_invalid`. The `send()` glue grew a `Location`-header branch. Portal page + `/api/*` proxy share the apex origin (nginx `nginx-portal-snippet.conf` + `nginx-auth-snippet.conf`).
 - Authz: `authorizeOwnerAction` — session valid → role owner → same account (cross-tenant guard).
 - Mailer: `server/smtp-mailer.js` (zero-dep SMTP; CRLF header-injection guard; TLS verify on). Sends via Gmail when `SMTP_HOST` set, else logs link.
 
@@ -40,5 +43,5 @@ Driver interface (injected; real one = `provisioner-driver-playwright.js`, headl
 ## systemd units
 `txform-auth.service` (Node :5100, EnvironmentFile `/etc/txform/auth.env`) · `txform-provisioner.{service,timer}`.
 
-## Tests (`node --test`, 87 passing)
+## Tests (`node --test`, 95 passing)
 `auth-core` · `auth-service` (in-mem sqlite) · `smtp-mailer` (mock SMTP) · `entitlement-core` · `entitlement-authz` · `provisioner` (fake driver).
