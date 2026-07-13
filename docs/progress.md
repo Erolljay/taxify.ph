@@ -12,9 +12,9 @@ _Last updated: 2026-07-13_
 |-------|--------|-------|
 | **0 — Foundation hardening** | ✅ Largely done | Pull-based auto-deploy (`scripts/deploy.sh` via 2-min root cron), nginx web-root hardening, LF normalization. Hosting-license confirmed, Manager Server bought. **Backups live (2026-07-13):** AWS Backup EC2 snapshots + S3 Manager.io data backups, both 2 AM Manila, 7/56/400-day retention. Still open: UFW, fail2ban, UptimeRobot, `save-tax-rates.php` security pass. |
 | **1 — Tenancy / entitlement / provisioning** | 🟡 Substantially built | `server/auth-*.js`, `smtp-mailer.js`, `entitlement.php`, `provisioner.js` + Playwright driver, `schema.sql`, systemd units. **87 passing tests.** **Email sender LIVE** — `txform-auth` service running on the server, real magic-link email delivered via Google Workspace. Open: `From` send-as alias, nginx `/api/auth` route, live Playwright selectors. |
-| **2 — Website rebuild & SEO** | 🟡 Started | `website/index.html` is real static HTML (no longer the old JS bundle); multi-page/SEO build still pending. |
+| **2 — Website rebuild & SEO** | 🟢 Built (undeployed) | Full static multi-page site under `website/`: home + features/security/about/contact/faq/terms/privacy, shared `assets/css/site.css` design system + `assets/js/site.js`, real favicons (`.ico`/`.svg`/apple-touch), `robots.txt` + `sitemap.xml` + per-page meta & JSON-LD. Old JS bundle preserved as `index.legacy.html`. Open: fill legal/about placeholders, `/portal` sign-in page, `/api/early-access` handler, self-host fonts, then deploy. |
 | **3 — Payments (PayMongo)** | 🔴 Not started | No PayMongo/webhook code yet. |
-| **4 — ToS / Data Privacy (RA 10173)** | 🔴 Not started | No terms/privacy pages. |
+| **4 — ToS / Data Privacy (RA 10173)** | 🟡 Draft pages | `website/terms.html` + `website/privacy.html` drafted (RA 10173-aligned, NPC/DPO sections) with bracketed firm placeholders; needs real firm details + counsel review before launch. |
 | **5 — Beta / launch** | 🔴 Not started | — |
 
 The BIR forms engine (26 form pages + report generators) is mature and fully wired.
@@ -27,6 +27,23 @@ The BIR forms engine (26 form pages + report generators) is mature and fully wir
   workflow engine that replaced the old monolithic setup screen).
 
 ## Changelog
+
+### 2026-07-13 — Website rebuilt as static multi-page site (Phase 2)
+Replaced the 564 KB self-unpacking JS bundle at `website/index.html` with a real, crawlable
+static site. Design system extracted from the live render (navy `#0B2447` + green `#19A974`,
+Plus Jakarta Sans / Inter / JetBrains Mono) and rebuilt as shared CSS.
+
+- **New pages:** `index.html` (rebuilt — adds How-it-works, Security, Testimonials, FAQ to the
+  existing feature/pricing sections), plus `features.html`, `security.html`, `about.html`,
+  `contact.html`, `faq.html`, `terms.html`, `privacy.html`.
+- **Foundation:** `assets/css/site.css` (tokens + components), `assets/js/site.js` (mobile nav,
+  scroll-reveal, early-access capture with `mailto` fallback).
+- **SEO:** per-page `<title>`/description/canonical/OG, `SoftwareApplication` + `FAQPage` JSON-LD,
+  `robots.txt`, `sitemap.xml` — none of which the JS bundle could expose to crawlers.
+- **Favicons:** generated real `favicon.ico` (16/32/48), `favicon.svg`, `apple-touch-icon.png`
+  from the brand mark (replaces fragile data-URI that Safari ignored).
+- **Safety:** old bundle kept as `index.legacy.html`. All 12 routes verified `200`, no broken
+  internal links. **Not yet deployed** — awaits placeholder fill + the open items above.
 
 ### 2026-07-13 — Security review passed + tracking/artifact synced
 `/security-review` on the auth + mailer path returned **no HIGH/MEDIUM findings** (CRLF

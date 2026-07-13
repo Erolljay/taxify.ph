@@ -45,7 +45,17 @@ _Last updated: 2026-07-13_
         path: CRLF header-injection guard present (`oneLine()`), TLS cert validation on by default
         (no `rejectUnauthorized:false`), SMTP password never logged, magic-link token is CSPRNG.
   - [ ] **Live Playwright selectors** — need the live books.txform.ph admin UI.
-- [ ] **Phase 2** — website multi-page/SEO rebuild (static HTML started).
+- [x] **Phase 2** — website multi-page/SEO rebuild. **DONE (undeployed) 2026-07-13.** Old 564 KB
+      JS bundle → static multi-page site (`website/`): home + features/security/about/contact/faq/
+      terms/privacy, `assets/css/site.css` design system, real favicons, `robots.txt`/`sitemap.xml`,
+      per-page meta + JSON-LD. Old bundle kept as `index.legacy.html`. Follow-ups before deploy:
+  - [ ] Fill bracketed placeholders in `terms.html`, `privacy.html`, `about.html` (firm name,
+        address, DPO, governing-law city) + **counsel review** of the legal pages.
+  - [ ] Build the `/portal` sign-in page (the "Sign in" link 404s until it exists — ties to the
+        Phase 1 "pretty portal page" item).
+  - [ ] Wire an `/api/early-access` handler (form currently falls back to `mailto:hello@txform.ph`).
+  - [ ] (Optional) Self-host the web fonts instead of Google Fonts, per ECC web perf/privacy rules.
+  - [ ] Deploy: commit to `main` → 2-min cron pull, confirm `nginx` serves the new `website/` root.
 - [ ] **Phase 3** — PayMongo payments (not started; security gate).
 - [ ] **Phase 4** — ToS / RA 10173 data-privacy pages (not started).
 - [ ] **Phase 5** — beta / launch.

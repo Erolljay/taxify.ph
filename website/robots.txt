@@ -1,0 +1,5 @@
+User-agent: *
+Allow: /
+Disallow: /index.legacy.html
+
+Sitemap: https://www.txform.ph/sitemap.xml
