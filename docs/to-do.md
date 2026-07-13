@@ -51,9 +51,13 @@ _Last updated: 2026-07-13_
       per-page meta + JSON-LD. Old bundle kept as `index.legacy.html`. Follow-ups before deploy:
   - [ ] Fill bracketed placeholders in `terms.html`, `privacy.html`, `about.html` (firm name,
         address, DPO, governing-law city) + **counsel review** of the legal pages.
-  - [ ] Build the `/portal` sign-in page (the "Sign in" link 404s until it exists — ties to the
-        Phase 1 "pretty portal page" item).
-  - [ ] Wire an `/api/early-access` handler (form currently falls back to `mailto:hello@txform.ph`).
+  - [x] Build the `/portal` sign-in page. **DONE** — `website/portal.html`, passwordless
+        magic-link form → live `POST /api/auth/request-link`; all "Sign in" links → `/portal.html`.
+  - [x] Wire an `/api/early-access` handler. **DONE** — `earlyAccess()` in `auth-service.js`
+        (`POST /api/early-access`, idempotent), `early_access` table, nginx route, +3 tests (90 total).
+        **Needs one manual server step: add the new `/api/early-access` block from
+        `nginx-auth-snippet.conf` and `systemctl restart nginx`** — else the form uses its
+        `mailto:` fallback.
   - [ ] (Optional) Self-host the web fonts instead of Google Fonts, per ECC web perf/privacy rules.
   - [ ] Deploy: commit to `main` → 2-min cron pull, confirm `nginx` serves the new `website/` root.
 - [ ] **Phase 3** — PayMongo payments (not started; security gate).
