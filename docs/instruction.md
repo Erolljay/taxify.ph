@@ -60,6 +60,84 @@ Downloadable `.tar.gz` of just the businesses. Runs on the server.
 
 ---
 
+## Email — magic-link sign-in
+
+The auth service (`server/auth-service.js`, systemd unit `txform-auth`) emails
+each portal sign-in link. Sending is zero-dependency (built-in SMTP client in
+[`server/smtp-mailer.js`](../server/smtp-mailer.js)) — nothing to `npm install`.
+
+**If SMTP is not configured, the service still runs** but only *logs* the link
+instead of emailing it (safe fallback for local/dev). Real sending switches on
+the moment `/etc/txform/auth.env` supplies `SMTP_HOST`.
+
+Mailbox setup: **Google Workspace**. `hello@txform.ph` is a **Google Group**
+(distribution list), *not* a user — a group has no login and can't authenticate
+to SMTP. So we **authenticate as a real Workspace user** and send *as*
+`hello@txform.ph` via a verified "Send mail as" alias. Send host is
+`smtp.gmail.com` (**not** the `smtp.google.com` MX — that only *receives* mail).
+
+Authenticating user: **`ejtallo@txform.ph`** (a real `@txform.ph` mailbox, which
+keeps DKIM cleanest). Any other licensed mailbox in this Workspace would also work.
+
+### Step 1 — Make `ejtallo@txform.ph` able to send as `hello@txform.ph`
+1. Add `ejtallo@txform.ph` as a **member** of the `hello@txform.ph` group (Admin
+   console → Directory → Groups → hello → Members). *Needed so it can receive the
+   verification code in the next step.*
+2. Sign in as `ejtallo@txform.ph` → Gmail → ⚙ **Settings → Accounts → "Send mail as"
+   → Add another email address**. Enter `Txform.ph` / `hello@txform.ph`, keep
+   "Treat as an alias" checked, Next → **Send verification**. Open the code that
+   lands in the `hello@` group and confirm.
+
+### Step 2 — Get a Google App Password (one time)
+Google won't accept a login password over SMTP. Signed in as `ejtallo@txform.ph`:
+1. Turn on **2-Step Verification**: Google Account → Security (App Passwords don't
+   appear until this is on).
+2. Go to **https://myaccount.google.com/apppasswords**, name it `txform-auth`,
+   **Create**, copy the **16-character** password (spaces don't matter).
+   - If that page is blocked, the Workspace admin must allow App Passwords:
+     Admin console → Security → Access and data control.
+
+### Step 3 — Create the secrets file on the server
+Root-owned, not world-readable (`SMTP_USER` = the real user; `SMTP_FROM` = the
+verified `hello@` alias):
+```bash
+sudo mkdir -p /etc/txform
+sudo tee /etc/txform/auth.env >/dev/null <<'EOF'
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=465
+SMTP_SECURE=true
+SMTP_USER=ejtallo@txform.ph
+SMTP_PASS=<paste the 16-char App Password, no spaces>
+SMTP_FROM=Txform.ph <hello@txform.ph>
+SMTP_EHLO=txform.ph
+EOF
+sudo chmod 600 /etc/txform/auth.env
+```
+- Port **465** + `SMTP_SECURE=true` (implicit TLS) is simplest with Gmail. Google
+  also supports **587**; to switch, set `SMTP_PORT=587` and `SMTP_SECURE=false`.
+- If `hello@` isn't verified as a send-as alias, Gmail silently **rewrites** the
+  `From` to `ejtallo@txform.ph` — if recipients see the wrong From, Step 1.2 didn't take.
+
+### Step 4 — Reload + restart the service
+```bash
+sudo systemctl daemon-reload
+sudo systemctl restart txform-auth
+```
+
+### How to check it's working
+- `sudo journalctl -u txform-auth -n 50` — a real send logs nothing; a failure
+  logs `[mailer] send to <addr> failed: <reason>`. Seeing `[auth] would email …`
+  means SMTP isn't configured yet (still in log-only mode).
+- Request a sign-in link for a known address and confirm the email arrives, with
+  the `From` showing `hello@txform.ph`. The sent copy lands in **`ejtallo@`'s Sent**
+  (a group has no Sent folder), not in the `hello@` group.
+
+> Secrets live **only** in `/etc/txform/auth.env` (chmod 600) — never in the repo.
+> The systemd unit loads it via `EnvironmentFile=-/etc/txform/auth.env` (the `-`
+> makes it optional, so a missing file degrades to log-only rather than crashing).
+
+---
+
 ## Caveats / notes
 - The `esmeres-managerio-backups` bucket + script your partner shared were only a
   **sample** — the live setup is the `txform-managerio-backups` one above. Don't

@@ -26,8 +26,14 @@ _Last updated: 2026-07-13_
 - [ ] Delete the stray `test/backuptest.txt` left in the bucket from the permission test.
 
 ## Later phases (from the plan)
-- [ ] **Phase 1** — tenancy/entitlement: live Playwright selectors, email sender
-      (75 tests passing; gate with `/security-review`).
+- [ ] **Phase 1** — tenancy/entitlement (75 tests passing; gate with `/security-review`):
+  - [~] **Email sender** — code **DONE** (2026-07-13): zero-dep SMTP client `server/smtp-mailer.js`
+        wired into `deps.sendEmail` (`server/auth-service.js`), 12 new tests (87 total passing).
+        **Remaining (server-side, one-time):** create `/etc/txform/auth.env` with the
+        `hello@txform.ph` SMTP creds and `sudo systemctl restart txform-auth` — steps in
+        [`instruction.md`](instruction.md#email--magic-link-sign-in). Until then the service logs the
+        link instead of sending (safe fallback). Gate with `/security-review` after deploy.
+  - [ ] **Live Playwright selectors** — need the live books.txform.ph admin UI.
 - [ ] **Phase 2** — website multi-page/SEO rebuild (static HTML started).
 - [ ] **Phase 3** — PayMongo payments (not started; security gate).
 - [ ] **Phase 4** — ToS / RA 10173 data-privacy pages (not started).
