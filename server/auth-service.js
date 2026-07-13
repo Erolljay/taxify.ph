@@ -254,11 +254,28 @@ if (require.main === module) {
   const db = new DatabaseSync(dbPath);
   db.exec(fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8'));
 
+  // Real SMTP sender when configured (creds via /etc/txform/auth.env,
+  // wired by the systemd unit); otherwise log the link — keeps local
+  // dev and CI working with no mailbox. secure defaults to true, and
+  // to implicit-TLS on 465 vs STARTTLS on 587 by port.
+  const mailer = require('./smtp-mailer.js');
+  const smtpPort = Number(process.env.SMTP_PORT || 465);
+  const sendEmail = process.env.SMTP_HOST
+    ? mailer.makeMailer({
+        host: process.env.SMTP_HOST,
+        port: smtpPort,
+        user: process.env.SMTP_USER,
+        pass: process.env.SMTP_PASS,
+        from: process.env.SMTP_FROM || 'Txform.ph <hello@txform.ph>',
+        secure: process.env.SMTP_SECURE ? process.env.SMTP_SECURE === 'true' : smtpPort === 465,
+        ehloName: process.env.SMTP_EHLO || 'txform.ph',
+      })
+    : function (m) { console.log('[auth] would email', m.to, m.link); };
+
   const deps = {
     now: function () { return Date.now(); },
     baseUrl: process.env.TXFORM_BASE_URL || 'https://txform.ph',
-    // Real sender is plugged in later (Phase 1.3d); log until then.
-    sendEmail: function (m) { console.log('[auth] would email', m.to, m.link); },
+    sendEmail: sendEmail,
   };
 
   function send(res, out) {

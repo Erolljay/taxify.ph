@@ -23,8 +23,15 @@ Environment=TXFORM_BASE_URL=https://txform.ph
 # Shared parent domain so the session cookie reaches extension.txform.ph
 # (where entitlement.php reads it), not just the portal host.
 Environment=TXFORM_COOKIE_DOMAIN=.txform.ph
-# SMTP / mailer secrets live here, root-owned 600 — NOT in the repo:
-#   EnvironmentFile=/etc/txform/auth.env
+# SMTP / mailer secrets live here, root-owned 600 — NOT in the repo.
+# Leading "-" = optional: the service still starts (link-logging mode) if
+# absent. Google Workspace: hello@txform.ph is a GROUP (can't auth), so SMTP_USER
+# is a real Workspace user with hello@ as a verified "send mail as" alias; SMTP_PASS
+# is that user's *App Password*. Expected keys (see docs/instruction.md):
+#   SMTP_HOST=smtp.gmail.com   SMTP_PORT=465   SMTP_SECURE=true
+#   SMTP_USER=<real workspace user>            SMTP_PASS=<16-char app password>
+#   SMTP_FROM=Txform.ph <hello@txform.ph>      SMTP_EHLO=txform.ph
+EnvironmentFile=-/etc/txform/auth.env
 ExecStart=/usr/bin/node /var/www/taxify/server/auth-service.js
 Restart=on-failure
 RestartSec=3

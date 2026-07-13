@@ -11,7 +11,7 @@ _Last updated: 2026-07-13_
 | Phase | Status | Notes |
 |-------|--------|-------|
 | **0 — Foundation hardening** | ✅ Largely done | Pull-based auto-deploy (`scripts/deploy.sh` via 2-min root cron), nginx web-root hardening, LF normalization. Hosting-license confirmed, Manager Server bought. **Backups live (2026-07-13):** AWS Backup EC2 snapshots + S3 Manager.io data backups, both 2 AM Manila, 7/56/400-day retention. Still open: UFW, fail2ban, UptimeRobot, `save-tax-rates.php` security pass. |
-| **1 — Tenancy / entitlement / provisioning** | 🟡 Substantially built | `server/auth-*.js`, `entitlement.php`, `provisioner.js` + Playwright driver, `schema.sql`, systemd units. **75 passing tests.** Open: live Playwright selectors, email sender. |
+| **1 — Tenancy / entitlement / provisioning** | 🟡 Substantially built | `server/auth-*.js`, `smtp-mailer.js`, `entitlement.php`, `provisioner.js` + Playwright driver, `schema.sql`, systemd units. **87 passing tests.** Email sender **wired in code** (zero-dep SMTP); remaining is dropping `/etc/txform/auth.env` on the server. Open: live Playwright selectors. |
 | **2 — Website rebuild & SEO** | 🟡 Started | `website/index.html` is real static HTML (no longer the old JS bundle); multi-page/SEO build still pending. |
 | **3 — Payments (PayMongo)** | 🔴 Not started | No PayMongo/webhook code yet. |
 | **4 — ToS / Data Privacy (RA 10173)** | 🔴 Not started | No terms/privacy pages. |
@@ -27,6 +27,21 @@ The BIR forms engine (26 form pages + report generators) is mature and fully wir
   workflow engine that replaced the old monolithic setup screen).
 
 ## Changelog
+
+### 2026-07-13 — Magic-link email sender wired (Phase 1)
+`hello@txform.ph` mailbox exists + SMTP creds ready, so the sender is now built and wired
+(chose the zero-dependency path to keep the git-pull deploy install-free):
+
+- **New:** [`server/smtp-mailer.js`](../server/smtp-mailer.js) — zero-dep SMTP client (Node
+  `net`/`tls` only). Implicit TLS (465) or STARTTLS (587); AUTH LOGIN; RFC 5322 message
+  builder with base64/RFC-2047 encoding for non-ASCII; **CR/LF header-injection guard**.
+- **Wired:** `deps.sendEmail` in [`server/auth-service.js`](../server/auth-service.js) now
+  uses it when `SMTP_HOST` is set, else falls back to logging the link (dev/CI safe).
+- **Tests:** +12 in `test/smtp-mailer.test.js` (pure builders + `session()` against an
+  in-process mock SMTP server, incl. auth-fail, bad-recipient, STARTTLS, injection). **87 total, green.**
+- **Systemd:** `txform-auth.service` now loads `EnvironmentFile=-/etc/txform/auth.env` (optional).
+- **Remaining (server, one-time):** create `/etc/txform/auth.env` + restart — see
+  [`instruction.md`](instruction.md#email--magic-link-sign-in).
 
 ### 2026-07-13 — Backups configured (Phase 0)
 Two independent backup systems on the `txform-server` EC2 (`i-09bbc637afe847bde`, ap-southeast-1), both firing at 2 AM Manila (18:00 UTC — the server clock is UTC):
