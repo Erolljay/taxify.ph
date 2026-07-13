@@ -284,6 +284,27 @@ ul { margin: 0; padding: 0; list-style: none; }
 .doc li { margin-bottom: 0.5rem; }
 .doc a { color: var(--green-600); text-decoration: underline; }
 
+/* ------------------------------------------------------------------ auth / portal */
+.auth-wrap { min-height: calc(100vh - 68px); display: grid; place-items: center; padding: clamp(2rem, 6vw, 5rem) 1.25rem; background:
+  radial-gradient(60% 55% at 80% 8%, rgba(25,169,116,0.10), transparent 60%), var(--paper); }
+.auth-card { width: 100%; max-width: 440px; background: var(--white); border: 1px solid var(--line); border-radius: var(--radius-lg); box-shadow: var(--shadow-lg); padding: clamp(1.75rem, 4vw, 2.75rem); }
+.auth-card .brand { justify-content: center; margin-bottom: 1.5rem; }
+.auth-card h1 { font-size: 1.6rem; font-weight: 800; text-align: center; }
+.auth-card > p { color: var(--muted); text-align: center; margin-top: 0.6rem; }
+.auth-form { margin-top: 1.75rem; display: grid; gap: 0.85rem; }
+.auth-form label { font-family: var(--font-display); font-weight: 700; font-size: 0.85rem; }
+.auth-form input { width: 100%; padding: 0.85rem 1.1rem; border-radius: var(--radius-sm); border: 1px solid var(--line); font: inherit; background: var(--surface); }
+.auth-form input:focus-visible { outline: 2px solid var(--green); outline-offset: 1px; background: var(--white); }
+.auth-form .btn { width: 100%; justify-content: center; }
+.auth-error { color: #B4232A; font-size: 0.9rem; }
+.auth-alt { text-align: center; margin-top: 1.5rem; font-size: 0.9rem; color: var(--muted); }
+.auth-alt a { color: var(--green-600); font-weight: 600; }
+.auth-sent { text-align: center; }
+.auth-sent svg { margin: 0 auto 1rem; }
+.auth-sent h1 { font-size: 1.5rem; font-weight: 800; }
+.auth-sent p { color: var(--muted); margin-top: 0.75rem; }
+.auth-fineprint { text-align: center; margin-top: 1.5rem; font-size: 0.78rem; color: var(--muted); }
+
 /* utilities */
 .center { text-align: center; }
 .mt-auto { margin-top: auto; }

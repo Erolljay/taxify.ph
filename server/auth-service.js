@@ -81,6 +81,23 @@ function requestLink(db, input, deps) {
   return generic; // identical response whether or not the user existed
 }
 
+// POST /api/early-access { email }
+// The one public, unauthenticated write: captures a marketing signup from
+// the website's early-access form. Idempotent per email (UNIQUE), so a
+// double submit is a no-op. Generic 200 — no account enumeration.
+function earlyAccess(db, input, deps) {
+  const now = deps.now();
+  const email = (input && typeof input.email === 'string') ? input.email.trim().toLowerCase() : '';
+  // Minimal shape check — something@something.tld. Not full RFC 5322;
+  // the goal is to reject obvious junk, not to validate deliverability.
+  if (!email || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+    return { status: 400, json: { error: 'A valid email is required.' } };
+  }
+  db.prepare('INSERT OR IGNORE INTO early_access (email, created_at, request_ip) VALUES (?,?,?)')
+    .run(email, now, (input && input.ip) || null);
+  return { status: 200, json: { ok: true, message: "You're on the list — we'll be in touch with onboarding details." } };
+}
+
 // GET /api/auth/verify?token=...  → consumes the token, opens a session.
 function verifyLink(db, input, deps) {
   const now = deps.now();
@@ -239,7 +256,7 @@ function overview(db, input, deps) {
 
 module.exports = {
   COOKIE_NAME, parseCookie, loadSession,
-  requestLink, verifyLink, currentUser,
+  requestLink, verifyLink, currentUser, earlyAccess,
   setUserBusiness, inviteStaff, addBusiness, overview,
 };
 
@@ -296,6 +313,7 @@ if (require.main === module) {
       const ip = req.socket.remoteAddress;
       try {
         if (req.method === 'POST' && url.pathname === '/api/auth/request-link') return send(res, requestLink(db, { email: json.email, ip: ip }, deps));
+        if (req.method === 'POST' && url.pathname === '/api/early-access') return send(res, earlyAccess(db, { email: json.email, ip: ip }, deps));
         if (url.pathname === '/api/auth/verify') return send(res, verifyLink(db, { token: url.searchParams.get('token') }, deps));
         if (url.pathname === '/api/auth/me') return send(res, currentUser(db, { cookie: cookie }, deps));
         if (req.method === 'POST' && url.pathname === '/api/tenancy/user-business') return send(res, setUserBusiness(db, { cookie: cookie, userId: json.userId, businessId: json.businessId, grant: json.grant }, deps));
