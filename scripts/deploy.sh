@@ -22,6 +22,14 @@ echo "[deploy] before: $(git rev-parse --short HEAD)"
 
 git fetch --quiet origin "$BRANCH"
 
+# Nothing new upstream? Exit before touching the working tree at all. This keeps
+# the scheduled (every-few-minutes) run a true no-op, so the live
+# tax-rates-data.json is only ever stashed/restored on a real deploy.
+if [ "$(git rev-parse HEAD)" = "$(git rev-parse "origin/$BRANCH")" ]; then
+  echo "[deploy] already up to date at $(git rev-parse --short HEAD)"
+  exit 0
+fi
+
 # tax-rates-data.json is written on the box by the Save-to-Server feature, so it
 # may differ from the committed copy. Preserve it across the fast-forward.
 STASHED=0
