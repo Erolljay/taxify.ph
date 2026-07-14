@@ -52,11 +52,11 @@ function loadSandbox(files, exposeNames) {
 }
 
 const core = loadSandbox(
-  ['tax-rates.js', 'pnl-helpers.js', 'ewt-helpers.js', 'tax-codes.js'],
+  ['shared/tax-rates.js', 'helpers/pnl-helpers.js', 'helpers/ewt-helpers.js', 'shared/tax-codes.js'],
   ['computeGraduatedTax', 'getOsdRate', 'getMcitRate', 'dateForYear', 'isMcitApplicable', 'ATC_MASTER', 'resolveAtc', 'EWT_ATC_LIST']
 );
-const ind = loadSandbox(['tax-rates.js', '1701-report.js'], ['netIncomeFor1701']);
-const indQ = loadSandbox(['tax-rates.js', '1701q-report.js'], ['netIncomeFor']);
+const ind = loadSandbox(['shared/tax-rates.js', 'reports/1701-report.js'], ['netIncomeFor1701']);
+const indQ = loadSandbox(['shared/tax-rates.js', 'reports/1701q-report.js'], ['netIncomeFor']);
 
 // ── GRADUATED INCOME TAX ENGINE ──────────────────────────────
 test('graduated tax — 2023 table matches the BIR bracket figures', () => {

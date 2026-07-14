@@ -11,7 +11,7 @@
 
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const E = require('../entitlement-core.js');
+const E = require('../shared/entitlement-core.js');
 
 const HOUR = 3600 * 1000;
 const DAY = 24 * HOUR;
