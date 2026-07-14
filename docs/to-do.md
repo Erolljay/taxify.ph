@@ -21,10 +21,11 @@ clean layout), then build save-reports into that clean structure.
       `*.html` **entry pages stay at root by design** — their absolute URLs are the installed
       Manager.io extension keys ([`reports.js`](../app/reports.js) `BASE_URL + file`), so moving
       them would 404 every installed client's buttons until reinstall (deferred to a later
-      reinstall/redirect decision). Rewrote 173 `<script src>` refs across 25 HTML pages + the two
+      reinstall/redirect decision). Rewrote 172 `<script src>` refs across 24 HTML pages + the two
       Node test paths. Behavior-preserving: **107/107 tests green**, every `src` resolves, and the
-      1701/app-shell/batch-import pages load all scripts `200` with no console errors. Follow-up:
-      regenerate `docs/CODEMAPS/frontend.md` (still describes the flat layout).
+      1701/app-shell/batch-import pages load all scripts `200` with no console errors.
+      `docs/CODEMAPS/frontend.md` + `backend.md` regenerated to match. **Not yet merged/deployed —
+      parked on the branch by request.**
 - [ ] **PRIORITY 2 — Save / freeze generated reports (point-in-time snapshots).** Today every report
       recomputes live from Manager.io, so editing a transaction inside an already-filed period silently
       changes the "filed" figures. With the server + SQLite now in place, persist a report when marked
@@ -39,6 +40,20 @@ clean layout), then build save-reports into that clean structure.
         which are currently lost on reload.
       - **Freeze scope (recommended):** final figures + manual inputs + supporting detail (SLS/SLP
         lines, alphalist rows); stored PDF optional later.
+- [ ] **Evaluate the Manager Cloud self-serve distribution path (strategic).** Discovered 2026-07-14:
+      a Manager.io **Cloud edition** custom button pointing at `extension.txform.ph/` loads the
+      extension — so *any* Manager Cloud/Server/Desktop user can load it by URL, no install. This is a
+      second, easier distribution model than "we host their books on `books.txform.ph`". Two blockers
+      before it's real:
+      1. **Verify data access end-to-end** — "the page loaded" ≠ "it read their books and produced a
+         correct return". Generate a real BIR report on a live Cloud business and check the numbers;
+         the official multi-tenant Cloud may hand the iframe API access differently than our own
+         Manager Server.
+      2. **No paywall on this path** — `shared/entitlement.js` is a **UX-only gate that fails open**
+         ("real enforcement is server-side — provisioner + Manager auth"). That only bites in the
+         host-their-books model; a Cloud user on their *own* data hits no gate → free today. Monetizing
+         self-serve needs a real server-side authorize-before-run gate that does **not** fail open — a
+         different enforcement model than Phase 1's provisioner. See memory `manager-cloud-distribution`.
 
 ## Phase 0 — Foundation hardening
 
