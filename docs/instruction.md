@@ -133,8 +133,22 @@ sudo systemctl restart txform-auth
 Without this, freezing 401s and the extension shows the explicit "sign in to
 freeze" prompt (drafts still work) — never a silent loss.
 
-No nginx change is needed: root `*.php` is already routed to php-fpm (that's how
-`save-tax-rates.php` works).
+**3. Route the endpoints to php-fpm (nginx).** The extension server block only
+wires `save-tax-rates.php` to php-fpm via an exact-match `location`; there is NO
+general `.php` handler, so any other root `*.php` is served as a RAW STATIC FILE
+(GET → 200 with the source, POST → 405) instead of executing. Add the repo snippet
+that wires the three session-authed endpoints, then reload:
+
+```bash
+# after the code has deployed (git pull), add ONE include line to the
+# extension.txform.ph server block, below `location = /save-tax-rates.php`:
+#     include /var/www/taxify/nginx-php-endpoints.conf;
+sudo nano /etc/nginx/sites-available/managerserver
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+The snippet (`nginx-php-endpoints.conf`) uses the same `php8.5-fpm.sock` as
+`save-tax-rates.php` — bump the socket there if PHP is upgraded.
 
 ### How to check it's working
 
