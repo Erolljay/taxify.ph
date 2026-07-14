@@ -69,7 +69,25 @@ _Last updated: 2026-07-13_
     5. [ ] **Plan-status enforcement (expiry ladder)** — enforce `account.status`
        (active → grace → suspended → cancelled) on `verifyLink`/`/me` and in `entitlement.php`; wire
        `current_period_end` / `grace_until`. Nothing blocks a lapsed account today. (Couples with Phase 3 webhooks.)
-- [ ] **Phase 2** — website multi-page/SEO rebuild (static HTML started).
+- [x] **Phase 2** — website multi-page/SEO rebuild. **DONE (undeployed).** Old 564 KB JS bundle →
+      static multi-page site (`website/`): home + features/security/about/contact/faq/terms/privacy,
+      `assets/css/site.css` design system, real favicons, `robots.txt`/`sitemap.xml`, per-page meta +
+      JSON-LD. Old bundle kept as `index.legacy.html`. Positioned as a live product, not a waitlist:
+  - [x] **Pivoted from waitlist → full product (2026-07-14).** Removed the email-capture section +
+        the `/api/early-access` endpoint (handler/table/tests/nginx all reverted) and the fabricated
+        testimonials. CTAs are **"Get started"** → `/contact.html` (manual onboarding — self-serve
+        billing waits on Phase 3 sign-up above) and **"Sign in"** → `/account`.
+  - [x] Sign-in uses the **real owner portal** (not a duplicate). `account.html`/`account.js` stay at
+        the repo root, served at `txform.ph/account` via the Phase-1 `nginx-portal-snippet.conf`;
+        the throwaway `portal.html` was deleted and every "Sign in" link → `/account`. Merged `main`
+        (magic-link portal redirect); tests green at **95**.
+  - [x] Fill legal placeholders (2026-07-14): firm **TalloCPA**, **Iloilo City** (base +
+        governing-law), DPO **Erol Jay Tallo, CPA** (`privacy@txform.ph`); all footers/contact
+        moved Manila → Iloilo City. Still open: **counsel review** of the legal pages, and confirm
+        whether the firm must **register its DPO with the NPC**.
+  - [ ] (Optional) Self-host the web fonts instead of Google Fonts, per ECC web perf/privacy rules.
+  - [ ] Deploy: merge to `main` → 2-min cron pull; confirm `nginx` serves the new `website/` root and
+        the `/account` portal + `/api/auth/*` proxy are live for sign-in.
 - [ ] **Phase 3** — PayMongo payments (not started; security gate).
 - [ ] **Phase 4** — ToS / RA 10173 data-privacy pages (not started).
 - [ ] **Phase 5** — beta / launch.

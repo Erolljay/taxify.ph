@@ -12,9 +12,9 @@ _Last updated: 2026-07-13_
 |-------|--------|-------|
 | **0 — Foundation hardening** | ✅ Largely done | Pull-based auto-deploy (`scripts/deploy.sh` via 2-min root cron), nginx web-root hardening, LF normalization. Hosting-license confirmed, Manager Server bought. **Backups live (2026-07-13):** AWS Backup EC2 snapshots + S3 Manager.io data backups, both 2 AM Manila, 7/56/400-day retention. Still open: UFW, fail2ban, UptimeRobot, `save-tax-rates.php` security pass. |
 | **1 — Tenancy / entitlement / provisioning** | 🟡 Substantially built | `server/auth-*.js`, `smtp-mailer.js`, `entitlement.php`, `provisioner.js` + Playwright driver, `schema.sql`, systemd units. **95 passing tests.** **Email sender LIVE** — `txform-auth` service running, real magic-link email delivered via Google Workspace. **Magic-link now lands on the portal** — `verifyLink` 302-redirects a browser to `txform.ph/account` (cookie attached) instead of downloading `verify.json`; portal + `/api/*` share the apex origin. Open: live Playwright selectors. |
-| **2 — Website rebuild & SEO** | 🟡 Started | `website/index.html` is real static HTML (no longer the old JS bundle); multi-page/SEO build still pending. |
+| **2 — Website rebuild & SEO** | 🟢 Built (undeployed) | Full static multi-page site under `website/`: home + features/security/about/contact/faq/terms/privacy, shared `assets/css/site.css` + `assets/js/site.js`, real favicons, `robots.txt` + `sitemap.xml` + per-page meta & JSON-LD. **Positioned as a live product, not a waitlist** — early-access dropped; CTAs are "Get started" → contact onboarding and "Sign in" → the owner portal at **`/account`** (the merged Phase-1 design). Legal pages carry the firm's real details (TalloCPA, Iloilo City, DPO Erol Jay Tallo). Old JS bundle preserved as `index.legacy.html`. Open: counsel review of legal pages, self-host fonts, then deploy. |
 | **3 — Payments (PayMongo)** | 🔴 Not started | No PayMongo/webhook code yet. |
-| **4 — ToS / Data Privacy (RA 10173)** | 🔴 Not started | No terms/privacy pages. |
+| **4 — ToS / Data Privacy (RA 10173)** | 🟡 Draft pages | `website/terms.html` + `website/privacy.html` drafted (RA 10173-aligned, NPC/DPO sections) with bracketed firm placeholders; needs real firm details + counsel review before launch. |
 | **5 — Beta / launch** | 🔴 Not started | — |
 
 The BIR forms engine (26 form pages + report generators) is mature and fully wired.
@@ -27,6 +27,38 @@ The BIR forms engine (26 form pages + report generators) is mature and fully wir
   workflow engine that replaced the old monolithic setup screen).
 
 ## Changelog
+
+### 2026-07-14 — Website pivoted from waitlist to full product (Phase 2)
+Dropped the "early access" positioning; the site now presents Txform as a live product:
+- **Early-access removed:** deleted the homepage email-capture section and reverted the
+  `/api/early-access` backend (handler, `early_access` table, tests, nginx route). Also removed the
+  fabricated testimonials block (dishonest on a live site).
+- **CTAs are real:** primary **"Get started"** → `/contact.html` (manual onboarding, since
+  self-serve billing is Phase 3), secondary **"Sign in"** → the owner portal at **`/account`**.
+- **Sign-in uses the real portal:** the throwaway `portal.html` was deleted in favour of the
+  existing `account.html` + `account.js` (sign-in view **and** firm dashboard). These stay at the
+  repo root and are served at `txform.ph/account` via the Phase-1 `nginx-portal-snippet.conf`; the
+  magic-link `verifyLink` redirect already lands there. Every marketing "Sign in" link → `/account`.
+- **Legal details filled:** operator **TalloCPA**, **Iloilo City** (base + governing law), DPO
+  **Erol Jay Tallo, CPA** — across terms/privacy/about; all footers moved Manila → Iloilo City.
+- Merged `main` (Phase-1 magic-link portal work); suite green at **95 tests**.
+
+### 2026-07-13 — Website rebuilt as static multi-page site (Phase 2)
+Replaced the 564 KB self-unpacking JS bundle at `website/index.html` with a real, crawlable
+static site. Design system extracted from the live render (navy `#0B2447` + green `#19A974`,
+Plus Jakarta Sans / Inter / JetBrains Mono) and rebuilt as shared CSS.
+
+- **New pages:** `index.html` (rebuilt — adds How-it-works, Security, Testimonials, FAQ to the
+  existing feature/pricing sections), plus `features.html`, `security.html`, `about.html`,
+  `contact.html`, `faq.html`, `terms.html`, `privacy.html`.
+- **Foundation:** `assets/css/site.css` (tokens + components), `assets/js/site.js` (mobile nav,
+  scroll-reveal, early-access capture with `mailto` fallback).
+- **SEO:** per-page `<title>`/description/canonical/OG, `SoftwareApplication` + `FAQPage` JSON-LD,
+  `robots.txt`, `sitemap.xml` — none of which the JS bundle could expose to crawlers.
+- **Favicons:** generated real `favicon.ico` (16/32/48), `favicon.svg`, `apple-touch-icon.png`
+  from the brand mark (replaces fragile data-URI that Safari ignored).
+- **Safety:** old bundle kept as `index.legacy.html`. All 12 routes verified `200`, no broken
+  internal links. **Not yet deployed** — awaits the open items above.
 
 ### 2026-07-13 — Magic-link sign-in lands on the portal (Phase 1)
 Wired the emailed link so clicking it lands the firm owner on the owner portal instead of
