@@ -50,6 +50,10 @@ not from the repo web root, so moving it to a subfolder would 404 the portal wit
   the `taxify.html` app shell, and a batch-import page each load all scripts `200` with no console
   errors.
 - **Follow-up:** `docs/CODEMAPS/frontend.md` still describes the flat layout — regenerate it.
+- **Deployed & verified LIVE 2026-07-14.** Merged to `main` → cron pull. On `extension.txform.ph`:
+  new subfolder paths serve 200, entry HTML pages still 200 (installed Manager.io buttons unchanged —
+  no client reinstall), old flat `*.js` paths now 404, and the live `taxify.html` app shell loads
+  every script 200 with no console errors. Codemaps (`frontend.md` + `backend.md`) regenerated.
 
 ### 2026-07-14 — Audit complete: ATC consolidation + report-calc test harness
 Finished the report correctness audit and locked it with tests.

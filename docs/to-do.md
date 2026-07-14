@@ -24,8 +24,10 @@ clean layout), then build save-reports into that clean structure.
       reinstall/redirect decision). Rewrote 172 `<script src>` refs across 24 HTML pages + the two
       Node test paths. Behavior-preserving: **107/107 tests green**, every `src` resolves, and the
       1701/app-shell/batch-import pages load all scripts `200` with no console errors.
-      `docs/CODEMAPS/frontend.md` + `backend.md` regenerated to match. **Not yet merged/deployed —
-      parked on the branch by request.**
+      `docs/CODEMAPS/frontend.md` + `backend.md` regenerated to match. **Merged to main + deployed &
+      verified LIVE 2026-07-14** — new subfolder paths (`reports/`, `shared/`, `app/`) serve 200, entry
+      HTML (`1701.html`, `taxify.html`) still 200 (installed buttons intact, no reinstall), old flat
+      paths (`1701-report.js`) now 404, and the live app shell loads every script 200 with no console errors.
 - [ ] **PRIORITY 2 — Save / freeze generated reports (point-in-time snapshots).** Today every report
       recomputes live from Manager.io, so editing a transaction inside an already-filed period silently
       changes the "filed" figures. With the server + SQLite now in place, persist a report when marked
