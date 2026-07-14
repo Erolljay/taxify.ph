@@ -375,6 +375,21 @@ function renderCorporatePanel(panel) {
 
 // ── PUBLISH ──────────────────────────────────────────────────────
 const TAX_RATES_SAVE_ENDPOINT = 'save-tax-rates.php';
+const TAX_RATES_TOKEN_KEY = 'txform_taxrates_token';
+
+// The admin token is the server's second gate (X-Txform-Token). It never
+// ships in this file — the admin enters it once per browser and we cache
+// it in localStorage. forcePrompt re-asks after the server rejects it.
+function getTaxRatesToken({ forcePrompt = false } = {}) {
+  let token = forcePrompt ? '' : (localStorage.getItem(TAX_RATES_TOKEN_KEY) || '');
+  if (!token) {
+    token = (window.prompt(
+      'Enter the Tax Rates admin token (one-time per browser — from DEPLOY-TAX-RATES-SAVE.md):'
+    ) || '').trim();
+    if (token) localStorage.setItem(TAX_RATES_TOKEN_KEY, token);
+  }
+  return token;
+}
 
 function renderPublishPanel(panel, justSavedMsg) {
   const unpublishedCount = Object.values(_trDraft)
@@ -394,8 +409,8 @@ function renderPublishPanel(panel, justSavedMsg) {
       <div class="card-title">Save to Server</div>
       <p style="font-size:12.5px;color:#6b7280;margin:0 0 12px;">
         Writes directly to <code>tax-rates-data.json</code> on the server. Live for every business the moment
-        it succeeds — no GitHub step needed. Your browser will ask for the admin password the first time.
-        Requires the one-time server setup in <code>DEPLOY-TAX-RATES-SAVE.md</code>.
+        it succeeds — no GitHub step needed. Your browser asks for the admin password, then the admin
+        token, the first time (both one-time). Requires the server setup in <code>DEPLOY-TAX-RATES-SAVE.md</code>.
       </p>
       <button type="button" class="btn btn-primary btn-sm" id="tr-publish-save">💾 Save to Server</button>
       <span id="tr-publish-save-msg" style="font-size:11px;color:#6b7280;margin-left:8px;"></span>
@@ -427,16 +442,27 @@ function renderPublishPanel(panel, justSavedMsg) {
   document.getElementById('tr-publish-save').addEventListener('click', async () => {
     const btn = document.getElementById('tr-publish-save');
     const msg = document.getElementById('tr-publish-save-msg');
+    const token = getTaxRatesToken();
+    if (!token) {
+      msg.style.color = '#c0392b';
+      msg.textContent = '❌ Save cancelled — admin token required.';
+      return;
+    }
     btn.disabled = true;
     msg.style.color = '#6b7280';
     msg.textContent = 'Saving…';
     try {
       const res = await fetch(TAX_RATES_SAVE_ENDPOINT, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Txform-Token': token },
         body: json,
       });
       const result = await res.json().catch(() => ({}));
+      if (res.status === 401) {
+        // Cached token is wrong/stale — drop it so the next click re-prompts.
+        localStorage.removeItem(TAX_RATES_TOKEN_KEY);
+        throw new Error('Admin token rejected — click Save again to re-enter it.');
+      }
       if (!res.ok) throw new Error(result.error || `Server returned ${res.status}`);
 
       // What was "draft" is now "published" — reload the just-saved data
