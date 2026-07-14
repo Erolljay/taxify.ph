@@ -138,7 +138,7 @@ function render1702Q(el, data, setup, period, rate, deduction) {
   const mcitApplicable = isMcitApplicable(setup.dateOfIncorporation, period.year);
   const mcitRatePct = (getMcitRate(dateForYear(period.year)) * 100).toFixed(0);
   const mcitExemptNote = !mcitApplicable
-    ? `<div class="alert alert-info no-print" style="margin-top:6px;font-size:11px;">⏸ Not yet subject to MCIT — exempt for the first 3 taxable years from incorporation (${escHtml(setup.dateOfIncorporation)}). MCIT first applies for taxable year ${new Date(setup.dateOfIncorporation).getFullYear() + 3}.</div>`
+    ? `<div class="alert alert-info no-print" style="margin-top:6px;font-size:11px;">⏸ Not yet subject to MCIT — exempt through the 3rd taxable year following the year operations commenced (${escHtml(setup.dateOfIncorporation)}), per RR 9-98. MCIT first applies for taxable year ${new Date(setup.dateOfIncorporation).getFullYear() + 4}.</div>`
     : '';
 
   const formHtml = `
@@ -399,8 +399,9 @@ function recompute1702Q(el) {
 
   const mcitBase = cumNet.totalGrossIncome;
   set1702(el, 'c1702q-s3-4', mcitBase);
-  // Still within the first 3 taxable years from incorporation -> not yet
-  // subject to MCIT at all, regardless of gross income (NIRC Sec. 27(E)(1)).
+  // Still within the MCIT-exempt window (commencement year + 3 following
+  // years) -> not yet subject to MCIT at all, regardless of gross income
+  // (NIRC Sec. 27(E)(1), RR 9-98). See isMcitApplicable in pnl-helpers.js.
   const mcit = el._mcitApplicable ? Math.max(0, mcitBase) * getMcitRate(dateForYear(year)) : 0;
   set1702(el, 'c1702q-s3-6', mcit);
   set1702(el, 'c1702q-s2-12', mcit);

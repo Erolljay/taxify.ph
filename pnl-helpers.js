@@ -14,19 +14,20 @@
    debit/credit amounts, we can reconstruct P&L totals ourselves.
    ============================================================ */
 
-// ── MCIT 3-YEAR EXEMPTION (NIRC SEC. 27(E)(1)) ────────────────
-// MCIT only applies beginning the 4th taxable year immediately following
-// the year a corporation commenced business operations — exempt for its
-// first 3 calendar years regardless of exactly when in the year it
-// incorporated. Counted by calendar year alone (not exact anniversary
-// date): incorporated any time in year Y means Y, Y+1, Y+2 are exempt and
-// Y+3 onward is subject to MCIT (e.g. incorporated July 2024 -> exempt
-// 2024-2026, MCIT starts tax year 2027).
+// ── MCIT EXEMPTION FOR EARLY YEARS (NIRC SEC. 27(E)(1), RR 9-98) ──
+// MCIT is imposed beginning on the 4th taxable year immediately FOLLOWING
+// the year a corporation commenced business operations. RR 9-98's own
+// worked example is unambiguous: commenced 1998 -> MCIT begins 2002, i.e.
+// commencement year + 4. Counted by calendar year alone (not exact
+// anniversary date): incorporated any time in year Y means Y and the three
+// following years (Y, Y+1, Y+2, Y+3) are exempt, and Y+4 onward is subject
+// to MCIT (e.g. incorporated July 2024 -> exempt 2024-2027, MCIT starts tax
+// year 2028).
 function isMcitApplicable(dateOfIncorporation, taxYear) {
   if (!dateOfIncorporation) return true; // unknown -> assume subject (safer default: don't silently understate tax due)
   const incYear = new Date(dateOfIncorporation).getFullYear();
   if (!Number.isFinite(incYear)) return true;
-  return (taxYear - incYear) >= 3;
+  return (taxYear - incYear) >= 4;
 }
 
 // Standard Manager.io system group GUIDs (same across all businesses). Only
