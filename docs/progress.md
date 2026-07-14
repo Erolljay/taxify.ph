@@ -4,13 +4,13 @@ Tracking doc referenced by [`docs/ECC-PLAYBOOK.md`](ECC-PLAYBOOK.md). Snapshot o
 where the app stands against the 6-phase SaaS plan, kept current from source
 changes rather than hand-waved.
 
-_Last updated: 2026-07-13_
+_Last updated: 2026-07-14_
 
 ## Phase status
 
 | Phase | Status | Notes |
 |-------|--------|-------|
-| **0 — Foundation hardening** | ✅ Largely done | Pull-based auto-deploy (`scripts/deploy.sh` via 2-min root cron), nginx web-root hardening, LF normalization. Hosting-license confirmed, Manager Server bought. **Backups live (2026-07-13):** AWS Backup EC2 snapshots + S3 Manager.io data backups, both 2 AM Manila, 7/56/400-day retention. Still open: UFW, fail2ban, UptimeRobot, `save-tax-rates.php` security pass. |
+| **0 — Foundation hardening** | ✅ Largely done | Pull-based auto-deploy (`scripts/deploy.sh` via 2-min root cron), nginx web-root hardening, LF normalization. Hosting-license confirmed, Manager Server bought. **Backups live (2026-07-13):** AWS Backup EC2 snapshots + S3 Manager.io data backups, both 2 AM Manila, 7/56/400-day retention. **`save-tax-rates.php` hardened in code (2026-07-14):** shared-secret token + body cap + backup pruning on top of nginx basic-auth (pending the one-time token-file server step). Still open: UFW, fail2ban, UptimeRobot. |
 | **1 — Tenancy / entitlement / provisioning** | 🟡 Substantially built | `server/auth-*.js`, `smtp-mailer.js`, `entitlement.php`, `provisioner.js` + Playwright driver, `schema.sql`, systemd units. **95 passing tests.** **Email sender LIVE** — `txform-auth` service running, real magic-link email delivered via Google Workspace. **Magic-link now lands on the portal** — `verifyLink` 302-redirects a browser to `txform.ph/account` (cookie attached) instead of downloading `verify.json`; portal + `/api/*` share the apex origin. Open: live Playwright selectors. |
 | **2 — Website rebuild & SEO** | ✅ Live | **Deployed 2026-07-14 (PR #21).** Full static multi-page site under `website/`: home + features/security/about/contact/faq/terms/privacy, shared `assets/css/site.css` + `assets/js/site.js`, real favicons, `robots.txt` + `sitemap.xml` + per-page meta & JSON-LD. **Positioned as a live product, not a waitlist** — CTAs are "Get started" → contact onboarding and "Sign in" → the owner portal at **`/account`**. Legal pages carry the firm's real details (TalloCPA, Iloilo City, DPO Erol Jay Tallo). Old JS bundle preserved as `index.legacy.html`. Open only: counsel review of legal pages, optional font self-hosting. |
 | **3 — Payments (PayMongo)** | 🔴 Not started | No PayMongo/webhook code yet. |
@@ -27,6 +27,21 @@ The BIR forms engine (26 form pages + report generators) is mature and fully wir
   workflow engine that replaced the old monolithic setup screen).
 
 ## Changelog
+
+### 2026-07-14 — `save-tax-rates.php` security pass (Phase 0)
+Hardened the highest-risk existing endpoint, which previously trusted anything that reached it and
+leaned entirely on the nginx basic-auth block. Three additions, no new dependencies (stays plain PHP):
+- **Shared-secret second gate** — requires an `X-Txform-Token` header matched (constant-time
+  `hash_equals`) against `/etc/txform/tax-rates.token` (env `TXFORM_TAXRATES_TOKEN` fallback).
+  **Fail-closed:** no token file → `500`, never an open write. So a dropped/mis-scoped nginx auth
+  block alone can no longer expose the write. The admin tool ([`tax-rates-admin.js`](../tax-rates-admin.js))
+  prompts for the token once per browser and caches it in localStorage; it never ships in the JS.
+- **256 KB body cap** — rejects oversized POSTs before parsing (Content-Length + hard read limit).
+- **Backup pruning** — `tax-rates-backups/` now trimmed to the newest 50 (was unbounded).
+
+Left the per-value content validation alone by design: blast radius is only "report display looks
+off," caught immediately, and one backup copy undoes it. **Pending:** one-time server step to create
+the token file — [`DEPLOY-TAX-RATES-SAVE.md`](../DEPLOY-TAX-RATES-SAVE.md) step 3.
 
 ### 2026-07-14 — Full-product website LIVE (Phase 2 deployed)
 Merged as PR #21 and confirmed live on `https://txform.ph` via the cron pull: all pages return 200

@@ -4,7 +4,7 @@ Open work, newest concerns first. Part of the ECC tracking triad
 (`instruction.md / progress.md / to-do.md`, see
 [`docs/ECC-PLAYBOOK.md`](ECC-PLAYBOOK.md)). Phase labels map to the 6-phase SaaS plan.
 
-_Last updated: 2026-07-13_
+_Last updated: 2026-07-14_
 
 ## Phase 0 — Foundation hardening
 
@@ -13,8 +13,12 @@ _Last updated: 2026-07-13_
 - [ ] **UFW** firewall rules on `txform-server`.
 - [ ] **fail2ban** for SSH brute-force protection.
 - [ ] **UptimeRobot** (or similar) uptime/downtime alerting.
-- [ ] **`save-tax-rates.php` security pass** — it trusts anything that reaches it
-      and relies entirely on the nginx basic-auth block. Highest-risk existing line.
+- [x] **`save-tax-rates.php` security pass** — **code done 2026-07-14 (pending one-time server step).**
+      Added defense-in-depth on top of nginx basic-auth: shared-secret `X-Txform-Token` header checked
+      (constant-time) against `/etc/txform/tax-rates.token`, fail-closed if unset; 256 KB body cap;
+      backup dir pruned to the newest 50. Admin tool prompts for the token once per browser
+      (localStorage), never ships it. **Server step:** create the token file — see
+      [`DEPLOY-TAX-RATES-SAVE.md`](../DEPLOY-TAX-RATES-SAVE.md) step 3.
 - [ ] Verify every BIR report end-to-end on a real business (**e2e-runner**).
 
 ### Backup hardening (optional, not urgent)
