@@ -76,32 +76,14 @@ function buildTaxCodeTemplates() {
 // ── EWT / CWT ATC LIST ───────────────────────────────────────
 // Used in the EWT/CWT mapping section of the Tax codes tab.
 // Same codes appear on both purchases (EWT applied) and sales (CWT received).
-
-const EWT_ATC_LIST = [
-  // Individual
-  { atc: 'WI010', desc: 'Professional fees, ≤3M',          rate: 5.0,  type: 'Individual' },
-  { atc: 'WI011', desc: 'Professional fees, >3M/VAT',       rate: 10.0, type: 'Individual' },
-  { atc: 'WI060', desc: 'Bookkeeping agents, ≤3M',          rate: 5.0,  type: 'Individual' },
-  { atc: 'WI061', desc: 'Bookkeeping agents, >3M/VAT',      rate: 10.0, type: 'Individual' },
-  { atc: 'WI100', desc: 'Rentals – property/personal',      rate: 5.0,  type: 'Individual' },
-  { atc: 'WI120', desc: 'Contractors',                      rate: 2.0,  type: 'Individual' },
-  { atc: 'WI150', desc: 'Medical practitioners, >3M/VAT',   rate: 10.0, type: 'Individual' },
-  { atc: 'WI151', desc: 'Medical practitioners, ≤3M',       rate: 5.0,  type: 'Individual' },
-  { atc: 'WI157', desc: 'Govt/GOCC supplier – services',    rate: 2.0,  type: 'Individual' },
-  { atc: 'WI158', desc: 'Top WA supplier – goods',          rate: 1.0,  type: 'Individual' },
-  { atc: 'WI160', desc: 'Top WA supplier – services',       rate: 2.0,  type: 'Individual' },
-  { atc: 'WI630', desc: 'Minerals/quarry (non-BSP)',         rate: 5.0,  type: 'Individual' },
-  { atc: 'WI640', desc: 'Govt/GOCC supplier – goods',       rate: 1.0,  type: 'Individual' },
-  // Non-Individual
-  { atc: 'WC010', desc: 'Professional fees, ≤720K',         rate: 10.0, type: 'Non-Individual' },
-  { atc: 'WC011', desc: 'Professional fees, >720K',         rate: 15.0, type: 'Non-Individual' },
-  { atc: 'WC100', desc: 'Rentals – property/personal',      rate: 5.0,  type: 'Non-Individual' },
-  { atc: 'WC120', desc: 'Contractors',                      rate: 2.0,  type: 'Non-Individual' },
-  { atc: 'WC157', desc: 'Govt/GOCC supplier – services',    rate: 2.0,  type: 'Non-Individual' },
-  { atc: 'WC158', desc: 'Top WA supplier – goods',          rate: 1.0,  type: 'Non-Individual' },
-  { atc: 'WC160', desc: 'Top WA supplier – services',       rate: 2.0,  type: 'Non-Individual' },
-  { atc: 'WC640', desc: 'Govt/GOCC supplier – goods',       rate: 1.0,  type: 'Non-Individual' },
-];
+//
+// DERIVED from the canonical ATC_MASTER in ewt-helpers.js (loaded before this
+// file on every EWT page) — so the mapping dropdown, 0619E, 1601EQ, 2307 and
+// QAP all read the exact same ATC set/rates and can never drift apart. Guarded
+// so a page that loads tax-codes.js without ewt-helpers.js just gets [].
+const EWT_ATC_LIST = (typeof ATC_MASTER !== 'undefined')
+  ? Object.entries(ATC_MASTER).map(([atc, m]) => ({ atc, desc: m.desc, rate: m.rate, type: m.payee }))
+  : [];
 
 // ── FWT ATC LIST ─────────────────────────────────────────────
 const FWT_ATC_LIST = [

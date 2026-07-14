@@ -46,19 +46,23 @@ clean layout), then build save-reports into that clean structure.
       (localStorage), never ships it. Token file created on `txform-server` (`www-data`, mode 640);
       the value is pasted into the browser once on the first "Save to Server". Setup:
       [`DEPLOY-TAX-RATES-SAVE.md`](../DEPLOY-TAX-RATES-SAVE.md) step 3.
-- [ ] **BIR report correctness audit** — *in progress (static/logic pass).* **Cleared as correct:**
-      rates data, graduated-tax engine, VAT 2550Q (lineAmounts back-out + netting), the withholding
-      chain (1601C compensation, EWT/ATC rates vs RR 11-2018, 0619E/1601EQ remittance), 1702Q corporate
-      OSD (gross-income base), and SLS/SLP (reuses lineAmounts, TIN-grouped).
-      **Fixed 2026-07-14 (PR #25):** (1) individual OSD in 1701 + 1701Q double-deducted COGS → understated
-      tax (RR 16-2008: OSD = 40% of gross sales, COGS not separately deductible); (2) MCIT start year
-      in 1702-RT + 1702-Q was one year early → `>= 4` (RR 9-98: 4th taxable year *following*
-      commencement). Also added a "Tax Due" column to the Tax-Rates admin income-tax panel.
-      **Caveat noted:** 1601C treats separation pay as always non-taxable (only exempt for causes beyond
-      the employee's control). **Still to audit (lower-risk listings):** SAWT/QAP, alphalist, 2307, SSS.
-- [ ] **Report generators have no automated tests** — the `node --test` suite covers only the server
-      side. The pure calc functions (`isMcitApplicable`, `netIncomeFor1701`, `computeGraduatedTax`)
-      need to be made importable in Node so these fixes can be locked in with unit tests.
+- [x] **BIR report correctness audit** — **complete 2026-07-14 (PR #25).** Every report reviewed.
+      **Cleared as correct:** rates data, graduated-tax engine, VAT 2550Q (lineAmounts back-out +
+      netting), withholding chain (1601C, EWT gross-up, 0619E/1601EQ), 1702Q corporate OSD, SLS/SLP,
+      SAWT/QAP, alphalist (1604-C annualization), 2307, SSS (reports actual payroll contributions).
+      **Bugs found & fixed:** (1) individual OSD in 1701 + 1701Q double-deducted COGS → understated
+      tax (RR 16-2008); (2) MCIT start year in 1702-RT + 1702-Q one year early → `>= 4` (RR 9-98);
+      (3) **1601EQ used a divergent ATC table** vs the shared one (2307/QAP), so the quarterly return
+      and its QAP alphalist read different ATC sets and wouldn't reconcile → **consolidated all EWT
+      forms onto one canonical `ATC_MASTER`** (full BIR ATC list, 111 codes; `EWT_ATC_LIST` now derived
+      from it). Also added a "Tax Due" column to the Tax-Rates admin income-tax panel.
+      **Caveat noted:** 1601C treats separation pay as always non-taxable (only exempt for causes
+      beyond the employee's control) — preparer judgment.
+- [x] **Report-calc test harness** — **added 2026-07-14 (PR #25).** `test/report-calcs.test.js` loads
+      the browser calc files into a Node `vm` sandbox (no source changes) and locks the graduated-tax
+      engine, individual OSD (1701/1701Q), MCIT start year, and the consolidated ATC table. Runs under
+      the existing `npm test` (now **107 tests**). *Follow-up:* extend coverage to VAT 2550Q netting and
+      the 1601C compensation computation when convenient.
 - [ ] Verify every BIR report end-to-end on a real business (**e2e-runner**).
 
 ### Backup hardening (optional, not urgent)
