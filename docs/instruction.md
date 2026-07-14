@@ -104,29 +104,48 @@ Both run as **`www-data`**. Recipe to stand it up on a fresh box (done 2026-07-1
 ## Save/freeze filings — apply the snapshot schema (one time)
 
 The save/freeze feature stores frozen filing snapshots in the existing subscriber
-DB (`server/txform.db`). The new endpoints (`server/save-report.php`,
-`server/report-snapshots.php`) ship via the normal git-pull auto-deploy; the only
-manual step is creating the new table. The migration is idempotent
-(`CREATE TABLE IF NOT EXISTS`), so re-running it is safe and leaves existing rows
-untouched:
+DB (`server/txform.db`). The endpoints live at the **web root** — `save-report.php`
+and `report-snapshots.php` (next to `save-tax-rates.php`), NOT under `server/`,
+because the nginx web-root hardening 404s the whole `/server/` path on
+`extension.txform.ph`. They ship via the normal git-pull auto-deploy. Two manual
+steps make freezing work live:
+
+**1. Create the snapshot table.** The dev box / server may not have the `sqlite3`
+CLI (`sudo apt install -y sqlite3`). Run the migration **as `www-data`** so the DB
++ any WAL files keep the ownership the app writes with. It's idempotent
+(`CREATE TABLE IF NOT EXISTS`), safe to re-run:
 
 ```bash
-sqlite3 /var/www/taxify/server/txform.db < /var/www/taxify/server/schema.sql
+sudo apt install -y sqlite3   # if 'sqlite3: command not found'
+sudo -u www-data sqlite3 /var/www/taxify/server/txform.db < /var/www/taxify/server/schema.sql
 ```
 
-No nginx change is needed — `server/*.php` is already served on
-`extension.txform.ph` (same as `entitlement.php`), and the endpoints authenticate
-with the same `txfsid` session cookie. Freezing a filing therefore requires the
-preparer to be signed in; with no session the extension shows an explicit
-"sign in to freeze filings" prompt (drafts still work).
+**2. Scope the session cookie across subdomains.** The portal sets `txfsid` on
+`txform.ph`; the endpoints read it on `extension.txform.ph`. For the cookie to
+cross, the auth service must set `TXFORM_COOKIE_DOMAIN=.txform.ph` in
+`/etc/txform/auth.env`, then restart:
+
+```bash
+grep TXFORM_COOKIE_DOMAIN /etc/txform/auth.env || echo 'TXFORM_COOKIE_DOMAIN=.txform.ph' | sudo tee -a /etc/txform/auth.env
+sudo systemctl restart txform-auth
+```
+
+Without this, freezing 401s and the extension shows the explicit "sign in to
+freeze" prompt (drafts still work) — never a silent loss.
+
+No nginx change is needed: root `*.php` is already routed to php-fpm (that's how
+`save-tax-rates.php` works).
 
 ### How to check it's working
 
 ```bash
 # the table exists:
-sqlite3 /var/www/taxify/server/txform.db '.tables' | grep report_snapshot
+sudo -u www-data sqlite3 /var/www/taxify/server/txform.db '.tables' | grep report_snapshot
+# root PHP executes (GET a POST-only endpoint → 405, i.e. reached PHP, not 404):
+curl -s -o /dev/null -w '%{http_code}\n' https://extension.txform.ph/save-report.php
+# → 405
 # an unauthenticated POST is rejected (401), not a silent write:
-curl -s -o /dev/null -w '%{http_code}\n' -X POST https://extension.txform.ph/server/save-report.php \
+curl -s -o /dev/null -w '%{http_code}\n' -X POST https://extension.txform.ph/save-report.php \
   -H 'Content-Type: application/json' \
   --data '{"business":"x","workflowKey":"vat","periodKey":"quarterly:2026:1","payload":{}}'
 # → 401

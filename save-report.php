@@ -1,13 +1,19 @@
 <?php
 declare(strict_types=1);
 /* ============================================================
-   Txform.ph — server/save-report.php
+   Txform.ph — save-report.php  (web root)
 
    Freezes a filing: stores the report figures + manual inputs as a
    point-in-time snapshot when a preparer marks a period "Filed", so later
    edits to that period's books no longer rewrite the filed return.
 
-   POST /server/save-report.php   (cookie: txfsid=<session secret>)
+   POST /save-report.php   (cookie: txfsid=<session secret>)
+
+   Served from the WEB ROOT (not server/) because the nginx web-root
+   hardening 404s the whole /server/ path on extension.txform.ph — same
+   placement as save-tax-rates.php. The shared backend logic stays hidden
+   in server/report-store.php (a filesystem require, unaffected by the
+   HTTP-level /server/ block).
      body JSON: { business, workflowKey, periodKey, form?, headline?, payload }
      → 200 { ok:true, version }   snapshot stored (version = 1 filed, 2+ amendment)
      → 400 { error }              missing/invalid params
@@ -22,7 +28,7 @@ declare(strict_types=1);
    row (RA 10173 accountability).
    ============================================================ */
 
-require __DIR__ . '/report-store.php';
+require __DIR__ . '/server/report-store.php';
 
 header('Content-Type: application/json');
 

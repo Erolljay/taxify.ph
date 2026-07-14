@@ -22,7 +22,9 @@
      if (!gate.canFileNew) { showEntitlementBanner(gate); return; }
    ============================================================ */
 
-const ENTITLEMENT_ENDPOINT = 'server/entitlement.php';
+// Web-root path (NOT server/…): nginx 404s /server/ on extension.txform.ph,
+// so entitlement.php lives at the root next to save-tax-rates.php.
+const ENTITLEMENT_ENDPOINT = 'entitlement.php';
 
 // Per-business in-memory promise cache (reset when the business changes).
 let _entPromises = {};

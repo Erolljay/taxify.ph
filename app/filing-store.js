@@ -17,8 +17,10 @@
 (function (root) {
   'use strict';
 
-  var SAVE_ENDPOINT      = 'server/save-report.php';
-  var SNAPSHOTS_ENDPOINT = 'server/report-snapshots.php';
+  // Web-root paths (NOT server/…): nginx 404s /server/ on extension.txform.ph,
+  // so the endpoints live at the root next to save-tax-rates.php.
+  var SAVE_ENDPOINT      = 'save-report.php';
+  var SNAPSHOTS_ENDPOINT = 'report-snapshots.php';
 
   function FilingAuthError(message) {
     this.name = 'FilingAuthError';

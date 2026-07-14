@@ -1,16 +1,20 @@
 <?php
 declare(strict_types=1);
 /* ============================================================
-   Txform.ph — server/report-snapshots.php
+   Txform.ph — report-snapshots.php  (web root)
 
    Reads frozen filing snapshots for a business the caller's account owns.
    Two shapes:
 
-   GET /server/report-snapshots.php?business=<guid>&workflow=<wf>&period=<pk>
+   Served from the WEB ROOT (not server/) — the nginx web-root hardening
+   404s the whole /server/ path on extension.txform.ph. Shared logic stays
+   in server/report-store.php via a filesystem require. Same as save-report.php.
+
+   GET /report-snapshots.php?business=<guid>&workflow=<wf>&period=<pk>
      → 200 { snapshots:[...] }   full version history for ONE filing
                                   (newest version first, payload included)
 
-   GET /server/report-snapshots.php?business=<guid>
+   GET /report-snapshots.php?business=<guid>
      → 200 { filings:[...] }     latest FILED snapshot per filing across the
                                   whole business (no payload — light, for the
                                   Filing overview + Deadline Tracker batch)
@@ -19,7 +23,7 @@ declare(strict_types=1);
    business outside the caller's account (indistinguishable — no enumeration).
    ============================================================ */
 
-require __DIR__ . '/report-store.php';
+require __DIR__ . '/server/report-store.php';
 
 header('Content-Type: application/json');
 
