@@ -4,7 +4,30 @@ Open work, newest concerns first. Part of the ECC tracking triad
 (`instruction.md / progress.md / to-do.md`, see
 [`docs/ECC-PLAYBOOK.md`](ECC-PLAYBOOK.md)). Phase labels map to the 6-phase SaaS plan.
 
-_Last updated: 2026-07-14_
+_Last updated: 2026-07-15_
+
+## ⭐ Filing-workflow UX redesign — tax type by tax type (started 2026-07-15)
+
+Redesign each tax type's filing workflow to the agreed conventions (top arrow stepper, merged
+`document` steps, compound-JE payment, per-month DAT). **The standard to copy is written up in
+[`instruction.md`](instruction.md#filing-workflow-ux-conventions-apply-to-every-tax-type)** and the
+[`ECC-PLAYBOOK.md`](ECC-PLAYBOOK.md) — follow it for each tax type so they stay consistent.
+
+- [x] **VAT** — **DONE 2026-07-15 (PR #32).** 12 → 8 steps. Top stepper + `document` steps (SLS/SLP) +
+      2550Q split (Tax Codes / Return) + compound-JE payment with editable Description + SAWT 3-file
+      monthly DAT. `npm test` 119 green. *Eyeball after deploy: split 2550Q Return shows mapped figures;
+      SAWT DAT yields 3 accepted monthly files.*
+- [ ] **EWT (expanded withholding)** — **NEXT (2026-07-16).** Apply the same pattern to the `expanded`
+      workflow: monthly (0619-E) vs quarterly (1601-EQ) return, QAP as a `document` step (supplier-TIN
+      check + per-month DAT), EWT payment as the compound-JE voucher with editable Description. Note EWT
+      legitimately has **both** monthly and quarterly periods (unlike VAT's quarterly-only) — keep the
+      period picker's monthly option here.
+- [ ] **Compensation (1601-C payroll)** — restyle to stepper + JE voucher; keep the tax-status gate.
+- [ ] **Income tax (1701Q / 1702Q individual & corporation)** — stepper + JE voucher; SAWT attachment as
+      a `document` step; keep the DTA carry-forward checklist.
+- [ ] *Cross-cutting once all four are done:* confirm the top stepper + voucher read well on every
+      workflow and drop any now-unused step-engine paths (e.g. the standalone `final` bundle step if no
+      workflow still uses it).
 
 ## ⭐ Prioritized next initiatives (agreed 2026-07-14)
 

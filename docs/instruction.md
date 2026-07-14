@@ -5,7 +5,63 @@ triad (`instruction.md / progress.md / to-do.md`, see
 [`docs/ECC-PLAYBOOK.md`](ECC-PLAYBOOK.md)). Keep current from real changes, not
 hand-waved.
 
-_Last updated: 2026-07-13_
+_Last updated: 2026-07-15_
+
+---
+
+## Filing-workflow UX conventions (apply to every tax type)
+
+The house style for the filing workflows (the step engine in
+[`app/workflows.js`](../app/workflows.js) + [`app/step-engine.js`](../app/step-engine.js)).
+Established with **VAT** (PR #32, 2026-07-15); **copy this pattern when redesigning EWT,
+compensation, and income tax** so all tax types feel the same. The goal is fewer clicks and
+one clear navigation model.
+
+**Navigation & step shape**
+- **Top arrow-flow stepper**, never a left rail — it frees the report panel to full width.
+  Give each step a `short:` label for the chip (the full `label:` is the panel heading).
+- **One step per concern.** *Merge* passive work (review a report + download its file);
+  *separate* anything that carries a real decision.
+- **First step = `info: true` instruction** (the "open Reports → Tax Audit, confirm no
+  transaction is missing a Tax Code" reminder). Read-only guidance, not a gate.
+
+**Which tabs become their own step**
+- A report tab that **changes the numbers** (e.g. the 2550Q Tax Codes mapping) → its **own
+  step, placed before the return**, so the figures you review are trustworthy.
+- Split such tabs into steps with **distinct `iframeId`s** — the engine keeps an iframe in the
+  step that *created* it, so two steps sharing one id leaves the second blank. State carries
+  over via the report's own persistence (e.g. `saveMappingOverrides` saves the VAT mapping per
+  business), not via a shared iframe.
+
+**The `document` step type (review + validate + download in one)**
+- Use for each downloadable listing (SLS, SLP, SAWT, QAP). It embeds the report, runs the
+  party-TIN check as an **inline blocking banner** (BIR rejects DAT files with missing TINs)
+  with a "fix" link into the report's own Customers/Suppliers tab, and gates Continue on a
+  passing check **and** a confirmed download.
+- Optional attachments (e.g. SAWT for VAT) → `optional: true` + `skippable` with a clear skip label.
+
+**Payment step = compound journal-entry voucher**
+- Header band (kind badge · date · pay-from · **editable Description**) over a DR/CR ledger with
+  a balanced badge. The Description defaults to `"<TAX> - <period>"` (e.g. `VAT - Q2 2026`) and
+  feeds the Manager payment `description` / journal `narration`. Keep the pre-filled clearing
+  lines and posting logic as-is — this is a visual layer over the existing recalc/post code.
+
+**Terminal step**
+- The `file` (freeze) step is the last action. Fold the working-paper re-download into it via
+  `bundle:` instead of a separate "download working paper" step.
+
+**DAT downloads (compliance)**
+- SLSP-family listings are filed **per month**, so a **quarter downloads one DAT file per month
+  (3 files)**, not one file spanning the quarter. SLS/SLP already did this; SAWT was aligned to it
+  in PR #32. (If an RDO's eSubmission ever rejects monthly SAWT, `exportSAWTDat` is the retained
+  single-file fallback.)
+
+**Guardrails when editing the engine**
+- Preserve the step engine's contracts: the ids/classes the recalc/post/freeze code reads
+  (`#tfy-je-*`, `.tfy-je-*`, `window._v/_e/_itr`, `window._period`), lazy iframe mounting, and the
+  period cascade. Presentation changes only — no calc changes.
+- **Verify:** `npm test` + `node --check`, then **eyeball in live Manager** (there's no local dev
+  server — `taxify.html` needs Manager's API context to render with data).
 
 ---
 

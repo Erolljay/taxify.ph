@@ -4,7 +4,7 @@ Tracking doc referenced by [`docs/ECC-PLAYBOOK.md`](ECC-PLAYBOOK.md). Snapshot o
 where the app stands against the 6-phase SaaS plan, kept current from source
 changes rather than hand-waved.
 
-_Last updated: 2026-07-14_
+_Last updated: 2026-07-15_
 
 ## Phase status
 
@@ -29,6 +29,36 @@ rates, the graduated-tax engine and VAT 2550Q are verified; two income-tax bugs 
   workflow engine that replaced the old monolithic setup screen).
 
 ## Changelog
+
+### 2026-07-15 — Filing-workflow UX redesign: VAT (first tax type) — PR #32
+Started the tax-by-tax UX redesign of the filing workflows (design conventions now recorded in
+[`instruction.md`](instruction.md#filing-workflow-ux-conventions-apply-to-every-tax-type) and
+[`ECC-PLAYBOOK.md`](ECC-PLAYBOOK.md)). VAT is the first one done and sets the pattern to copy to
+EWT / compensation / income. **Design approved via an interactive mockup before implementation.**
+VAT went from **12 gated steps → 8**. Opened as **PR #32** (branch `docs/save-freeze-deploy-notes`).
+
+- **Engine (shared, applies to all workflows)** — [`app/step-engine.js`](../app/step-engine.js) +
+  [`taxify.html`](../taxify.html):
+  - Left step rail → **top arrow-flow stepper** (chevron `clip-path` segments, numbered, done/active/
+    locked), freeing the report panel to full width. Steps prefer a `short:` label in the stepper.
+  - New **`document` step type** — merges report review + party-TIN validation (inline **blocking**
+    banner with a "fix" link into the report's own tab) + download into one screen.
+  - Instruction steps with **`info: true`** render as soft guidance ("Continue →"), not a checklist gate.
+  - **Payment step restyled as a compound journal-entry voucher** (header band, DR/CR ledger, balanced
+    badge) — logic unchanged. Added an **editable Description** (default `VAT - Q2 2026`) that feeds the
+    payment `description` / journal `narration`. Shared `triggerBundleDownloads` helper; working-paper
+    bundle folded into the freeze step.
+- **VAT workflow** ([`app/workflows.js`](../app/workflows.js)): 2550Q split into **Confirm Tax Codes**
+  and **Review 2550Q Return** (distinct `iframeId`s — the engine keeps an iframe in its creating step, so
+  a shared id blanks the second; the mapping carries over because `saveMappingOverrides` persists it per
+  business). SLS/SLP each collapse review + TIN check + download into one `document` step; "Before you
+  start" is info-only.
+- **SAWT** ([`reports/sawt-report.js`](../reports/sawt-report.js)): quarterly DAT export now emits **one
+  file per month (3 per quarter)**, matching SLS/SLP, via `exportSAWTDatSimple`. Old single-file
+  quarterly `exportSAWTDat` kept as a labeled fallback (in case an RDO's eSubmission rejects monthly SAWT).
+- **Verified:** `npm test` (119 green) + `node --check`. **Not yet runtime-tested in live Manager** (the
+  extension needs Manager's API context; no local dev server) — eyeball after deploy: the split 2550Q
+  Return shows mapped figures, and SAWT DAT yields 3 accepted monthly files.
 
 ### 2026-07-14 — Save/freeze filings + workflow step-engine rebuild (PRIORITY 2) — MERGED (PR #28)
 Reoriented the filing workflows around a first-class **Filing** object (business + workflow +
