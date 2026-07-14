@@ -30,6 +30,27 @@ rates, the graduated-tax engine and VAT 2550Q are verified; two income-tax bugs 
 
 ## Changelog
 
+### 2026-07-14 — Code restructure: flat root JS → concern folders (PRIORITY 1)
+Behavior-preserving reorganization now that the test harness locks the calculations. 35 of the 36 flat
+root `*.js` moved via `git mv` into concern-grouped folders — `reports/` (15 `*-report.js`),
+`helpers/` (deduction/ewt/payroll/pnl), `shared/` (shared, tax-codes, tax-rates, custom-fields,
+chart-of-accounts, entitlement, entitlement-core), `app/` (taxify-app, step-engine, workflows, app,
+reports), `batch/`, `admin/`. **`account.js` stays at root** — the owner portal is served on the apex
+(`txform.ph/account`) via explicit `nginx-portal-snippet.conf` aliases (`= /account`, `= /account.js`),
+not from the repo web root, so moving it to a subfolder would 404 the portal without an nginx change.
+
+- **HTML entry pages stay at root by design.** Each report is an installed Manager.io Custom Button
+  pointing at an absolute URL (`https://extension.txform.ph/<form>.html`, [`reports.js`](../app/reports.js)
+  `BASE_URL + file`). Moving a form's `.html` changes its URL and 404s that button on every already-installed
+  client until reinstall — so only the JS (loaded via relative `<script src>`) moved. Root drops from 61
+  files to the HTML/JSON/config entry points.
+- Rewrote **173** `<script src>` references across 25 HTML pages; updated the two Node test paths
+  (`report-calcs` sandbox list + `entitlement-core` require) and the changelog file links above.
+- **Verified:** 107/107 tests green; every `<script src>` resolves to a real file; the 1701 form,
+  the `taxify.html` app shell, and a batch-import page each load all scripts `200` with no console
+  errors.
+- **Follow-up:** `docs/CODEMAPS/frontend.md` still describes the flat layout — regenerate it.
+
 ### 2026-07-14 — Audit complete: ATC consolidation + report-calc test harness
 Finished the report correctness audit and locked it with tests.
 - **Remaining forms cleared:** SAWT/QAP, alphalist (1604-C annualization — annual tax via graduated
@@ -39,8 +60,8 @@ Finished the report correctness audit and locked it with tests.
   0619E/2307/QAP used the shared one, so the two disagreed on which ATC codes exist — a consultant fee
   (WI050) hit 1601EQ but not QAP, a medical fee (WI150) hit QAP but not 1601EQ, so the quarterly return
   and its alphalist wouldn't reconcile at filing. **Consolidated every EWT form onto one canonical
-  `ATC_MASTER`** in [ewt-helpers.js](../ewt-helpers.js) — the full BIR ATC list (111 codes, with payee
-  type); [tax-codes.js](../tax-codes.js) `EWT_ATC_LIST` is now *derived* from it, and 1601EQ's private
+  `ATC_MASTER`** in [ewt-helpers.js](../helpers/ewt-helpers.js) — the full BIR ATC list (111 codes, with payee
+  type); [tax-codes.js](../shared/tax-codes.js) `EWT_ATC_LIST` is now *derived* from it, and 1601EQ's private
   copy was deleted. Royalties / Sec.109BB stay in their own FWT/PT lists (not creditable EWT).
 - **Test harness added** — [test/report-calcs.test.js](../test/report-calcs.test.js) loads the browser
   calc files into a Node `vm` sandbox (no source changes) and asserts the graduated-tax brackets,
@@ -79,20 +100,20 @@ graduated-tax engine (`computeGraduatedTax` — bracket math spot-checked agains
 the item 37→60→61 netting all faithful to the form). **Two bugs found and fixed** (both rule-confirmed
 with the CPA):
 
-- **Individual OSD double-deducted Cost of Sales** ([1701-report.js](../1701-report.js),
-  [1701q-report.js](../1701q-report.js)) — net income was `(sales − COGS) − 40%×sales` instead of
+- **Individual OSD double-deducted Cost of Sales** ([1701-report.js](../reports/1701-report.js),
+  [1701q-report.js](../reports/1701q-report.js)) — net income was `(sales − COGS) − 40%×sales` instead of
   `sales − 40%×sales`. For individuals, OSD is 40% of *gross sales/receipts* with COGS not separately
   deductible (RR 16-2008 §3); the bug **understated** taxable income (and tax) by the full COGS. Fixed
   so OSD net = 60% of gross sales; COGS now shows ₱0 on the return under OSD (matching eBIRForms), with
   real COGS still on the P&L tab. Itemized path unchanged.
-- **MCIT started one year too early** ([pnl-helpers.js](../pnl-helpers.js) `isMcitApplicable`, surfaced
-  in [1702rt-report.js](../1702rt-report.js) + [1702q-report.js](../1702q-report.js)) — used
+- **MCIT started one year too early** ([pnl-helpers.js](../helpers/pnl-helpers.js) `isMcitApplicable`, surfaced
+  in [1702rt-report.js](../reports/1702rt-report.js) + [1702q-report.js](../reports/1702q-report.js)) — used
   `taxYear − incYear >= 3`. Per RR 9-98, MCIT begins the **4th taxable year following** commencement
   (its worked example: commenced 1998 → MCIT 2002 = year + 4). Changed to `>= 4`; the exempt-window
   note now reads "+ 4". The bug **overstated** tax in the transition year when MCIT exceeded regular tax.
 
 Also **added a "Tax Due" column** to the Tax-Rates admin income-tax panel
-([tax-rates-admin.js](../tax-rates-admin.js)) — shows the BIR-style "₱X + Y% of excess over ₱Z" per
+([tax-rates-admin.js](../admin/tax-rates-admin.js)) — shows the BIR-style "₱X + Y% of excess over ₱Z" per
 bracket (same cumulative math the engine uses), so a preparer can check the brackets against the
 official table instead of seeing only the rate.
 
@@ -106,7 +127,7 @@ leaned entirely on the nginx basic-auth block. Three additions, no new dependenc
 - **Shared-secret second gate** — requires an `X-Txform-Token` header matched (constant-time
   `hash_equals`) against `/etc/txform/tax-rates.token` (env `TXFORM_TAXRATES_TOKEN` fallback).
   **Fail-closed:** no token file → `500`, never an open write. So a dropped/mis-scoped nginx auth
-  block alone can no longer expose the write. The admin tool ([`tax-rates-admin.js`](../tax-rates-admin.js))
+  block alone can no longer expose the write. The admin tool ([`tax-rates-admin.js`](../admin/tax-rates-admin.js))
   prompts for the token once per browser and caches it in localStorage; it never ships in the JS.
 - **256 KB body cap** — rejects oversized POSTs before parsing (Content-Length + hard read limit).
 - **Backup pruning** — `tax-rates-backups/` now trimmed to the newest 50 (was unbounded).

@@ -12,11 +12,19 @@ Sequenced to run **after** the calc audit finishes, so we don't restructure file
 on top of math that's still changing. Order matters: restructure first (behavior-preserving, into a
 clean layout), then build save-reports into that clean structure.
 
-- [ ] **PRIORITY 1 — Report/code restructure (clean architecture).** The extension grew as flat
-      `*-report.js` + form `*.html` files at the repo root (fine for a personal Manager.io extension,
-      messy for a product). Reorganize into a real directory structure grouped by concern
-      (reports/, helpers/, shared/, etc.), behavior-preserving. **Do it after a test harness exists**
-      so the move can't silently break a calculation. Prereq: report-generator tests (see below).
+- [x] **PRIORITY 1 — Report/code restructure (clean architecture).** **DONE 2026-07-14
+      (branch `refactor/js-restructure`).** Moved 35 of the 36 flat root `*.js` into concern-grouped
+      folders (`reports/ helpers/ shared/ app/ batch/ admin/`) via `git mv`. `account.js` stays at
+      root — the owner portal is served on the **apex** (`txform.ph/account`) via explicit nginx
+      aliases (`nginx-portal-snippet.conf`), not from the repo web root, so a subfolder path would
+      404 there. The form
+      `*.html` **entry pages stay at root by design** — their absolute URLs are the installed
+      Manager.io extension keys ([`reports.js`](../app/reports.js) `BASE_URL + file`), so moving
+      them would 404 every installed client's buttons until reinstall (deferred to a later
+      reinstall/redirect decision). Rewrote 173 `<script src>` refs across 25 HTML pages + the two
+      Node test paths. Behavior-preserving: **107/107 tests green**, every `src` resolves, and the
+      1701/app-shell/batch-import pages load all scripts `200` with no console errors. Follow-up:
+      regenerate `docs/CODEMAPS/frontend.md` (still describes the flat layout).
 - [ ] **PRIORITY 2 — Save / freeze generated reports (point-in-time snapshots).** Today every report
       recomputes live from Manager.io, so editing a transaction inside an already-filed period silently
       changes the "filed" figures. With the server + SQLite now in place, persist a report when marked
