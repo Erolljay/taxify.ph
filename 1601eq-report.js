@@ -22,48 +22,24 @@ function datDate(d) {
   return `${mm}/${dd}/${dt.getFullYear()}`;
 }
 
-// ── ATC MASTER (subset of common 1601-EQ codes) ────────────────
-const ATC_MASTER_1601EQ = {
-  WI010:{desc:'Professional fees (lawyers, CPAs, etc.) – Individual ≤3M',rate:5},
-  WI011:{desc:'Professional fees (lawyers, CPAs, etc.) – Individual >3M/VAT',rate:10},
-  WC010:{desc:'Professional fees – Corp ≤720k',rate:10},
-  WC011:{desc:'Professional fees – Corp >720k',rate:15},
-  WI050:{desc:'Management & technical consultants – Ind ≤3M',rate:5},
-  WI051:{desc:'Management & technical consultants – Ind >3M/VAT',rate:10},
-  WC050:{desc:'Management & technical consultants – Corp ≤720k',rate:10},
-  WC051:{desc:'Management & technical consultants – Corp >720k',rate:15},
-  WI100:{desc:'Rental of property – Individual',rate:5},
-  WC100:{desc:'Rental of property – Corporation',rate:5},
-  WI120:{desc:'Income payments to certain contractors – Individual',rate:2},
-  WC120:{desc:'Income payments to certain contractors – Corporation',rate:2},
-  WI158:{desc:'Top WA – Purchase of goods – Individual',rate:1},
-  WC158:{desc:'Top WA – Purchase of goods – Corporation',rate:1},
-  WI160:{desc:'Top WA – Purchase of services – Individual',rate:2},
-  WC160:{desc:'Top WA – Purchase of services – Corporation',rate:2},
-  WI515:{desc:'Commissions/marketing agents – Ind ≤3M',rate:5},
-  WI516:{desc:'Commissions/marketing agents – Ind >3M/VAT',rate:10},
-  WC515:{desc:'Commissions/marketing agents – Corp ≤720k',rate:10},
-  WC516:{desc:'Commissions/marketing agents – Corp >720k',rate:15},
-  WI640:{desc:'GOCC payments to suppliers of goods',rate:1},
-  WC640:{desc:'GOCC payments to suppliers of goods',rate:1},
-  WI157:{desc:'GOCC payments to suppliers of services',rate:2},
-  WC157:{desc:'GOCC payments to suppliers of services',rate:2},
-  WI610:{desc:'Payments to suppliers of agricultural products',rate:1},
-  WC610:{desc:'Payments to suppliers of agricultural products',rate:1},
-};
-
+// 1601-EQ resolves ATCs through the shared ATC_MASTER (ewt-helpers.js) — the
+// single source of truth also used by 0619E / 2307 / QAP, so the quarterly
+// return and its QAP alphalist read the exact same ATC set and always
+// reconcile. (Previously this file kept its own partial ATC table, which
+// silently dropped codes the shared table had, and vice-versa.) Explicit
+// per-tax-code mappings (ewtMap, keyed by Manager tax-code GUID) still win.
 function resolveAtc1601EQ(tcName, ewtMap, tcKey) {
   // 1. explicit user mapping by Manager tax-code key
   if (ewtMap && tcKey && ewtMap[tcKey]) {
     const m = ewtMap[tcKey];
     const atc = (m.atc || m).toString().toUpperCase();
-    return { atc, desc: m.desc || ATC_MASTER_1601EQ[atc]?.desc || atc, rate: Number(m.rate ?? ATC_MASTER_1601EQ[atc]?.rate ?? 0) };
+    return { atc, desc: m.desc || ATC_MASTER[atc]?.desc || atc, rate: Number(m.rate ?? ATC_MASTER[atc]?.rate ?? 0) };
   }
   if (!tcName) return null;
   const upper = tcName.toUpperCase().trim();
-  if (ATC_MASTER_1601EQ[upper]) return { atc: upper, ...ATC_MASTER_1601EQ[upper] };
-  for (const atc of Object.keys(ATC_MASTER_1601EQ)) {
-    if (upper.includes(atc)) return { atc, ...ATC_MASTER_1601EQ[atc] };
+  if (ATC_MASTER[upper]) return { atc: upper, ...ATC_MASTER[upper] };
+  for (const atc of Object.keys(ATC_MASTER)) {
+    if (upper.includes(atc)) return { atc, ...ATC_MASTER[atc] };
   }
   return null;
 }

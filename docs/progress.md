@@ -30,6 +30,26 @@ rates, the graduated-tax engine and VAT 2550Q are verified; two income-tax bugs 
 
 ## Changelog
 
+### 2026-07-14 — Audit complete: ATC consolidation + report-calc test harness
+Finished the report correctness audit and locked it with tests.
+- **Remaining forms cleared:** SAWT/QAP, alphalist (1604-C annualization — annual tax via graduated
+  table on annualized comp, over/under split correct), 2307, and SSS (reports actual payroll
+  contributions, no stale table).
+- **Bug found & fixed — 1601EQ ATC divergence:** 1601EQ carried its own partial ATC table while
+  0619E/2307/QAP used the shared one, so the two disagreed on which ATC codes exist — a consultant fee
+  (WI050) hit 1601EQ but not QAP, a medical fee (WI150) hit QAP but not 1601EQ, so the quarterly return
+  and its alphalist wouldn't reconcile at filing. **Consolidated every EWT form onto one canonical
+  `ATC_MASTER`** in [ewt-helpers.js](../ewt-helpers.js) — the full BIR ATC list (111 codes, with payee
+  type); [tax-codes.js](../tax-codes.js) `EWT_ATC_LIST` is now *derived* from it, and 1601EQ's private
+  copy was deleted. Royalties / Sec.109BB stay in their own FWT/PT lists (not creditable EWT).
+- **Test harness added** — [test/report-calcs.test.js](../test/report-calcs.test.js) loads the browser
+  calc files into a Node `vm` sandbox (no source changes) and asserts the graduated-tax brackets,
+  individual OSD (1701/1701Q net = 60% of gross sales), MCIT start (year + 4), ATC rates, and that
+  `EWT_ATC_LIST` can't drift from `ATC_MASTER`. Runs under `npm test` — **107 tests green** (was 95).
+
+This closes the "verify every BIR report" Phase 0 item. Next up are the two prioritized initiatives
+(restructure, then save/freeze reports).
+
 ### 2026-07-14 — Audit: withholding chain cleared + next two initiatives prioritized
 Continued the report correctness audit through the withholding forms — **no new bugs found:**
 - **1601C (compensation)** — MWE exemptions, cumulative ₱90k 13th-month cap (YTD), and SSS/PHIC/HDMF
