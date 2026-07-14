@@ -17,7 +17,9 @@ _Last updated: 2026-07-14_
 | **4 — ToS / Data Privacy (RA 10173)** | 🟡 Draft pages | `website/terms.html` + `website/privacy.html` drafted (RA 10173-aligned, NPC/DPO sections) with bracketed firm placeholders; needs real firm details + counsel review before launch. |
 | **5 — Beta / launch** | 🔴 Not started | — |
 
-The BIR forms engine (26 form pages + report generators) is mature and fully wired.
+The BIR forms engine (26 form pages + report generators) is mature and fully wired. A
+correctness audit of the report calculations is underway (see the 2026-07-14 changelog entry) —
+rates, the graduated-tax engine and VAT 2550Q are verified; two income-tax bugs were fixed.
 
 ## Current tooling notes
 
@@ -27,6 +29,34 @@ The BIR forms engine (26 form pages + report generators) is mature and fully wir
   workflow engine that replaced the old monolithic setup screen).
 
 ## Changelog
+
+### 2026-07-14 — BIR report correctness audit + two income-tax fixes (Phase 0)
+Static/logic audit of the report generators against BIR rules (part of the "verify every BIR report"
+Phase 0 item). **Cleared as correct:** `tax-rates-data.json` (all rates + effectivity windows), the
+graduated-tax engine (`computeGraduatedTax` — bracket math spot-checked against the BIR table), and
+**VAT 2550Q** end-to-end (`lineAmounts` VAT back-out, output/input categorization by tax code, and
+the item 37→60→61 netting all faithful to the form). **Two bugs found and fixed** (both rule-confirmed
+with the CPA):
+
+- **Individual OSD double-deducted Cost of Sales** ([1701-report.js](../1701-report.js),
+  [1701q-report.js](../1701q-report.js)) — net income was `(sales − COGS) − 40%×sales` instead of
+  `sales − 40%×sales`. For individuals, OSD is 40% of *gross sales/receipts* with COGS not separately
+  deductible (RR 16-2008 §3); the bug **understated** taxable income (and tax) by the full COGS. Fixed
+  so OSD net = 60% of gross sales; COGS now shows ₱0 on the return under OSD (matching eBIRForms), with
+  real COGS still on the P&L tab. Itemized path unchanged.
+- **MCIT started one year too early** ([pnl-helpers.js](../pnl-helpers.js) `isMcitApplicable`, surfaced
+  in [1702rt-report.js](../1702rt-report.js) + [1702q-report.js](../1702q-report.js)) — used
+  `taxYear − incYear >= 3`. Per RR 9-98, MCIT begins the **4th taxable year following** commencement
+  (its worked example: commenced 1998 → MCIT 2002 = year + 4). Changed to `>= 4`; the exempt-window
+  note now reads "+ 4". The bug **overstated** tax in the transition year when MCIT exceeded regular tax.
+
+Also **added a "Tax Due" column** to the Tax-Rates admin income-tax panel
+([tax-rates-admin.js](../tax-rates-admin.js)) — shows the BIR-style "₱X + Y% of excess over ₱Z" per
+bracket (same cumulative math the engine uses), so a preparer can check the brackets against the
+official table instead of seeing only the rate.
+
+**Not yet audited:** 1601C, 0619E, 1601EQ, 1702Q OSD base, SLS/SLP, SAWT/QAP, alphalist, 2307, SSS.
+**Gap:** the report generators still have no automated tests (see [`to-do.md`](to-do.md)).
 
 ### 2026-07-14 — `save-tax-rates.php` security pass — LIVE (Phase 0)
 **Merged as PR #23 and deployed via the cron pull; token file created on `txform-server`.**

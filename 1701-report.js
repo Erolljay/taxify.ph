@@ -103,12 +103,21 @@ async function generate1701(biz, setup, outputEl) {
 
 function netIncomeFor1701(totals, deduction, itemizedTotal, year) {
   const sales = totals.income;
-  const cogs = totals.cogs;
-  const grossIncome = sales - cogs;
   const itemized = itemizedTotal;
   const osd = getOsdRate(dateForYear(year)) * sales;
-  const allowable = deduction === 'osd' ? osd : itemized;
-  return { sales, cogs, grossIncome, itemized, osd, allowable, netIncome: grossIncome - allowable };
+
+  if (deduction === 'osd') {
+    // Individual OSD (RR 16-2008 §3): 40% of GROSS SALES/RECEIPTS, with cost
+    // of sales NOT separately deductible — so net income is sales − OSD (60%
+    // of gross sales). COGS is shown as 0 on the return here to match how
+    // eBIRForms computes OSD off gross sales (the books' real COGS still shows
+    // on the P&L tab). Deducting COGS on top of the 40% would understate tax.
+    return { sales, cogs: 0, grossIncome: sales, itemized, osd, allowable: osd, netIncome: sales - osd };
+  }
+  // Itemized: gross income = sales − COGS, then less ordinary itemized deductions.
+  const cogs = totals.cogs;
+  const grossIncome = sales - cogs;
+  return { sales, cogs, grossIncome, itemized, osd, allowable: itemized, netIncome: grossIncome - itemized };
 }
 
 function render1701(el, data, setup, year, method, deduction) {

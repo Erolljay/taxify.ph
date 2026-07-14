@@ -209,19 +209,48 @@ function incomeBracketRowHtml(b) {
   </tr>`;
 }
 
+// Derives the BIR-style "Tax Due" column (fixed base + % of excess over the
+// bracket floor) from the {upTo, rate} bracket list — the SAME cumulative
+// `fixed` math getIncomeTaxTable()/computeGraduatedTax() use in tax-rates.js,
+// surfaced here so a preparer can eyeball each bracket against the official
+// BIR graduated table (e.g. "₱22,500 + 20% of excess over ₱400,000").
+function incomeBracketTaxDueLabels(brackets) {
+  let from = 0, fixed = 0;
+  return brackets.map(b => {
+    const floor = from;
+    const rate = Number(b.rate) || 0;
+    const to = (b.upTo === null || b.upTo === undefined) ? Infinity : Number(b.upTo);
+    const ratePct = (rate * 100).toFixed(2).replace(/\.?0+$/, '');
+    let label;
+    if (rate === 0) {
+      label = 'Exempt';
+    } else if (Math.round(fixed) === 0) {
+      label = `${ratePct}% of excess over ₱${floor.toLocaleString()}`;
+    } else {
+      label = `₱${Math.round(fixed).toLocaleString()} + ${ratePct}% of excess over ₱${floor.toLocaleString()}`;
+    }
+    fixed += (to === Infinity ? 0 : (to - floor)) * rate;
+    from = to;
+    return label;
+  });
+}
+
 function renderIncomeTaxPanel(panel) {
   const tables = trDraftSeries('incomeTax');
-  const tablesHtml = tables.map(r => `
+  const tablesHtml = tables.map(r => {
+    const taxDueLabels = incomeBracketTaxDueLabels(r.brackets);
+    return `
     <div class="card" style="margin-bottom:10px;">
       <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;">
         <span>Effective ${escHtml(r.effectiveDate)}${r.label ? ' — ' + escHtml(r.label) : ''} ${trBadge(r.id)}</span>
         ${!trIsPublished(r.id) ? `<button type="button" class="btn btn-outline btn-sm" data-tr-delete="incomeTax" data-tr-id="${r.id}">🗑 Undo</button>` : ''}
       </div>
       <table class="data-table" style="width:100%;margin-top:8px;">
-        <thead><tr style="font-size:11px;color:#9ca3af;"><th style="text-align:left;padding:4px 10px;">Up To</th><th style="text-align:left;padding:4px 10px;">Rate</th></tr></thead>
-        <tbody>${r.brackets.map(b => `<tr style="border-bottom:.5px solid #f3f4f6;"><td style="padding:5px 10px;font-size:12px;">${b.upTo === null || b.upTo === undefined ? 'No limit' : '₱' + Number(b.upTo).toLocaleString()}</td><td style="padding:5px 10px;font-size:12px;font-weight:600;">${(b.rate * 100).toFixed(2).replace(/\.?0+$/, '')}%</td></tr>`).join('')}</tbody>
+        <thead><tr style="font-size:11px;color:#9ca3af;"><th style="text-align:left;padding:4px 10px;">Up To</th><th style="text-align:left;padding:4px 10px;">Rate</th><th style="text-align:left;padding:4px 10px;">Tax Due</th></tr></thead>
+        <tbody>${r.brackets.map((b, i) => `<tr style="border-bottom:.5px solid #f3f4f6;"><td style="padding:5px 10px;font-size:12px;">${b.upTo === null || b.upTo === undefined ? 'No limit' : '₱' + Number(b.upTo).toLocaleString()}</td><td style="padding:5px 10px;font-size:12px;font-weight:600;">${(b.rate * 100).toFixed(2).replace(/\.?0+$/, '')}%</td><td style="padding:5px 10px;font-size:12px;color:#374151;">${escHtml(taxDueLabels[i])}</td></tr>`).join('')}</tbody>
       </table>
-    </div>`).join('');
+    </div>`;
+  }).join('');
 
   panel.innerHTML = `
     <div class="alert alert-info" style="margin-bottom:14px;">

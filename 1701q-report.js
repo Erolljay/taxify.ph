@@ -121,12 +121,19 @@ async function generate1701Q(biz, setup, outputEl) {
 
 function netIncomeFor(totals, deduction, itemizedTotal, year) {
   const sales = totals.income;
-  const cogs = totals.cogs;
-  const grossIncome = sales - cogs;
   const itemized = itemizedTotal !== undefined ? itemizedTotal : totals.opex;
   const osd = getOsdRate(dateForYear(year)) * sales;
-  const allowable = deduction === 'osd' ? osd : itemized;
-  return { sales, cogs, grossIncome, itemized, osd, allowable, netIncome: grossIncome - allowable };
+
+  if (deduction === 'osd') {
+    // Individual OSD (RR 16-2008 §3): 40% of GROSS SALES/RECEIPTS, cost of
+    // sales NOT separately deductible — net income is sales − OSD (60% of
+    // gross sales). COGS shown as 0 to match eBIRForms; deducting it on top of
+    // the 40% would understate tax. Mirrors netIncomeFor1701 in 1701-report.js.
+    return { sales, cogs: 0, grossIncome: sales, itemized, osd, allowable: osd, netIncome: sales - osd };
+  }
+  const cogs = totals.cogs;
+  const grossIncome = sales - cogs;
+  return { sales, cogs, grossIncome, itemized, osd, allowable: itemized, netIncome: grossIncome - itemized };
 }
 
 function render1701Q(el, data, setup, period, method, deduction) {

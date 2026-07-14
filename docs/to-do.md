@@ -20,6 +20,17 @@ _Last updated: 2026-07-14_
       (localStorage), never ships it. Token file created on `txform-server` (`www-data`, mode 640);
       the value is pasted into the browser once on the first "Save to Server". Setup:
       [`DEPLOY-TAX-RATES-SAVE.md`](../DEPLOY-TAX-RATES-SAVE.md) step 3.
+- [ ] **BIR report correctness audit** — *in progress (static/logic pass).* Cleared: rates data,
+      graduated-tax engine, VAT 2550Q (lineAmounts back-out + output/input netting all correct).
+      **Fixed 2026-07-14:** (1) individual OSD in 1701 + 1701Q double-deducted COGS → understated
+      tax (RR 16-2008: OSD = 40% of gross sales, COGS not separately deductible); (2) MCIT start year
+      in 1702-RT + 1702-Q was one year early → `>= 4` (RR 9-98: 4th taxable year *following*
+      commencement). Also added a "Tax Due" column to the Tax-Rates admin income-tax panel so brackets
+      can be checked against the BIR table. **Still to audit:** 1601C, 0619E, 1601EQ, 1702Q OSD base,
+      SLS/SLP, SAWT/QAP, alphalist, 2307, SSS.
+- [ ] **Report generators have no automated tests** — the `node --test` suite covers only the server
+      side. The pure calc functions (`isMcitApplicable`, `netIncomeFor1701`, `computeGraduatedTax`)
+      need to be made importable in Node so these fixes can be locked in with unit tests.
 - [ ] Verify every BIR report end-to-end on a real business (**e2e-runner**).
 
 ### Backup hardening (optional, not urgent)
