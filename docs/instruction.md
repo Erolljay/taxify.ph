@@ -101,6 +101,52 @@ Both run as **`www-data`**. Recipe to stand it up on a fresh box (done 2026-07-1
 
 ---
 
+## Owner portal — serve `/account` + magic-link landing
+
+The magic link in the sign-in email now drops the firm owner straight onto the
+owner portal (`https://txform.ph/account`) instead of downloading a `verify.json`
+file. Two one-time server steps make that live (the code ships via the normal
+git-pull auto-deploy; these apply it):
+
+### Step 1 — Restart the auth service (picks up the new redirect code + `TXFORM_PORTAL_URL`)
+```bash
+sudo systemctl daemon-reload
+sudo systemctl restart txform-auth
+sudo systemctl status txform-auth --no-pager   # want: active (running)
+```
+
+### Step 2 — Serve the portal on the apex, same origin as `/api/*`
+In the **`txform.ph` (apex) 443 `server { }` block** of
+`/etc/nginx/sites-available/managerserver` — the *same* block that already has
+`include /var/www/taxify/nginx-auth-snippet.conf;` — add one more line right
+next to it:
+```nginx
+    include /var/www/taxify/nginx-portal-snippet.conf;
+```
+Then test and **restart** (a reload may not apply new `location` blocks):
+```bash
+sudo nginx -t && sudo systemctl restart nginx
+```
+
+### How to check it's working
+```bash
+# portal page loads on the apex (200, HTML):
+curl -s -o /dev/null -w "%{http_code}\n" https://txform.ph/account          # → 200
+# a bad link bounces a browser back to sign-in with an error flag (302 + Location):
+curl -s -o /dev/null -D - -H 'Accept: text/html' \
+  "https://txform.ph/api/auth/verify?token=bogus" | grep -i '^location'     # → Location: https://txform.ph/account?error=link_invalid
+# API clients still get JSON (unchanged):
+curl -s -H 'Accept: application/json' \
+  "https://txform.ph/api/auth/verify?token=bogus"                           # → {"error":"link missing"}
+```
+Then do the real thing: request a link from `https://txform.ph/account`, open the
+email, click it — you should land signed-in on the portal (no file download).
+
+> Gotcha (same as the auth route): nginx **`restart`**, not `reload` — a reload can
+> silently skip the new `location` blocks.
+
+---
+
 ## Email — magic-link sign-in
 
 The auth service (`server/auth-service.js`, systemd unit `txform-auth`) emails

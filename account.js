@@ -30,10 +30,31 @@ function clear(el) { el.className = ''; el.textContent = ''; }
 
 let state = null;
 
+// A failed magic-link click lands here as /account?error=<code> (see
+// verifyLink). Read it once, then strip it from the URL so a refresh or a
+// later successful sign-in doesn't keep showing the stale error.
+function takeLinkError() {
+  const code = new URLSearchParams(window.location.search).get('error');
+  if (!code) return null;
+  history.replaceState(null, '', window.location.pathname);
+  return code;
+}
+
+function linkErrorMessage(code) {
+  if (code === 'link_expired') return 'That sign-in link has expired. Enter your email to get a fresh one.';
+  if (code === 'link_used') return 'That sign-in link was already used. Enter your email to get a new one.';
+  return 'That sign-in link is invalid. Enter your email to get a new one.';
+}
+
 // ── boot ──────────────────────────────────────────────────────────
 async function init() {
+  const linkError = takeLinkError();
   const me = await api('GET', '/api/auth/me');
-  if (me.status !== 200) return showSignin();
+  if (me.status !== 200) {
+    showSignin();
+    if (linkError) flash($('signin-msg'), 'warn', linkErrorMessage(linkError));
+    return;
+  }
   await loadDashboard();
 }
 

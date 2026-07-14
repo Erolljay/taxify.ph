@@ -81,29 +81,58 @@ function requestLink(db, input, deps) {
   return generic; // identical response whether or not the user existed
 }
 
+// Does the caller want an HTML page (a browser navigating to the link),
+// as opposed to a JSON API client? Drives redirect-vs-JSON on /verify.
+function wantsHtml(accept) {
+  return typeof accept === 'string' && accept.indexOf('text/html') !== -1;
+}
+
+// Token-failure reason (from auth-core.isLoginTokenUsable) → a stable code
+// the portal sign-in view can turn into a friendly message. Anything not
+// listed falls back to link_invalid.
+const LINK_ERROR_CODE = { expired: 'link_expired', consumed: 'link_used', missing: 'link_invalid' };
+
 // GET /api/auth/verify?token=...  → consumes the token, opens a session.
+// A browser (Accept: text/html) is 302-redirected: on success to the portal
+// with the session cookie attached, on failure back to the sign-in view with
+// an ?error=<code> indicator. API clients (Accept: application/json, or no
+// Accept header) keep the original JSON contract unchanged.
 function verifyLink(db, input, deps) {
   const now = deps.now();
+  const html = wantsHtml(input && input.accept);
+  const portal = deps.portalUrl || ((deps.baseUrl || 'https://txform.ph') + '/account');
+
+  // Browsers get a redirect back to sign-in; API clients keep the JSON error.
+  function fail(status, jsonError, code) {
+    if (html) return { status: 302, location: portal + '?error=' + code };
+    return { status: status, json: { error: jsonError } };
+  }
+
   const token = input && input.token;
-  if (!token) return { status: 400, json: { error: 'token required' } };
+  if (!token) return fail(400, 'token required', 'link_invalid');
 
   const row = db.prepare('SELECT id, email, expires_at, consumed_at FROM login_token WHERE token_hash = ?')
     .get(A.hashToken(String(token)));
   const check = A.isLoginTokenUsable(row, now);
-  if (!check.usable) return { status: 400, json: { error: 'link ' + check.reason } };
+  if (!check.usable) return fail(400, 'link ' + check.reason, LINK_ERROR_CODE[check.reason] || 'link_invalid');
 
   // Consume atomically — the WHERE guard makes a replayed request a no-op.
   const consumed = db.prepare('UPDATE login_token SET consumed_at = ? WHERE id = ? AND consumed_at IS NULL')
     .run(now, row.id);
-  if (consumed.changes !== 1) return { status: 400, json: { error: 'link consumed' } };
+  if (consumed.changes !== 1) return fail(400, 'link consumed', 'link_used');
 
   const user = db.prepare('SELECT id FROM users WHERE email = ?').get(row.email);
-  if (!user) return { status: 400, json: { error: 'no such user' } };
+  if (!user) return fail(400, 'no such user', 'link_invalid');
 
   const raw = A.generateToken();
   db.prepare('INSERT INTO session (user_id, session_hash, expires_at, created_at) VALUES (?,?,?,?)')
     .run(user.id, A.hashToken(raw), A.sessionExpiry(now), now);
-  return { status: 200, json: { ok: true }, setCookie: sessionCookie(raw, A.SESSION_TTL_MS) };
+
+  // Same session in both cases; only the envelope differs. The Set-Cookie
+  // rides the 302 so the browser lands on the portal already signed in.
+  const setCookie = sessionCookie(raw, A.SESSION_TTL_MS);
+  if (html) return { status: 302, location: portal, setCookie: setCookie };
+  return { status: 200, json: { ok: true }, setCookie: setCookie };
 }
 
 // GET /api/auth/me  → who is signed in.
@@ -272,15 +301,28 @@ if (require.main === module) {
       })
     : function (m) { console.log('[auth] would email', m.to, m.link); };
 
+  const baseUrl = process.env.TXFORM_BASE_URL || 'https://txform.ph';
   const deps = {
     now: function () { return Date.now(); },
-    baseUrl: process.env.TXFORM_BASE_URL || 'https://txform.ph',
+    baseUrl: baseUrl,
+    // Canonical owner-portal URL the magic-link redirect lands on. Same
+    // origin as the /api/* proxy (txform.ph apex) so account.js's cookie'd
+    // calls reach the service. Defaults to <base>/account.
+    portalUrl: process.env.TXFORM_PORTAL_URL || (baseUrl + '/account'),
     sendEmail: sendEmail,
   };
 
+  // Thin responder. A handler result may carry either a JSON body or a
+  // `location` (302 redirect); `setCookie` attaches to either.
   function send(res, out) {
-    const headers = { 'Content-Type': 'application/json' };
+    const headers = {};
     if (out.setCookie) headers['Set-Cookie'] = out.setCookie;
+    if (out.location) {
+      headers['Location'] = out.location;
+      res.writeHead(out.status, headers);
+      return res.end();
+    }
+    headers['Content-Type'] = 'application/json';
     res.writeHead(out.status, headers);
     res.end(JSON.stringify(out.json));
   }
@@ -296,7 +338,7 @@ if (require.main === module) {
       const ip = req.socket.remoteAddress;
       try {
         if (req.method === 'POST' && url.pathname === '/api/auth/request-link') return send(res, requestLink(db, { email: json.email, ip: ip }, deps));
-        if (url.pathname === '/api/auth/verify') return send(res, verifyLink(db, { token: url.searchParams.get('token') }, deps));
+        if (url.pathname === '/api/auth/verify') return send(res, verifyLink(db, { token: url.searchParams.get('token'), accept: req.headers.accept }, deps));
         if (url.pathname === '/api/auth/me') return send(res, currentUser(db, { cookie: cookie }, deps));
         if (req.method === 'POST' && url.pathname === '/api/tenancy/user-business') return send(res, setUserBusiness(db, { cookie: cookie, userId: json.userId, businessId: json.businessId, grant: json.grant }, deps));
         if (req.method === 'POST' && url.pathname === '/api/tenancy/invite-staff') return send(res, inviteStaff(db, { cookie: cookie, email: json.email }, deps));

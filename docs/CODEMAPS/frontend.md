@@ -5,11 +5,12 @@ Vanilla JS, no framework/build. Two static apps served from the box, plus the
 marketing site. All user values rendered via `textContent` (no innerHTML).
 
 ## Owner portal — `account.html` + `account.js`  (the "portal we made")
-Firm-owner console. Talks to the Node auth/tenancy API with `credentials:'include'`.
+Firm-owner console served at **`https://txform.ph/account`** (apex, same origin as the
+`/api/*` proxy). Talks to the Node auth/tenancy API with `credentials:'include'`.
 ```
-init() → GET /api/auth/me
+init() → takeLinkError() (?error=… from a failed magic link) → GET /api/auth/me
    ├─ 200 → loadDashboard() → GET /api/tenancy/overview → render()
-   └─ else → showSignin()
+   └─ else → showSignin() (+ warn if a link error was present)
 signin-form  → POST /api/auth/request-link {email}     (magic link)
 dashboard-view:
    biz-form   → POST /api/tenancy/add-business
@@ -17,10 +18,10 @@ dashboard-view:
    matrix     → checkbox grid staff × business → POST /api/tenancy/user-business {grant}
 ```
 Views: `#signin-view`, `#dashboard-view` (`#biz-list`, `#staff-list`, `#matrix`).
-**Gap:** `/api/auth/verify` returns JSON — it does NOT yet redirect into `account.html`,
-so clicking a magic link downloads `verify.json` instead of landing on this console.
-Also account.html sits at repo root (extension host); the `/api/*` proxy is on the
-`txform.ph` apex — serving host + proxy host need aligning for the portal to call the API.
+Clicking a magic link now lands here: `verifyLink` 302-redirects the browser to
+`/account` with the session cookie (success), or to `/account?error=<code>` which
+`takeLinkError()` turns into a friendly sign-in warning (bad/expired/used link).
+Served on the apex via `nginx-portal-snippet.conf` so its cookie'd `/api/*` calls resolve.
 
 ## BIR extension — the mature core (Manager.io custom extension)
 ```

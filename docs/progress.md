@@ -11,8 +11,8 @@ _Last updated: 2026-07-13_
 | Phase | Status | Notes |
 |-------|--------|-------|
 | **0 — Foundation hardening** | ✅ Largely done | Pull-based auto-deploy (`scripts/deploy.sh` via 2-min root cron), nginx web-root hardening, LF normalization. Hosting-license confirmed, Manager Server bought. **Backups live (2026-07-13):** AWS Backup EC2 snapshots + S3 Manager.io data backups, both 2 AM Manila, 7/56/400-day retention. Still open: UFW, fail2ban, UptimeRobot, `save-tax-rates.php` security pass. |
-| **1 — Tenancy / entitlement / provisioning** | 🟡 Substantially built | `server/auth-*.js`, `smtp-mailer.js`, `entitlement.php`, `provisioner.js` + Playwright driver, `schema.sql`, systemd units. **87 passing tests.** **Email sender LIVE** — `txform-auth` service running on the server, real magic-link email delivered via Google Workspace. Open: `From` send-as alias, nginx `/api/auth` route, live Playwright selectors. |
-| **2 — Website rebuild & SEO** | 🟢 Built (undeployed) | Full static multi-page site under `website/`: home + features/security/about/contact/faq/terms/privacy, shared `assets/css/site.css` + `assets/js/site.js`, real favicons, `robots.txt` + `sitemap.xml` + per-page meta & JSON-LD. **Positioned as a live product, not a waitlist** — early-access capture dropped; CTAs are "Get started" → contact onboarding and "Sign in" → the real `account.html` (moved into `website/`, same-origin with `/api/auth`). Old JS bundle preserved as `index.legacy.html`. Open: fill legal/about placeholders, self-host fonts, then deploy. |
+| **1 — Tenancy / entitlement / provisioning** | 🟡 Substantially built | `server/auth-*.js`, `smtp-mailer.js`, `entitlement.php`, `provisioner.js` + Playwright driver, `schema.sql`, systemd units. **95 passing tests.** **Email sender LIVE** — `txform-auth` service running, real magic-link email delivered via Google Workspace. **Magic-link now lands on the portal** — `verifyLink` 302-redirects a browser to `txform.ph/account` (cookie attached) instead of downloading `verify.json`; portal + `/api/*` share the apex origin. Open: live Playwright selectors. |
+| **2 — Website rebuild & SEO** | 🟢 Built (undeployed) | Full static multi-page site under `website/`: home + features/security/about/contact/faq/terms/privacy, shared `assets/css/site.css` + `assets/js/site.js`, real favicons, `robots.txt` + `sitemap.xml` + per-page meta & JSON-LD. **Positioned as a live product, not a waitlist** — early-access dropped; CTAs are "Get started" → contact onboarding and "Sign in" → the owner portal at **`/account`** (the merged Phase-1 design). Legal pages carry the firm's real details (TalloCPA, Iloilo City, DPO Erol Jay Tallo). Old JS bundle preserved as `index.legacy.html`. Open: counsel review of legal pages, self-host fonts, then deploy. |
 | **3 — Payments (PayMongo)** | 🔴 Not started | No PayMongo/webhook code yet. |
 | **4 — ToS / Data Privacy (RA 10173)** | 🟡 Draft pages | `website/terms.html` + `website/privacy.html` drafted (RA 10173-aligned, NPC/DPO sections) with bracketed firm placeholders; needs real firm details + counsel review before launch. |
 | **5 — Beta / launch** | 🔴 Not started | — |
@@ -31,15 +31,17 @@ The BIR forms engine (26 form pages + report generators) is mature and fully wir
 ### 2026-07-14 — Website pivoted from waitlist to full product (Phase 2)
 Dropped the "early access" positioning; the site now presents Txform as a live product:
 - **Early-access removed:** deleted the homepage email-capture section and reverted the
-  `/api/early-access` backend (handler, `early_access` table, 3 tests, nginx route) — suite back
-  to **87 passing**. Also removed the fabricated testimonials block (dishonest on a live site).
+  `/api/early-access` backend (handler, `early_access` table, tests, nginx route). Also removed the
+  fabricated testimonials block (dishonest on a live site).
 - **CTAs are real:** primary **"Get started"** → `/contact.html` (manual onboarding, since
-  self-serve billing is Phase 3), secondary **"Sign in"** → `/account.html`.
-- **Sign-in consolidated:** the throwaway `portal.html` was deleted in favour of the existing
-  `account.html` + `account.js` (magic-link sign-in view **and** firm dashboard), which were
-  moved into `website/` so they're served same-origin at `txform.ph/account.html` — required for
-  the httpOnly session cookie and the relative `/api/auth` + `/api/tenancy` fetches. `account.html`
-  marked `noindex`. Dead CSS/JS from the removed forms was pruned.
+  self-serve billing is Phase 3), secondary **"Sign in"** → the owner portal at **`/account`**.
+- **Sign-in uses the real portal:** the throwaway `portal.html` was deleted in favour of the
+  existing `account.html` + `account.js` (sign-in view **and** firm dashboard). These stay at the
+  repo root and are served at `txform.ph/account` via the Phase-1 `nginx-portal-snippet.conf`; the
+  magic-link `verifyLink` redirect already lands there. Every marketing "Sign in" link → `/account`.
+- **Legal details filled:** operator **TalloCPA**, **Iloilo City** (base + governing law), DPO
+  **Erol Jay Tallo, CPA** — across terms/privacy/about; all footers moved Manila → Iloilo City.
+- Merged `main` (Phase-1 magic-link portal work); suite green at **95 tests**.
 
 ### 2026-07-13 — Website rebuilt as static multi-page site (Phase 2)
 Replaced the 564 KB self-unpacking JS bundle at `website/index.html` with a real, crawlable
@@ -56,7 +58,26 @@ Plus Jakarta Sans / Inter / JetBrains Mono) and rebuilt as shared CSS.
 - **Favicons:** generated real `favicon.ico` (16/32/48), `favicon.svg`, `apple-touch-icon.png`
   from the brand mark (replaces fragile data-URI that Safari ignored).
 - **Safety:** old bundle kept as `index.legacy.html`. All 12 routes verified `200`, no broken
-  internal links. **Not yet deployed** — awaits placeholder fill + the open items above.
+  internal links. **Not yet deployed** — awaits the open items above.
+
+### 2026-07-13 — Magic-link sign-in lands on the portal (Phase 1)
+Wired the emailed link so clicking it lands the firm owner on the owner portal instead of
+downloading `verify.json`:
+- **`verifyLink` redirect** — a browser (`Accept: text/html`) is now 302-redirected: on success to
+  `TXFORM_PORTAL_URL` (`https://txform.ph/account`) with the `txfsid` cookie riding the redirect; on a
+  bad/expired/used link to `…/account?error=link_invalid|link_expired|link_used`. API clients
+  (`Accept: application/json` or none) keep the exact JSON contract. The thin `send()` glue gained a
+  `Location`-header branch. TDD: +8 tests (**95 total, green**).
+- **Same-origin portal** — chose apex option (a): `account.html`/`account.js` served at
+  `https://txform.ph/account` via new `nginx-portal-snippet.conf`, so the portal shares the origin with
+  the `/api/*` proxy already on the apex (its cookie'd `/api/auth/me` + `/api/tenancy/*` calls resolve).
+  `account.js` reads `?error=` and shows a friendly sign-in warning. `TXFORM_PORTAL_URL` added to the
+  systemd unit (defaults to `<base>/account`).
+- **`/security-review`** — clean: no user input reaches the `Location` header or the DOM (redirect target
+  is trusted env + fixed literal codes; `?error=` is compared, never rendered).
+- **Server steps (one-time):** `sudo systemctl daemon-reload && sudo systemctl restart txform-auth`;
+  add `include …/nginx-portal-snippet.conf;` to the apex 443 block, then `sudo nginx -t && sudo systemctl
+  restart nginx`. Full recipe in [`instruction.md`](instruction.md).
 
 ### 2026-07-13 — Security review passed + tracking/artifact synced
 `/security-review` on the auth + mailer path returned **no HIGH/MEDIUM findings** (CRLF

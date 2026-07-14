@@ -26,7 +26,14 @@ _Last updated: 2026-07-13_
 - [ ] Delete the stray `test/backuptest.txt` left in the bucket from the permission test.
 
 ## Later phases (from the plan)
-- [ ] **Phase 1** — tenancy/entitlement (75 tests passing; gate with `/security-review`):
+- [ ] **Phase 1** — tenancy/entitlement (95 tests passing; gate with `/security-review`):
+  - [x] **Magic-link landing** — **LIVE & deployed 2026-07-13.** `verifyLink` 302-redirects a
+        browser to the owner portal (`https://txform.ph/account`) with the session cookie on success,
+        or to `…/account?error=<code>` on a bad/expired/used link (API JSON contract preserved for
+        `Accept: application/json`). Portal + `/api/*` proxy aligned on the apex origin
+        (`nginx-portal-snippet.conf` included in the `managerserver` apex 443 block); `account.js`
+        surfaces the `?error=` as a sign-in warning. TDD (+8 tests → 95), `/security-review` clean.
+        Server steps done: `txform-auth` restarted, portal snippet included + `nginx` restarted.
   - [x] **Email sender** — **LIVE & verified 2026-07-13.** Zero-dep SMTP client
         `server/smtp-mailer.js` wired into `deps.sendEmail`; 12 new tests (87 total). PR #15 merged.
         `txform-auth` systemd service installed & running on the server (Node 24 installed
@@ -44,27 +51,43 @@ _Last updated: 2026-07-13_
   - [x] **`/security-review`** — passed 2026-07-13. No HIGH/MEDIUM findings on the auth + mailer
         path: CRLF header-injection guard present (`oneLine()`), TLS cert validation on by default
         (no `rejectUnauthorized:false`), SMTP password never logged, magic-link token is CSPRNG.
-  - [ ] **Live Playwright selectors** — need the live books.txform.ph admin UI.
-- [x] **Phase 2** — website multi-page/SEO rebuild. **DONE (undeployed) 2026-07-13.** Old 564 KB
-      JS bundle → static multi-page site (`website/`): home + features/security/about/contact/faq/
-      terms/privacy, `assets/css/site.css` design system, real favicons, `robots.txt`/`sitemap.xml`,
-      per-page meta + JSON-LD. Old bundle kept as `index.legacy.html`. Follow-ups before deploy:
-  - [x] **Pivoted from waitlist → full product (2026-07-14).** Dropped the "Get early access"
-        framing entirely: removed the email-capture section + the `/api/early-access` endpoint
-        (handler/table/tests/nginx all reverted, back to 87 tests), and the fabricated testimonials.
-        CTAs are now **"Get started"** → `/contact.html` (manual onboarding — self-serve billing
-        waits on Phase 3) and **"Sign in"** → `/account.html`.
-  - [x] Sign-in consolidated onto the **real account page**. `account.html`/`account.js` (the
-        existing magic-link sign-in + firm dashboard) moved into `website/` so it's served
-        same-origin at `txform.ph/account.html` (needed for its session cookie + `/api/` calls);
-        the duplicate `portal.html` was deleted. All "Sign in" links → `/account.html`.
+  - [ ] **Remaining — in dependency / build order** (front half of the onboarding funnel + staff delivery):
+    1. [ ] **Self-service sign-up** — *the blocker: no new firm can get in today* (`requestLink` only
+       emails existing users). Add `POST /api/auth/sign-up { email, firmName }` → create `account`
+       (`trialing` or `pending_payment`, per the model decision) + owner `users` row → send the first
+       magic link; add a sign-up view to `account.html`. Reuses the shipped verify/redirect + mailer.
+       **Decision needed: trial-first vs pay-first** (sets the starting `account.status`).
+    2. [ ] **Staff invite email** — `inviteStaff` creates the row + enqueues provisioning but sends
+       nothing. Email the invited staffer a magic link (gives them the `txfsid` session
+       `entitlement.php` reads) plus a "your firm added you" note.
+    3. [ ] **Manager credential delivery** — decide how a staff restricted-user logs into
+       `books.txform.ph` (provisioner sets a password + one-time setup link, or a Manager-native
+       invite). Confirm what Manager Server supports before touching the driver.
+    4. [ ] **Live Playwright selectors** — map the real `books.txform.ph` admin DOM so
+       `createUser`/`grantAccess`/`revokeAccess`/`disableUser` stop being stubs (they currently throw
+       "not implemented" and `createUser` returns a null ref). Depends on #3.
+    5. [ ] **Plan-status enforcement (expiry ladder)** — enforce `account.status`
+       (active → grace → suspended → cancelled) on `verifyLink`/`/me` and in `entitlement.php`; wire
+       `current_period_end` / `grace_until`. Nothing blocks a lapsed account today. (Couples with Phase 3 webhooks.)
+- [x] **Phase 2** — website multi-page/SEO rebuild. **DONE (undeployed).** Old 564 KB JS bundle →
+      static multi-page site (`website/`): home + features/security/about/contact/faq/terms/privacy,
+      `assets/css/site.css` design system, real favicons, `robots.txt`/`sitemap.xml`, per-page meta +
+      JSON-LD. Old bundle kept as `index.legacy.html`. Positioned as a live product, not a waitlist:
+  - [x] **Pivoted from waitlist → full product (2026-07-14).** Removed the email-capture section +
+        the `/api/early-access` endpoint (handler/table/tests/nginx all reverted) and the fabricated
+        testimonials. CTAs are **"Get started"** → `/contact.html` (manual onboarding — self-serve
+        billing waits on Phase 3 sign-up above) and **"Sign in"** → `/account`.
+  - [x] Sign-in uses the **real owner portal** (not a duplicate). `account.html`/`account.js` stay at
+        the repo root, served at `txform.ph/account` via the Phase-1 `nginx-portal-snippet.conf`;
+        the throwaway `portal.html` was deleted and every "Sign in" link → `/account`. Merged `main`
+        (magic-link portal redirect); tests green at **95**.
   - [x] Fill legal placeholders (2026-07-14): firm **TalloCPA**, **Iloilo City** (base +
         governing-law), DPO **Erol Jay Tallo, CPA** (`privacy@txform.ph`); all footers/contact
         moved Manila → Iloilo City. Still open: **counsel review** of the legal pages, and confirm
         whether the firm must **register its DPO with the NPC**.
   - [ ] (Optional) Self-host the web fonts instead of Google Fonts, per ECC web perf/privacy rules.
-  - [ ] Deploy: commit to `main` → 2-min cron pull, confirm `nginx` serves the new `website/` root
-        (incl. `account.html`), and the apex `/api/auth/*` proxy is live for sign-in.
+  - [ ] Deploy: merge to `main` → 2-min cron pull; confirm `nginx` serves the new `website/` root and
+        the `/account` portal + `/api/auth/*` proxy are live for sign-in.
 - [ ] **Phase 3** — PayMongo payments (not started; security gate).
 - [ ] **Phase 4** — ToS / RA 10173 data-privacy pages (not started).
 - [ ] **Phase 5** — beta / launch.
