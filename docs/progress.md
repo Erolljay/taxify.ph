@@ -30,6 +30,49 @@ rates, the graduated-tax engine and VAT 2550Q are verified; two income-tax bugs 
 
 ## Changelog
 
+### 2026-07-14 — Save/freeze filings + workflow step-engine rebuild (PRIORITY 2)
+Reoriented the filing workflows around a first-class **Filing** object (business + workflow +
+period) with a `draft → filed → amended` lifecycle, and built point-in-time snapshots on top of it.
+Marking a period **Filed** now freezes its figures so later book edits don't rewrite the filed
+return.
+
+- **Server (per-tenant, server-only store):** new `report_snapshot` table in `server/schema.sql`
+  (append-only versions = amendment history) + two endpoints — [`server/save-report.php`](../server/save-report.php)
+  (POST, versioned insert, supersedes prior, `audit_log` row) and
+  [`server/report-snapshots.php`](../server/report-snapshots.php) (GET history / batch). Both reuse
+  `entitlement.php`'s exact session-auth + business-ownership model via the shared
+  [`server/report-store.php`](../server/report-store.php) include (session validation, PDO prepared
+  statements, 256 KB body cap, no enumeration oracle).
+- **Client model:** [`app/filing-core.js`](../app/filing-core.js) — pure, dual-exported logic
+  (period-key encoding shared with the SQL/regex layer, `draft/filed/amended` resolution, live-vs-filed
+  variance, form↔workflow map). [`app/filing-store.js`](../app/filing-store.js) — the fetch layer;
+  turns a 401 into a typed `FilingAuthError` so a freeze **fails loudly** (explicit "sign in to freeze"
+  state) on installs with no session instead of silently dropping the snapshot.
+- **Rebuilt step engine** ([`app/step-engine.js`](../app/step-engine.js)): the control model is now
+  Filing-scoped (step progress keyed by `biz:workflow:periodKey`). The terminal step is a new **`file`
+  (freeze)** step — it reads the headline figure + the report's own `window._period` + a generic
+  capture of every manual `input/select/textarea` from the return iframe, and POSTs the snapshot.
+  A **filed** filing renders a **frozen read-only view** (snapshot figures, amendment history, Amend
+  action) with a **variance** banner that recomputes live and warns *"Filed ₱X, books now ₱Y"*. The
+  well-tested step mechanics (review/validate/download/checklist/payment, iframe reuse, period cascade)
+  are preserved. Old `final` bundle steps become a mid-flow "working papers" step.
+- **App shell** ([`app/taxify-app.js`](../app/taxify-app.js) + [`taxify.html`](../taxify.html)): each
+  category now opens a **Filing overview** — period cards showing Draft / Filed / Amended / Overdue +
+  the frozen headline — that drills into the engine. The Deadline Tracker reads **real filed status**
+  from snapshots (replacing the session-only toggle) and shows a static "✓ Filed" for frozen periods.
+- **Manual-input persistence bonus:** the freeze captures the return's manual fields (previously lost
+  on reload) into the snapshot.
+- **Reports:** added additive `window._c` (1601C) and `window._period` (2550Q, 0619E, 1601EQ, 1601C,
+  1701Q, 1702Q) exports so the freeze/variance can read exactly what's on screen — no calc changes.
+- **Tests:** [`test/filing-core.test.js`](../test/filing-core.test.js) locks the pure logic. Suite
+  **119 green** (was 107). PHP endpoints follow repo convention (no Node unit test) — verified on the
+  server, and gated by `/security-review` before merge.
+- **Server-only tradeoff (per decision):** freezing requires a signed-in session; drafts work
+  everywhere. No-session installs see the explicit sign-in prompt, never a silent loss.
+- **Deploy step:** apply the schema migration on the server —
+  `sqlite3 /var/www/taxify/server/txform.db < server/schema.sql` (idempotent `CREATE TABLE IF NOT
+  EXISTS`). See [`docs/instruction.md`](instruction.md).
+
 ### 2026-07-14 — Code restructure: flat root JS → concern folders (PRIORITY 1)
 Behavior-preserving reorganization now that the test harness locks the calculations. 35 of the 36 flat
 root `*.js` moved via `git mv` into concern-grouped folders — `reports/` (15 `*-report.js`),

@@ -499,18 +499,20 @@ function dtkComputeDeadlines(refDate) {
   const y = refDate.getFullYear();
   const deadlines = [];
 
-  const push = (form, name, freq, date) => {
-    deadlines.push({ form, name, freq, date, navKey: DTK_FORM_NAV[form] || null });
+  // `period` mirrors FilingCore's {ptype,year,period} so a deadline can be
+  // matched to a frozen filing snapshot (see renderDeadlineTracker).
+  const push = (form, name, freq, date, period) => {
+    deadlines.push({ form, name, freq, date, period: period || null, navKey: DTK_FORM_NAV[form] || null });
   };
 
   // 1604C — Annual, Jan 31
-  for (const yr of [y - 1, y, y + 1]) push('1604C', 'Withholding Tax on Compensation', `Annual (for ${yr-1})`, dtkDate(yr, 1, 31));
+  for (const yr of [y - 1, y, y + 1]) push('1604C', 'Withholding Tax on Compensation', `Annual (for ${yr-1})`, dtkDate(yr, 1, 31), { ptype: 'annual', year: yr - 1 });
 
   // 1604E — Annual, March 1
-  for (const yr of [y - 1, y, y + 1]) push('1604E', 'Withholding Tax – Expanded', `Annual (for ${yr-1})`, dtkDate(yr, 3, 1));
+  for (const yr of [y - 1, y, y + 1]) push('1604E', 'Withholding Tax – Expanded', `Annual (for ${yr-1})`, dtkDate(yr, 3, 1), { ptype: 'annual', year: yr - 1 });
 
   // 1702 — Annual, April 15
-  for (const yr of [y - 1, y, y + 1]) push('1702', 'Corporate Income Tax', `Annual (for ${yr-1})`, dtkDate(yr, 4, 15));
+  for (const yr of [y - 1, y, y + 1]) push('1702', 'Corporate Income Tax', `Annual (for ${yr-1})`, dtkDate(yr, 4, 15), { ptype: 'annual', year: yr - 1 });
 
   // Monthly: 1601C and 0619E — 10th of following month; December = Jan 15
   const monthlyForms = [
@@ -524,7 +526,7 @@ function dtkComputeDeadlines(refDate) {
         if (m === 12) { dueY = yr + 1; dueM = 1; dueD = 15; }
         else { dueM = m + 1; dueD = 10; }
         const monthName = new Date(yr, m - 1, 1).toLocaleString('default', { month: 'short' });
-        push(mf.form, mf.name, `Monthly – ${monthName} ${yr}`, dtkDate(dueY, dueM, dueD));
+        push(mf.form, mf.name, `Monthly – ${monthName} ${yr}`, dtkDate(dueY, dueM, dueD), { ptype: 'monthly', year: yr, period: m - 1 });
       }
     }
   }
@@ -537,7 +539,7 @@ function dtkComputeDeadlines(refDate) {
   for (const yr of [y - 1, y, y + 1]) {
     for (const q of qtr1601EQ) {
       const dueY = q.nextYear ? yr + 1 : yr;
-      push('1601EQ', 'Withholding Tax – Expanded', `Quarterly ${q.q} ${yr}`, dtkDate(dueY, q.dueM, q.dueD));
+      push('1601EQ', 'Withholding Tax – Expanded', `Quarterly ${q.q} ${yr}`, dtkDate(dueY, q.dueM, q.dueD), { ptype: 'quarterly', year: yr, period: parseInt(q.q.slice(1), 10) });
     }
   }
 
@@ -549,7 +551,7 @@ function dtkComputeDeadlines(refDate) {
   for (const yr of [y - 1, y, y + 1]) {
     for (const q of qtr2550Q) {
       const dueY = q.nextYear ? yr + 1 : yr;
-      push('2550Q', 'Value Added Tax', `Quarterly ${q.q} ${yr}`, dtkDate(dueY, q.dueM, q.dueD));
+      push('2550Q', 'Value Added Tax', `Quarterly ${q.q} ${yr}`, dtkDate(dueY, q.dueM, q.dueD), { ptype: 'quarterly', year: yr, period: parseInt(q.q.slice(1), 10) });
     }
   }
 
@@ -559,7 +561,7 @@ function dtkComputeDeadlines(refDate) {
   ];
   for (const yr of [y - 1, y, y + 1]) {
     for (const q of qtr1702Q) {
-      push('1702Q', 'Corporate Income Tax', `Quarterly ${q.q} ${yr}`, dtkDate(yr, q.dueM, q.dueD));
+      push('1702Q', 'Corporate Income Tax', `Quarterly ${q.q} ${yr}`, dtkDate(yr, q.dueM, q.dueD), { ptype: 'quarterly', year: yr, period: parseInt(q.q.slice(1), 10) });
     }
   }
 
@@ -569,6 +571,12 @@ function dtkComputeDeadlines(refDate) {
 // Tracks which deadline cards the user has marked as filed / dismissed this session
 const _dtkFiled     = new Set();
 const _dtkDismissed = new Set();
+
+// Real filed status from frozen snapshots, keyed "workflowKey|periodKey".
+// null until loaded; {} when loaded (or no session). Replaces the old
+// session-only _dtkFiled toggle for workflow-backed forms.
+let _dtkFiledIndex = null;
+let _dtkFiledLoading = false;
 
 let _dtkFilter = 'upcoming';
 
@@ -593,6 +601,18 @@ function dtkBadgeLabel(status, date, today) {
 function renderDeadlineTracker() {
   const root = document.getElementById('deadlines-mode');
   if (!root) return;
+
+  // Load real filed status once (server-only); re-render when it arrives. No
+  // session → {} (drafts/manual toggle still work).
+  if (_dtkFiledIndex === null && !_dtkFiledLoading && typeof FilingStore !== 'undefined') {
+    _dtkFiledLoading = true;
+    FilingStore.loadBusinessFilings(biz).then(filings => {
+      _dtkFiledIndex = {};
+      (filings || []).forEach(f => { _dtkFiledIndex[f.workflow_key + '|' + f.period_key] = f; });
+      _dtkFiledLoading = false;
+      renderDeadlineTracker();
+    }).catch(() => { _dtkFiledIndex = {}; _dtkFiledLoading = false; });
+  }
 
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -631,7 +651,14 @@ function renderDeadlineTracker() {
     filtered.forEach(d => {
       const status = dtkStatus(d.date, today);
       const key = dtkKey(d);
-      const filed = _dtkFiled.has(key);
+      // Real filed status (from a frozen snapshot) wins over the manual toggle.
+      let realFiled = false;
+      if (_dtkFiledIndex && d.period && typeof FilingCore !== 'undefined') {
+        const wf = FilingCore.formToWorkflow(d.form);
+        const pk = FilingCore.periodKey(d.period);
+        if (wf && pk && _dtkFiledIndex[wf + '|' + pk]) realFiled = true;
+      }
+      const filed = realFiled || _dtkFiled.has(key);
       if (status !== lastStatus) {
         const sectionNames = { overdue:'🔴 Overdue', 'due-soon':'🟡 Due Soon (within 7 days)', upcoming:'🔵 Upcoming (within 30 days)', done:'⚪ Further Ahead' };
         if (_dtkFilter === 'all') html += `<div class="dtk-section-label">${sectionNames[status] || ''}</div>`;
@@ -642,9 +669,13 @@ function renderDeadlineTracker() {
       const yr  = d.date.getFullYear();
       const badge = dtkBadgeLabel(status, d.date, today);
 
-      const filedBtn = filed
-        ? `<button class="dtk-action-btn dtk-filed-active" data-key="${escHtml(key)}" title="Click to undo">✓ Already Filed</button>`
-        : `<button class="dtk-action-btn dtk-filed-btn" data-key="${escHtml(key)}">Already Filed</button>`;
+      // A real frozen filing shows a non-toggle indicator (you amend it inside
+      // the workflow, not by un-ticking here); otherwise the manual toggle.
+      const filedBtn = realFiled
+        ? `<span class="dtk-action-btn dtk-filed-active" style="cursor:default;" title="Filed in Txform">✓ Filed</span>`
+        : filed
+          ? `<button class="dtk-action-btn dtk-filed-active" data-key="${escHtml(key)}" title="Click to undo">✓ Already Filed</button>`
+          : `<button class="dtk-action-btn dtk-filed-btn" data-key="${escHtml(key)}">Already Filed</button>`;
 
       const dismissBtn = `<button class="dtk-action-btn dtk-dismiss-btn" data-key="${escHtml(key)}" title="Remove from list">✕ Remove</button>`;
 
@@ -716,14 +747,148 @@ function renderOthersScreen(root) {
     </ul>`;
 }
 
+let _ovFilter = 'all';
+
+// The set of filing periods a workflow files, each with its BIR due date, so
+// the overview can show status + sort by recency. Bounded to a window around
+// today so the list stays scannable.
+function enumerateWorkflowPeriods(workflowKey, today) {
+  const y = today.getFullYear();
+  const years = [y - 1, y, y + 1];
+  const out = [];
+  const push = (ptype, year, period, form, dueDate) => out.push({ period: { ptype, year, period }, form, dueDate });
+
+  if (workflowKey === 'vat') {
+    const due = { 1: [4, 25], 2: [7, 25], 3: [10, 25], 4: [1, 25] };
+    years.forEach(yr => [1, 2, 3, 4].forEach(q => {
+      const [dm, dd] = due[q]; push('quarterly', yr, q, '2550Q', dtkDate(q === 4 ? yr + 1 : yr, dm, dd));
+    }));
+  } else if (workflowKey === 'expanded') {
+    const dueQ = { 1: [4, 30], 2: [7, 31], 3: [10, 31], 4: [1, 31] };
+    years.forEach(yr => [1, 2, 3, 4].forEach(q => {
+      const [dm, dd] = dueQ[q]; push('quarterly', yr, q, '1601EQ', dtkDate(q === 4 ? yr + 1 : yr, dm, dd));
+    }));
+    years.forEach(yr => { for (let m = 0; m < 12; m++) push('monthly', yr, m, '0619E', dtkDate(m === 11 ? yr + 1 : yr, m === 11 ? 1 : m + 2, m === 11 ? 15 : 10)); });
+  } else if (workflowKey === 'compensation') {
+    years.forEach(yr => { for (let m = 0; m < 12; m++) push('monthly', yr, m, '1601C', dtkDate(m === 11 ? yr + 1 : yr, m === 11 ? 1 : m + 2, m === 11 ? 15 : 10)); });
+  } else if (workflowKey === 'individual') {
+    const dueQ = { 1: [5, 15], 2: [8, 15], 3: [11, 15] };
+    years.forEach(yr => [1, 2, 3].forEach(q => { const [dm, dd] = dueQ[q]; push('quarterly', yr, q, '1701Q', dtkDate(yr, dm, dd)); }));
+  } else if (workflowKey === 'nonindividual') {
+    const dueQ = { 1: [5, 30], 2: [8, 29], 3: [11, 29] };
+    years.forEach(yr => [1, 2, 3].forEach(q => { const [dm, dd] = dueQ[q]; push('quarterly', yr, q, '1702Q', dtkDate(yr, dm, dd)); }));
+  }
+  return out;
+}
+
+// Entry screen for a tax category: a status dashboard of filing periods
+// (Draft / Filed / Amended / Overdue). Clicking a period opens its filing.
 function renderWorkflowScreen(root, workflowKey) {
   const workflow = WORKFLOWS[workflowKey];
-  root.innerHTML = `<div id="tfy-workflow-mount"></div>`;
   if (!workflow) {
-    root.querySelector('#tfy-workflow-mount').innerHTML = '<p class="muted">This workflow isn\'t configured yet.</p>';
+    root.innerHTML = '<div class="tfy-ov"><p class="muted">This workflow isn\'t configured yet.</p></div>';
     return;
   }
-  _stepEngineHandle = StepEngine.mount(root.querySelector('#tfy-workflow-mount'), workflow, biz);
+  renderWorkflowOverview(root, workflowKey);
+}
+
+async function renderWorkflowOverview(root, workflowKey) {
+  const workflow = WORKFLOWS[workflowKey];
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+
+  const winStart = new Date(today); winStart.setDate(winStart.getDate() - 400);
+  const winEnd = new Date(today); winEnd.setDate(winEnd.getDate() + 45);
+  const periods = enumerateWorkflowPeriods(workflowKey, today)
+    .filter(p => p.dueDate >= winStart && p.dueDate <= winEnd)
+    .sort((a, b) => b.dueDate - a.dueDate);
+
+  root.innerHTML = `
+    <div class="tfy-ov">
+      <div class="tfy-ov-head"><div class="tfy-ov-title">${escHtml(workflow.label)} — Filings</div></div>
+      <div class="tfy-ov-help">Pick a period to prepare, file, or review. Filing a period <strong>freezes</strong> its figures so later book edits don't change the filed return.</div>
+      <div id="tfy-ov-note"></div>
+      <div class="tfy-ov-filter-bar" id="tfy-ov-filter"></div>
+      <div class="tfy-ov-grid" id="tfy-ov-grid"><div class="status">Loading filing status…</div></div>
+    </div>`;
+
+  // Real filed status (server-only). No session → drafts still work; show a note.
+  let filedIndex = {};
+  let authNote = false;
+  if (typeof FilingStore !== 'undefined') {
+    try {
+      const filings = await FilingStore.loadBusinessFilings(biz);
+      (filings || []).forEach(f => { filedIndex[f.period_key] = f; });
+    } catch (e) {
+      if (e && e.isAuthError) authNote = true;
+    }
+  }
+
+  const noteEl = root.querySelector('#tfy-ov-note');
+  if (noteEl && authNote) {
+    noteEl.innerHTML = `<div class="alert alert-warn" style="margin-bottom:14px;">🔑 Sign in at <a href="/account" target="_blank" rel="noopener">txform.ph/account</a> to freeze filings and track which periods are filed. You can still prepare drafts without signing in.</div>`;
+  }
+
+  const rows = periods.map(p => {
+    const pk = FilingCore.periodKey(p.period);
+    const filing = filedIndex[pk] || null;
+    let status;
+    if (filing) status = (filing.version > 1) ? 'amended' : 'filed';
+    else status = (p.dueDate < today) ? 'overdue' : 'draft';
+    return { p, pk, filing, status };
+  });
+
+  const filterDefs = { all: 'All', needed: 'Needs filing', filed: 'Filed' };
+  const filterBar = root.querySelector('#tfy-ov-filter');
+  filterBar.innerHTML = Object.entries(filterDefs).map(([k, lbl]) =>
+    `<button class="dtk-filter-btn${_ovFilter === k ? ' active' : ''}" data-ovf="${k}">${escHtml(lbl)}</button>`).join('');
+  filterBar.querySelectorAll('[data-ovf]').forEach(b => b.addEventListener('click', () => { _ovFilter = b.dataset.ovf; renderWorkflowOverview(root, workflowKey); }));
+
+  const shown = rows.filter(r => _ovFilter === 'all' ? true : _ovFilter === 'filed' ? (r.status === 'filed' || r.status === 'amended') : (r.status === 'draft' || r.status === 'overdue'));
+
+  const grid = root.querySelector('#tfy-ov-grid');
+  if (!shown.length) { grid.innerHTML = `<div class="dtk-empty">No periods in this view.</div>`; return; }
+
+  grid.innerHTML = shown.map((r, i) => {
+    const big = r.p.period.ptype === 'quarterly' ? 'Q' + r.p.period.period : (r.p.period.ptype === 'monthly' ? shortMonth(r.p.period.period) : 'YR');
+    const headline = (r.filing && r.filing.headline && typeof r.filing.headline.amount === 'number')
+      ? '₱' + Math.abs(r.filing.headline.amount).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '';
+    const pill = r.status === 'overdue'
+      ? `<span class="tfy-status-pill overdue">Overdue</span>`
+      : `<span class="tfy-status-pill ${r.status}">${r.status === 'draft' ? 'Draft' : r.status === 'amended' ? 'Amended' : 'Filed'}</span>`;
+    return `
+      <div class="tfy-ov-card ${r.status}" data-idx="${i}">
+        <div class="tfy-ov-date-box"><div class="tfy-ov-date-q">${escHtml(big)}</div><div class="tfy-ov-date-y">${r.p.period.year}</div></div>
+        <div>
+          <div class="tfy-ov-info-form">${escHtml(FilingCore.periodLabel(r.p.period))}</div>
+          <div class="tfy-ov-info-sub">BIR Form ${escHtml(r.p.form)}</div>
+          <div class="tfy-ov-info-due">Due ${r.p.dueDate.toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' })}${r.filing ? ' · filed ' + escHtml((r.filing.filed_at || '').slice(0, 10)) : ''}</div>
+        </div>
+        <div class="tfy-ov-headline">${headline}</div>
+        ${pill}
+      </div>`;
+  }).join('');
+
+  grid.querySelectorAll('.tfy-ov-card').forEach(card => {
+    card.addEventListener('click', () => {
+      const r = shown[parseInt(card.dataset.idx, 10)];
+      openFiling(root, workflowKey, r.p.period, r.status);
+    });
+  });
+}
+
+function shortMonth(m0) {
+  return ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][m0] || '?';
+}
+
+function openFiling(root, workflowKey, period, status) {
+  const workflow = WORKFLOWS[workflowKey];
+  root.innerHTML = `
+    <div style="padding:24px 24px 0;">
+      <button class="tfy-ov-back" id="tfy-ov-back">← All ${escHtml(workflow.label)} periods</button>
+    </div>
+    <div id="tfy-workflow-mount"></div>`;
+  root.querySelector('#tfy-ov-back').addEventListener('click', () => renderWorkflowOverview(root, workflowKey));
+  _stepEngineHandle = StepEngine.mount(root.querySelector('#tfy-workflow-mount'), workflow, biz, { period, status });
 }
 
 // ── DATA INTAKE (Batch Upload: Sales / Purchases / Payroll) ───

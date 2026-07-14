@@ -28,20 +28,30 @@ clean layout), then build save-reports into that clean structure.
       verified LIVE 2026-07-14** — new subfolder paths (`reports/`, `shared/`, `app/`) serve 200, entry
       HTML (`1701.html`, `taxify.html`) still 200 (installed buttons intact, no reinstall), old flat
       paths (`1701-report.js`) now 404, and the live app shell loads every script 200 with no console errors.
-- [ ] **PRIORITY 2 — Save / freeze generated reports (point-in-time snapshots).** Today every report
-      recomputes live from Manager.io, so editing a transaction inside an already-filed period silently
-      changes the "filed" figures. With the server + SQLite now in place, persist a report when marked
-      **Filed** so its numbers freeze as of filing; later edits to that period no longer alter it
-      (they flow to an amended return instead). Design agreed:
-      - **Draft vs Filed** status — Draft recomputes freely; only "Mark as Filed" locks a snapshot.
-      - **Keep amendment history** — original filed + each amendment as its own versioned snapshot.
-      - **Variance alert** — when opening a Filed period whose live books now differ, flag "filed ₱X,
-        books now ₱Y — amend?" (decide v1 vs later).
-      - **Storage** — per business, per firm (tenant), in `txform.db` via a guarded save/load endpoint
-        (same shape as the hardened tax-rates write). Bonus: persists the forms' manual-input fields,
-        which are currently lost on reload.
-      - **Freeze scope (recommended):** final figures + manual inputs + supporting detail (SLS/SLP
-        lines, alphalist rows); stored PDF optional later.
+- [x] **PRIORITY 2 — Save / freeze generated reports (point-in-time snapshots).** **DONE 2026-07-14
+      (branch `feature/filing-lifecycle-save-freeze`, not yet merged/deployed).** Rebuilt the workflow
+      step-engine around a first-class **Filing** (biz + workflow + period) with a `draft → filed →
+      amended` lifecycle, and built snapshots on top. Marking a period **Filed** freezes its figures so
+      later book edits no longer rewrite the filed return. Delivered:
+      - **Draft vs Filed status** — a new terminal **`file` (freeze)** step; a filed filing renders a
+        frozen read-only view instead of the live rail.
+      - **Amendment history** — append-only versions in a new `report_snapshot` table (`save-report.php`
+        supersedes the prior filed row, inserts `version+1`); the frozen view lists all versions.
+      - **Variance alert (v1 shipped)** — the frozen view recomputes live and flags *"Filed ₱X, books
+        now ₱Y — amend?"* on the headline (auto for VAT/EWT via URL-param auto-run; graceful
+        "check manually" fallback for returns that don't).
+      - **Storage** — per-tenant `txform.db` via guarded `server/save-report.php` +
+        `report-snapshots.php` (session-auth + business-ownership from the shared `report-store.php`,
+        cloned from `entitlement.php`). **Server-only per decision:** freezing needs a session and
+        **fails loudly** ("sign in to freeze") on no-session installs; drafts work everywhere.
+      - **Manual-input persistence bonus** — the freeze captures the return's manual `input/select/
+        textarea` fields (previously lost on reload) into the snapshot.
+      - **Overview + tracker** — each category opens a Filing overview (period cards: Draft/Filed/
+        Amended/Overdue); the Deadline Tracker shows real filed status.
+      - **Tests** — `test/filing-core.test.js` (suite 119 green). **Deploy:** apply the schema migration
+        (`sqlite3 …/txform.db < server/schema.sql`); run `/security-review` on the new PHP endpoints
+        before merge. *Follow-up:* extend auto-variance to comp/income returns (they'd need URL-param
+        auto-run); optional stored-PDF; extend snapshot to SLS/SLP/alphalist supporting detail.
 - [ ] **Evaluate the Manager Cloud self-serve distribution path (strategic).** Discovered 2026-07-14:
       a Manager.io **Cloud edition** custom button pointing at `extension.txform.ph/` loads the
       extension — so *any* Manager Cloud/Server/Desktop user can load it by URL, no install. This is a

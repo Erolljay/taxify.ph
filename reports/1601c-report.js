@@ -227,6 +227,13 @@ function render1601C(el, rows, totals, setup, period) {
   const taxDue = totals.line25; // Line 25 total per Part II is the basis carried to Part III
   const totalRemittance = taxDue;
 
+  // Exposed for the wizard's freeze/variance step (parallels window._v / _e /
+  // _itr in the other reports) — the headline figure the filing snapshots,
+  // plus the period this render represents so the freeze keys the snapshot to
+  // exactly what's on screen (month is 0-based, matching monthName()).
+  window._c = { totalRemittance };
+  window._period = { ptype: 'monthly', year: period.year, period: period.month, form: '1601C', label: period.label };
+
   const detailRows = rows.map(r => `
     <tr>
       <td>${escHtml(r.name)}</td>

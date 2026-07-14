@@ -347,6 +347,17 @@ async function generate() {
   const quarter = parseInt(document.getElementById('f-quarter').value, 10);
   const year    = parseInt(document.getElementById('f-year').value, 10);
   const month   = isMonthlyView ? parseInt(document.getElementById('f-month').value, 10) : null;
+  // Period this generation represents, for the wizard's freeze/variance step
+  // (parallels window._v; month is 0-based). The headline figure (window._v)
+  // is refreshed by recompute() on manual edits, but the period identity is
+  // fixed at generate time, so it's set here.
+  window._period = {
+    ptype: isMonthlyView ? 'monthly' : 'quarterly',
+    year: year,
+    period: isMonthlyView ? month : quarter,
+    form: '2550Q',
+    label: (isMonthlyView ? monthName(month) : 'Q' + quarter) + ' ' + year
+  };
   // The official BIR identification fields (Quarter/Year) always reflect the
   // full quarter; "Monthly" only narrows which transactions get totalled
   // into the figures, for businesses that close their books monthly.

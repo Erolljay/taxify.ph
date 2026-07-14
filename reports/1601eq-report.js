@@ -196,6 +196,8 @@ async function generate1601EQ(biz, setup, outputEl) {
 
     render1601EQ(outputEl, atcRows, detail, setup, _eqPeriod);
     window._e = { totalEwt: atcRows.reduce((a, r) => a + r.ewt, 0) };
+    // Period this render represents, for the wizard's freeze/variance step.
+    window._period = { ptype: 'quarterly', year: _eqPeriod.year, period: _eqPeriod.quarter, form: '1601EQ', label: _eqPeriod.label };
 
     ['eq-excel','eq-dat','eq-print','eq-pdf'].forEach(id => {
       const btn = document.getElementById(id);

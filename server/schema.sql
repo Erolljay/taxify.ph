@@ -108,3 +108,29 @@ CREATE TABLE IF NOT EXISTS session (
   last_seen     INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_session_user ON session(user_id);
+
+-- ── Priority 2: frozen filing snapshots (save/freeze reports) ────
+-- When a preparer marks a filing "Filed", the report figures + manual
+-- inputs are frozen here as of that moment, so later edits to that period's
+-- books no longer rewrite the filed return. Append-only: an amendment adds
+-- a new row with version+1 and marks prior rows 'superseded', preserving
+-- the full amendment history. A filing is identified by
+-- (business_id, workflow_key, period_key); `headline` holds just the one
+-- figure the variance alert compares against live books.
+CREATE TABLE IF NOT EXISTS report_snapshot (
+  id            INTEGER PRIMARY KEY,
+  business_id   INTEGER NOT NULL REFERENCES businesses(id),
+  workflow_key  TEXT    NOT NULL,                     -- vat|expanded|compensation|individual|nonindividual
+  period_key    TEXT    NOT NULL,                     -- e.g. quarterly:2026:1 / monthly:2026:3 / annual:2026
+  form          TEXT,                                 -- 2550Q, 1601EQ, ...
+  version       INTEGER NOT NULL DEFAULT 1,           -- 1 = original filed, 2+ = amendments
+  status        TEXT    NOT NULL DEFAULT 'filed',     -- filed|superseded
+  headline      TEXT,                                 -- JSON { label, amount } — variance source
+  payload       TEXT    NOT NULL,                     -- JSON { figures, manualInputs } snapshot
+  filed_by      TEXT,                                 -- user email
+  filed_at      TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_report_snapshot_lookup
+  ON report_snapshot(business_id, workflow_key, period_key);
+CREATE INDEX IF NOT EXISTS idx_report_snapshot_business
+  ON report_snapshot(business_id);

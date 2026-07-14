@@ -30,7 +30,20 @@ GET /server/entitlement.php?business=<manager_business_guid>
    → reads txfsid session → 200 {status,...} | 401 unauth | 404 not-your-business
 ```
 Owners see all their businesses; staff only those granted via `user_business`. Same session table as the Node service. Authz logic mirrored in tested `shared/entitlement-core.js` / `entitlement-authz` tests.
-(`server/save-tax-rates.php` — writes shared `tax-rates-data.json`; guarded by nginx basic-auth. Flagged for a security pass in to-do.md.)
+(`server/save-tax-rates.php` — writes shared `tax-rates-data.json`; guarded by nginx basic-auth + shared-secret token.)
+
+## PHP filing snapshots — `server/save-report.php` + `report-snapshots.php` (php-fpm)
+```
+POST /server/save-report.php     body {business,workflowKey,periodKey,form?,headline?,payload}
+   → freezes a filing: supersede prior 'filed' row, insert version+1, audit_log → 200 {ok,version}
+GET  /server/report-snapshots.php?business=<guid>[&workflow=&period=]
+   → one filing's version history (with payload) | batch: latest filed per filing (no payload)
+```
+Server-only save/freeze store (Priority 2). Both `require server/report-store.php` (shared session
+auth + business-ownership, cloned from `entitlement.php`; PDO prepared statements; 256 KB body cap;
+401 no-session / 404 cross-account — no enumeration). Rows live in the `report_snapshot` table
+(`server/schema.sql`, append-only versions = amendment history). Pure client logic in
+tested `app/filing-core.js`.
 
 ## Provisioner — `server/provisioner.js` (systemd timer, one `drainOnce`/tick)
 ```

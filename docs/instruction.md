@@ -101,6 +101,37 @@ Both run as **`www-data`**. Recipe to stand it up on a fresh box (done 2026-07-1
 
 ---
 
+## Save/freeze filings — apply the snapshot schema (one time)
+
+The save/freeze feature stores frozen filing snapshots in the existing subscriber
+DB (`server/txform.db`). The new endpoints (`server/save-report.php`,
+`server/report-snapshots.php`) ship via the normal git-pull auto-deploy; the only
+manual step is creating the new table. The migration is idempotent
+(`CREATE TABLE IF NOT EXISTS`), so re-running it is safe and leaves existing rows
+untouched:
+
+```bash
+sqlite3 /var/www/taxify/server/txform.db < /var/www/taxify/server/schema.sql
+```
+
+No nginx change is needed — `server/*.php` is already served on
+`extension.txform.ph` (same as `entitlement.php`), and the endpoints authenticate
+with the same `txfsid` session cookie. Freezing a filing therefore requires the
+preparer to be signed in; with no session the extension shows an explicit
+"sign in to freeze filings" prompt (drafts still work).
+
+### How to check it's working
+
+```bash
+# the table exists:
+sqlite3 /var/www/taxify/server/txform.db '.tables' | grep report_snapshot
+# an unauthenticated POST is rejected (401), not a silent write:
+curl -s -o /dev/null -w '%{http_code}\n' -X POST https://extension.txform.ph/server/save-report.php \
+  -H 'Content-Type: application/json' \
+  --data '{"business":"x","workflowKey":"vat","periodKey":"quarterly:2026:1","payload":{}}'
+# → 401
+```
+
 ## Owner portal — serve `/account` + magic-link landing
 
 The magic link in the sign-in email now drops the firm owner straight onto the

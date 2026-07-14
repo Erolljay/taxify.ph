@@ -38,6 +38,9 @@ installer.html          "Super Admin" — installs the extension + tax-rates adm
 taxify.html  →  app/taxify-app.js + app/step-engine.js + app/workflows.js  (workflow shell)
                 shared/shared.js · shared/tax-codes.js · shared/tax-rates.js
                 shared/custom-fields.js · shared/chart-of-accounts.js
+                app/filing-core.js + app/filing-store.js
+                    (Filing lifecycle: draft→filed→amended, save/freeze snapshots →
+                     server/save-report.php + report-snapshots.php)
                 shared/entitlement.js + shared/entitlement-core.js
                     (client-side entitlement check → entitlement.php)
 app/reports.js          report dispatch (REPORTS[] = one Manager Custom Button each;
@@ -53,6 +56,7 @@ helpers/   deduction-helpers · ewt-helpers · payroll-helpers · pnl-helpers
 shared/    shared · tax-codes · tax-rates · custom-fields · chart-of-accounts
            · entitlement · entitlement-core   (loaded by nearly every page)
 app/       taxify-app · step-engine · workflows · app · reports  (shell + dispatch)
+           · filing-core (pure: periodKey/status/variance) · filing-store (I/O → snapshot endpoints)
 batch/     batch-import · batch-import-collect  (Excel/CSV import; loads xlsx/exceljs from CDN)
 admin/     tax-rates-admin · ewt-taxcodes-tab   (tax-rates admin tab)
 ```
