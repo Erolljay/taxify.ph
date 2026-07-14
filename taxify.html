@@ -67,30 +67,86 @@
     .tfy-di-iframe { width: 100%; height: 720px; border: 1px solid var(--border); border-radius: var(--radius); background: #fff; }
 
     /* ── STEP ENGINE (workflows) ── */
-    .tfy-step-wrap { display: flex; gap: 22px; align-items: flex-start; padding: 24px; }
-    .tfy-step-rail { width: 250px; flex-shrink: 0; display: flex; flex-direction: column; gap: 3px; }
-    .tfy-step-rail-title { font-size: 10.5px; text-transform: uppercase; letter-spacing: .08em; color: var(--faint); font-weight: 700; margin: 0 8px 8px; }
-    .tfy-step-item {
-      display: flex; align-items: center; gap: 11px; text-align: left;
-      padding: 9px 10px; border-radius: 9px; border: 1px solid transparent;
-      background: none; cursor: pointer; font-size: 12.5px; color: var(--muted); font-family: inherit;
-    }
-    .tfy-step-item:hover:not(.locked):not(.active) { background: #eef1f7; }
-    .tfy-step-item.active { background: var(--info-bg); border-color: #d9e3ff; font-weight: 700; color: var(--ink); }
-    .tfy-step-item.locked { opacity: .5; cursor: not-allowed; }
-    .tfy-step-item.done .tfy-step-label { color: var(--ok-fg); }
-    .tfy-step-icon { width: 22px; height: 22px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 12px; }
-    .tfy-step-restart { margin-top: 12px; font-size: 11px; color: var(--faint); background: none; border: none; cursor: pointer; text-align: left; padding: 4px 8px; font-family: inherit; }
+    .tfy-step-wrap { display: flex; flex-direction: column; padding: 20px 24px 24px; }
+
+    /* Top arrow-flow stepper (replaces the old left rail) */
+    .tfy-step-topbar { margin-bottom: 16px; }
+    .tfy-step-topbar-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+    .tfy-step-rail-title { font-size: 15px; font-weight: 700; color: var(--ink); }
+    .tfy-step-rail-period { font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+    .tfy-step-restart { margin-left: auto; font-size: 11px; color: var(--faint); background: none; border: none; cursor: pointer; padding: 4px 6px; font-family: inherit; }
     .tfy-step-restart:hover { color: var(--royal); }
 
-    .tfy-step-panel { flex: 1; min-width: 0; border: 1px solid var(--border); border-radius: 12px; padding: 24px; background: #fff; }
+    .tfy-step-flow { display: flex; gap: 3px; overflow-x: auto; padding-bottom: 6px; }
+    .tfy-step-item {
+      --arrow: 12px; position: relative; flex: 0 0 auto;
+      display: flex; align-items: center; gap: 8px;
+      padding: 9px 16px 9px 22px; font-size: 12px; font-weight: 600; color: var(--muted);
+      background: #eef1f7; border: none; cursor: pointer; font-family: inherit; white-space: nowrap;
+      clip-path: polygon(0 0, calc(100% - var(--arrow)) 0, 100% 50%, calc(100% - var(--arrow)) 100%, 0 100%, var(--arrow) 50%);
+    }
+    .tfy-step-item:first-child { padding-left: 16px; clip-path: polygon(0 0, calc(100% - var(--arrow)) 0, 100% 50%, calc(100% - var(--arrow)) 100%, 0 100%); }
+    .tfy-step-num { display: inline-flex; align-items: center; justify-content: center; width: 19px; height: 19px; border-radius: 50%; background: #fff; color: var(--faint); font-size: 11px; font-weight: 700; flex-shrink: 0; font-variant-numeric: tabular-nums; }
+    .tfy-step-item.done { background: #e6f6ec; color: var(--ok-fg); }
+    .tfy-step-item.done .tfy-step-num { background: var(--ok-fg); color: #fff; }
+    .tfy-step-item.active { background: var(--royal); color: #fff; }
+    .tfy-step-item.active .tfy-step-num { background: #fff; color: var(--royal); }
+    .tfy-step-item.locked { color: var(--faint); opacity: .72; cursor: not-allowed; }
+    .tfy-step-item:not(.locked):not(.active):hover { background: #e2e7f2; color: var(--ink); }
+    .tfy-step-opt { font-size: 9.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; opacity: .7; margin-left: 4px; }
+
+    .tfy-step-panel { border: 1px solid var(--border); border-radius: 12px; padding: 24px; background: #fff; }
     .tfy-step-header-title { font-size: 15px; font-weight: 700; color: var(--ink); margin-bottom: 5px; }
-    .tfy-step-header-help { font-size: 12.5px; line-height: 1.55; color: var(--muted); margin-bottom: 18px; max-width: 620px; }
+    .tfy-step-header-help { font-size: 12.5px; line-height: 1.55; color: var(--muted); margin-bottom: 18px; max-width: 720px; }
     .tfy-iframe-mount { position: relative; }
     .tfy-iframe-holder { width: 100%; }
     .tfy-iframe { width: 100%; height: 560px; border: 1px solid var(--border); border-radius: var(--radius); background: #fff; }
     .tfy-step-footer { margin-top: 18px; padding-top: 18px; border-top: 1px solid var(--line); display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
     .tfy-problem-list { font-size: 12.5px; max-height: 170px; overflow: auto; margin: 8px 0; }
+
+    /* Compound journal-entry voucher (payment step) */
+    .tfy-voucher { border: 1px solid var(--border); border-radius: 12px; overflow: hidden; box-shadow: 0 1px 2px rgba(15,23,42,.04); }
+    .tfy-voucher-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; padding: 14px 18px; background: linear-gradient(#fbfcfe,#f4f7fc); border-bottom: 1px solid var(--border); }
+    .tfy-voucher-kind { display: flex; align-items: center; gap: 10px; }
+    .tfy-voucher-badge { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--royal); background: var(--info-bg); padding: 3px 9px; border-radius: 6px; }
+    .tfy-voucher-kind h4 { margin: 0; font-size: 14px; font-weight: 700; color: var(--ink); }
+    .tfy-voucher-fields { display: flex; gap: 16px; flex-wrap: wrap; align-items: flex-end; }
+    .tfy-vf { display: flex; flex-direction: column; gap: 3px; }
+    .tfy-vf label { font-size: 9.5px; text-transform: uppercase; letter-spacing: .05em; color: var(--faint); font-weight: 700; }
+    .tfy-vf input, .tfy-vf select { padding: 7px 9px; font-size: 12.5px; border: 1.5px solid var(--border); border-radius: 7px; background: #fff; color: var(--ink); font-family: inherit; }
+    .tfy-vf-wide input { min-width: 190px; }
+
+    .tfy-vat-strip { display: flex; flex-wrap: wrap; border-bottom: 1px solid var(--border); }
+    .tfy-vat-cell { flex: 1 1 130px; padding: 10px 16px; border-right: 1px solid var(--line); display: flex; flex-direction: column; gap: 2px; }
+    .tfy-vat-cell:last-child { border-right: none; }
+    .tfy-vat-cell.due { background: var(--warn-bg); }
+    .tfy-vat-cell .k { font-size: 10px; text-transform: uppercase; letter-spacing: .05em; color: var(--faint); font-weight: 700; }
+    .tfy-vat-cell .v { font-size: 15px; font-weight: 700; color: var(--ink); font-family: 'IBM Plex Mono', ui-monospace, monospace; font-variant-numeric: tabular-nums; }
+    .tfy-vat-cell.due .v { color: var(--warn-fg); }
+
+    .tfy-ledger { width: 100%; border-collapse: collapse; background: #fff; }
+    .tfy-ledger thead th { font-size: 10px; text-transform: uppercase; letter-spacing: .05em; color: var(--faint); font-weight: 700; text-align: left; padding: 9px 14px; background: #f8fafc; border-bottom: 1px solid var(--border); }
+    .tfy-ledger th.amt, .tfy-ledger td.amt { text-align: right; }
+    .tfy-ledger th.rm-col, .tfy-ledger td.rm-col { width: 34px; }
+    .tfy-ledger tbody td { padding: 7px 14px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+    .tfy-ledger tbody tr:hover { background: #fafbfe; }
+    .tfy-ledger .tfy-je-acct { width: 100%; padding: 6px 8px; font-size: 12.5px; border: 1.5px solid var(--border); border-radius: 6px; background: #fff; font-family: inherit; color: var(--ink); }
+    .tfy-ledger .tfy-je-desc { width: 100%; padding: 6px 8px; font-size: 12px; border: 1.5px solid transparent; border-radius: 6px; background: transparent; font-family: inherit; color: var(--muted); }
+    .tfy-ledger .tfy-je-desc:hover, .tfy-ledger .tfy-je-desc:focus { border-color: var(--border); background: #fff; outline: none; color: var(--ink); }
+    .tfy-ledger .tfy-je-debit, .tfy-ledger .tfy-je-credit { width: 112px; padding: 6px 8px; font-size: 12.5px; text-align: right; border: 1.5px solid var(--border); border-radius: 6px; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-variant-numeric: tabular-nums; color: var(--ink); }
+    .tfy-je-remove { border: none; background: none; color: var(--faint); cursor: pointer; font-size: 13px; padding: 2px 6px; border-radius: 5px; }
+    .tfy-je-remove:hover { background: var(--bad-bg); color: var(--bad-fg); }
+    .tfy-ledger tfoot td { padding: 11px 14px; font-weight: 700; color: var(--ink); border-top: 2px solid var(--ink); font-variant-numeric: tabular-nums; }
+    .tfy-ledger tfoot td.amt { font-family: 'IBM Plex Mono', ui-monospace, monospace; }
+    .tfy-ledger tfoot .lbl { text-align: right; text-transform: uppercase; font-size: 10.5px; letter-spacing: .05em; color: var(--muted); }
+    .tfy-ledger-add { padding: 9px 14px; border-bottom: 1px solid var(--line); }
+    .tfy-ledger-add button { font-size: 11.5px; padding: 6px 12px; }
+
+    .tfy-voucher-foot { display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap; padding: 13px 18px; background: #f8fafc; border-top: 1px solid var(--border); }
+    .tfy-voucher-actions { display: flex; align-items: center; }
+    .tfy-balance { font-size: 12px; font-weight: 700; padding: 6px 12px; border-radius: 20px; background: #eef1f7; color: var(--muted); }
+    .tfy-balance.ok { background: var(--ok-bg); color: var(--ok-fg); }
+    .tfy-balance.bad { background: var(--warn-bg); color: var(--warn-fg); }
 
     /* ── DEADLINE TRACKER ── */
     .dtk-header { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 18px; }
@@ -145,8 +201,6 @@
     .tfy-status-pill.filed    { background: var(--ok-bg); color: var(--ok-fg); }
     .tfy-status-pill.amended  { background: var(--warn-bg); color: var(--warn-fg); }
     .tfy-status-pill.overdue  { background: var(--bad-bg); color: var(--bad-fg); }
-
-    .tfy-step-rail-period { font-size: 11.5px; color: var(--muted); margin: 0 8px 10px; display: flex; align-items: center; gap: 6px; }
 
     /* ── FILING OVERVIEW ── */
     .tfy-ov { padding: 24px; }
