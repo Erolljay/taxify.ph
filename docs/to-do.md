@@ -86,8 +86,10 @@ _Last updated: 2026-07-13_
         moved Manila → Iloilo City. Still open: **counsel review** of the legal pages, and confirm
         whether the firm must **register its DPO with the NPC**.
   - [ ] (Optional) Self-host the web fonts instead of Google Fonts, per ECC web perf/privacy rules.
-  - [ ] Deploy: merge to `main` → 2-min cron pull; confirm `nginx` serves the new `website/` root and
-        the `/account` portal + `/api/auth/*` proxy are live for sign-in.
+  - [x] **Deployed & verified LIVE 2026-07-14.** Merged as PR #21 → cron pull. All pages 200 on
+        `https://txform.ph` (old JS bundle gone), legal pages show the firm details, `/account`
+        portal 200, and `/api/auth/verify` → 400 (service reached). Open only: **counsel review**
+        of legal pages, NPC DPO-registration check, and optional font self-hosting.
 - [ ] **Phase 3** — PayMongo payments (not started; security gate).
 - [ ] **Phase 4** — ToS / RA 10173 data-privacy pages (not started).
 - [ ] **Phase 5** — beta / launch.
