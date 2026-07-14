@@ -24,26 +24,32 @@ GET  /api/tenancy/overview      → overview        → owner-only → {account,
 - Authz: `authorizeOwnerAction` — session valid → role owner → same account (cross-tenant guard).
 - Mailer: `server/smtp-mailer.js` (zero-dep SMTP; CRLF header-injection guard; TLS verify on). Sends via Gmail when `SMTP_HOST` set, else logs link.
 
-## PHP entitlement — `server/entitlement.php` (php-fpm)
+## PHP entitlement — `entitlement.php` (web root, php-fpm)
 ```
-GET /server/entitlement.php?business=<manager_business_guid>
+GET /entitlement.php?business=<manager_business_guid>
    → reads txfsid session → 200 {status,...} | 401 unauth | 404 not-your-business
 ```
 Owners see all their businesses; staff only those granted via `user_business`. Same session table as the Node service. Authz logic mirrored in tested `shared/entitlement-core.js` / `entitlement-authz` tests.
-(`server/save-tax-rates.php` — writes shared `tax-rates-data.json`; guarded by nginx basic-auth + shared-secret token.)
+(`save-tax-rates.php` — writes shared `tax-rates-data.json`; guarded by nginx basic-auth + shared-secret token.)
 
-## PHP filing snapshots — `server/save-report.php` + `report-snapshots.php` (php-fpm)
+**Placement note:** session-authed PHP endpoints live at the **web root**, NOT `server/` — the nginx
+web-root hardening 404s the whole `/server/` path on `extension.txform.ph`. Root `*.php` is executed
+by php-fpm (no source disclosure), so `entitlement.php` / `save-report.php` / `report-snapshots.php` /
+`save-tax-rates.php` all sit at the root; only non-executed backend files (`*.js`, `schema.sql`,
+`report-store.php` include) stay under `server/`, reached via filesystem `require`.
+
+## PHP filing snapshots — `save-report.php` + `report-snapshots.php` (web root, php-fpm)
 ```
-POST /server/save-report.php     body {business,workflowKey,periodKey,form?,headline?,payload}
+POST /save-report.php     body {business,workflowKey,periodKey,form?,headline?,payload}
    → freezes a filing: supersede prior 'filed' row, insert version+1, audit_log → 200 {ok,version}
-GET  /server/report-snapshots.php?business=<guid>[&workflow=&period=]
+GET  /report-snapshots.php?business=<guid>[&workflow=&period=]
    → one filing's version history (with payload) | batch: latest filed per filing (no payload)
 ```
 Server-only save/freeze store (Priority 2). Both `require server/report-store.php` (shared session
 auth + business-ownership, cloned from `entitlement.php`; PDO prepared statements; 256 KB body cap;
 401 no-session / 404 cross-account — no enumeration). Rows live in the `report_snapshot` table
 (`server/schema.sql`, append-only versions = amendment history). Pure client logic in
-tested `app/filing-core.js`.
+tested `app/filing-core.js`. Session cookie must be `Domain=.txform.ph` to cross from the portal.
 
 ## Provisioner — `server/provisioner.js` (systemd timer, one `drainOnce`/tick)
 ```

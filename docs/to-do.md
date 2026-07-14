@@ -28,8 +28,8 @@ clean layout), then build save-reports into that clean structure.
       verified LIVE 2026-07-14** — new subfolder paths (`reports/`, `shared/`, `app/`) serve 200, entry
       HTML (`1701.html`, `taxify.html`) still 200 (installed buttons intact, no reinstall), old flat
       paths (`1701-report.js`) now 404, and the live app shell loads every script 200 with no console errors.
-- [x] **PRIORITY 2 — Save / freeze generated reports (point-in-time snapshots).** **DONE 2026-07-14
-      (branch `feature/filing-lifecycle-save-freeze`, not yet merged/deployed).** Rebuilt the workflow
+- [x] **PRIORITY 2 — Save / freeze generated reports (point-in-time snapshots).** **DONE & MERGED
+      2026-07-14 (PR #28 → `main`).** Rebuilt the workflow
       step-engine around a first-class **Filing** (biz + workflow + period) with a `draft → filed →
       amended` lifecycle, and built snapshots on top. Marking a period **Filed** freezes its figures so
       later book edits no longer rewrite the filed return. Delivered:
@@ -48,9 +48,13 @@ clean layout), then build save-reports into that clean structure.
         textarea` fields (previously lost on reload) into the snapshot.
       - **Overview + tracker** — each category opens a Filing overview (period cards: Draft/Filed/
         Amended/Overdue); the Deadline Tracker shows real filed status.
-      - **Tests** — `test/filing-core.test.js` (suite 119 green). **Deploy:** apply the schema migration
-        (`sqlite3 …/txform.db < server/schema.sql`); run `/security-review` on the new PHP endpoints
-        before merge. *Follow-up:* extend auto-variance to comp/income returns (they'd need URL-param
+      - **Tests** — `test/filing-core.test.js` (suite 119 green).
+      - **⚠️ Remaining server steps before freeze works live** (code is on `main`, auto-deploys via the
+        cron pull, but the snapshot table is a manual migration):
+        - [ ] **Apply the schema migration on `txform-server`:** `sqlite3 /var/www/taxify/server/txform.db < /var/www/taxify/server/schema.sql` (idempotent). Until this runs, "Mark as Filed" errors (no `report_snapshot` table). See [`instruction.md`](instruction.md).
+        - [ ] **Run `/security-review`** on `server/save-report.php` + `report-snapshots.php` + `report-store.php` (session auth, prepared statements, body cap, no enumeration; check CSRF/SameSite on the cookie-authed POST).
+        - [ ] **Verify live** end-to-end on a signed-in business: freeze a period → re-open shows frozen → edit a txn → variance banner → amend → v2.
+      - *Follow-up (not blocking):* extend auto-variance to comp/income returns (they'd need URL-param
         auto-run); optional stored-PDF; extend snapshot to SLS/SLP/alphalist supporting detail.
 - [ ] **Evaluate the Manager Cloud self-serve distribution path (strategic).** Discovered 2026-07-14:
       a Manager.io **Cloud edition** custom button pointing at `extension.txform.ph/` loads the

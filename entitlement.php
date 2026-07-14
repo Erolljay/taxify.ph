@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 /* ============================================================
-   Txform.ph — server/entitlement.php
+   Txform.ph — entitlement.php  (web root)
 
    The read half of the entitlement gate. Deliberately THIN: validate
    the caller's session, confirm the business belongs to their account,
@@ -10,7 +10,8 @@ declare(strict_types=1);
    entitlement-core.js on the client — this endpoint only answers
    "what is this account's billing state, and are you allowed to ask?".
 
-   GET /server/entitlement.php?business=<manager_business_guid>
+   GET /entitlement.php?business=<manager_business_guid>
+   (served from the web root, not server/ — the nginx hardening 404s /server/)
      (cookie: txfsid=<session secret>)
      → 200 { status }             billing status of the caller's account
      → 401 { error }              no / expired session
@@ -55,7 +56,7 @@ if ($sid === '') {
     exit;
 }
 
-$dbPath = __DIR__ . '/txform.db';
+$dbPath = __DIR__ . '/server/txform.db';
 if (!file_exists($dbPath)) {
     http_response_code(500);
     echo json_encode(['error' => 'Subscriber database not initialized']);
