@@ -26,6 +26,37 @@ Scope note: the current repo is a static, vanilla-JS Manager.io extension
 | Security as a gate, not an afterthought | `/security-review`, **security-reviewer** | **Gate Phases 1 and 3**, not just Phase 0 — the attack surface ~5×'s (tenancy, magic-link auth, webhooks, restricted-user sync). |
 | Context-switch across clients/phases | `/save-session` | Save state when jumping between Txform work and client books. |
 | Design before building anything irreversible | `/plan`, `/plan-prd`, **architect** / **code-architect** | Use before tenancy (Phase 1) and payments (Phase 3). |
+| Redesign a tax type's filing workflow | **Filing-workflow UX conventions** (below) + `/plan` for the step list, mockup for sign-off, `/code-review` before the PR | Copy the VAT pattern to every tax type so they stay consistent. |
+
+---
+
+## Filing-workflow UX conventions (apply to every tax type)
+
+House style for the filing workflows (step engine: [`app/workflows.js`](../app/workflows.js) +
+[`app/step-engine.js`](../app/step-engine.js)). Established with **VAT** (PR #32); replicate for
+EWT, compensation, and income tax. Full spec — including the engine guardrails — lives in
+[`instruction.md`](instruction.md#filing-workflow-ux-conventions-apply-to-every-tax-type); the
+short version:
+
+- **Top arrow-flow stepper** (not a left rail); each step gets a `short:` chip label.
+- **Merge** passive review + download of one report into a single **`document` step** (with an
+  inline **blocking** party-TIN banner + a fix link into the report's own tab). **Separate** any
+  tab that *changes the numbers* into its own step, placed first (distinct `iframeId`s — the
+  engine keeps an iframe in its creating step; a shared id blanks the second).
+- **First step** = `info: true` instruction (Tax Audit reminder), no gate. **Optional** attachments
+  (e.g. SAWT) → `optional: true` + `skippable`. **Terminal** step = `file` (freeze), with the
+  working-paper download folded in via `bundle:`.
+- **Payment** step = compound journal-entry voucher (header band + DR/CR ledger + balanced badge)
+  with an **editable Description** (default `"<TAX> - <period>"`) feeding the payment description /
+  journal narration. Presentation only — don't touch the recalc/post logic.
+- **DAT downloads:** SLSP-family listings (SLS/SLP/SAWT/QAP) file **per month**, so a quarter
+  downloads **one DAT per month (3 files)**.
+- **Process:** approve the redesign via a **mockup first** (the user is non-technical — show, don't
+  describe), then implement; `npm test` + `node --check`, then eyeball in live Manager (no local dev
+  server). Run `/code-review` on the diff before the PR.
+
+**Per-tax-type caveat:** VAT is quarterly-only (2550M retired 2023), so its period is fixed. **EWT
+keeps both monthly (0619-E) and quarterly (1601-EQ)** — don't strip the monthly option there.
 
 ---
 
