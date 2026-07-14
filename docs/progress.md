@@ -30,11 +30,13 @@ rates, the graduated-tax engine and VAT 2550Q are verified; two income-tax bugs 
 
 ## Changelog
 
-### 2026-07-14 — Save/freeze filings + workflow step-engine rebuild (PRIORITY 2)
+### 2026-07-14 — Save/freeze filings + workflow step-engine rebuild (PRIORITY 2) — MERGED (PR #28)
 Reoriented the filing workflows around a first-class **Filing** object (business + workflow +
 period) with a `draft → filed → amended` lifecycle, and built point-in-time snapshots on top of it.
 Marking a period **Filed** now freezes its figures so later book edits don't rewrite the filed
-return.
+return. **Merged to `main` as PR #28** — the code auto-deploys via the cron pull, but freeze only
+works live once the one-time schema migration is applied on the server (see the deploy step below);
+`/security-review` on the new PHP endpoints is still an open pre-live gate.
 
 - **Server (per-tenant, server-only store):** new `report_snapshot` table in `server/schema.sql`
   (append-only versions = amendment history) + two endpoints — [`server/save-report.php`](../server/save-report.php)
