@@ -13,11 +13,12 @@ _Last updated: 2026-07-14_
 - [ ] **UFW** firewall rules on `txform-server`.
 - [ ] **fail2ban** for SSH brute-force protection.
 - [ ] **UptimeRobot** (or similar) uptime/downtime alerting.
-- [x] **`save-tax-rates.php` security pass** — **code done 2026-07-14 (pending one-time server step).**
-      Added defense-in-depth on top of nginx basic-auth: shared-secret `X-Txform-Token` header checked
+- [x] **`save-tax-rates.php` security pass** — **DONE 2026-07-14 (merged PR #23 + server token created).**
+      Defense-in-depth on top of nginx basic-auth: shared-secret `X-Txform-Token` header checked
       (constant-time) against `/etc/txform/tax-rates.token`, fail-closed if unset; 256 KB body cap;
       backup dir pruned to the newest 50. Admin tool prompts for the token once per browser
-      (localStorage), never ships it. **Server step:** create the token file — see
+      (localStorage), never ships it. Token file created on `txform-server` (`www-data`, mode 640);
+      the value is pasted into the browser once on the first "Save to Server". Setup:
       [`DEPLOY-TAX-RATES-SAVE.md`](../DEPLOY-TAX-RATES-SAVE.md) step 3.
 - [ ] Verify every BIR report end-to-end on a real business (**e2e-runner**).
 
