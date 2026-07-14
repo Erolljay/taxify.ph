@@ -38,7 +38,7 @@ const StepEngine = (function () {
     steps.forEach(s => setStepDoneFlag(filingId, s.key, false));
   }
 
-  const TYPE_ICON = { review: '📊', validate: '🔎', download: '📥', final: '🏁', file: '🔒', instruction: 'ℹ️', period: '📅', payment: '💳', checklist: '📋' };
+  const TYPE_ICON = { review: '📊', validate: '🔎', download: '📥', document: '📄', final: '🏁', file: '🔒', instruction: 'ℹ️', period: '📅', payment: '💳', checklist: '📋' };
 
   function periodStorageKey(biz, workflowKey) {
     return `taxify:period:${biz}:${workflowKey}`;
@@ -141,11 +141,13 @@ const StepEngine = (function () {
       ? FilingCore.periodLabel(state.period) : '';
     container.innerHTML = `
       <div class="tfy-step-wrap">
-        <div class="tfy-step-rail">
-          <div class="tfy-step-rail-title">${escHtml(state.workflow.label)}</div>
-          ${periodLabel ? `<div class="tfy-step-rail-period">${escHtml(periodLabel)} · <span class="tfy-status-pill draft">Draft</span></div>` : ''}
-          <div class="tfy-step-rail-list"></div>
-          <button type="button" class="tfy-step-restart" id="tfy-restart">↺ Restart this filing</button>
+        <div class="tfy-step-topbar">
+          <div class="tfy-step-topbar-head">
+            <div class="tfy-step-rail-title">${escHtml(state.workflow.label)}</div>
+            ${periodLabel ? `<div class="tfy-step-rail-period">${escHtml(periodLabel)} · <span class="tfy-status-pill draft">Draft</span></div>` : ''}
+            <button type="button" class="tfy-step-restart" id="tfy-restart">↺ Restart this filing</button>
+          </div>
+          <div class="tfy-step-flow tfy-step-rail-list"></div>
         </div>
         <div class="tfy-step-panel" id="tfy-step-panel"></div>
       </div>`;
@@ -185,11 +187,11 @@ const StepEngine = (function () {
       const done   = !!state.doneCache[s.key];
       const locked = isLocked(state, i);
       const active = i === state.activeIndex;
-      const icon   = done ? '✅' : locked ? '🔒' : (TYPE_ICON[s.type] || '▫️');
-      return `<button type="button" class="tfy-step-item${active ? ' active' : ''}${locked ? ' locked' : ''}${done ? ' done' : ''}"
+      const num    = done ? '✓' : locked ? '🔒' : (i + 1);
+      return `<button type="button" class="tfy-step-item${active ? ' active' : ''}${locked ? ' locked' : ''}${done ? ' done' : ''}${s.optional ? ' optional' : ''}"
                 data-idx="${i}" ${locked ? 'disabled' : ''}>
-        <span class="tfy-step-icon">${icon}</span>
-        <span class="tfy-step-label">${escHtml(s.label)}</span>
+        <span class="tfy-step-num">${num}</span>
+        <span class="tfy-step-label">${escHtml(s.short || s.label)}${s.optional ? '<span class="tfy-step-opt">if&nbsp;needed</span>' : ''}</span>
       </button>`;
     }).join('');
 
@@ -293,7 +295,7 @@ const StepEngine = (function () {
       <div class="tfy-step-header-title">${TYPE_ICON[step.type] || ''} ${escHtml(step.label)}</div>
       ${step.help ? `<div class="tfy-step-header-help">${step.help}</div>` : ''}`;
 
-    if (step.type === 'review' || step.type === 'download' || (step.type === 'final' && step.file)) {
+    if (step.type === 'review' || step.type === 'download' || step.type === 'document' || (step.type === 'final' && step.file)) {
       mountIframeStep(body, panel, state, step);
     } else if (step.type === 'final') {
       mountBundleFinalStep(body, panel, state, step);
@@ -404,9 +406,104 @@ const StepEngine = (function () {
           if (seenAll(seen)) setStepDone(panel.closest('.tfy-step-wrap').parentElement, state, step.key, true);
         });
       }
+    } else if (step.type === 'document') {
+      renderDocumentFooter(footer, root, state, step, iframe);
     } else if (step.type === 'final') {
       renderFinalFooter(body, panel.closest('.tfy-step-wrap').parentElement, state, step);
     }
+  }
+
+  // Clicks a selector inside a same-origin iframe once it appears (used by the
+  // 'document' step's "fix TINs" button to deep-link into the report's own
+  // Customers/Suppliers tab without leaving the step).
+  function clickIframeSelector(iframe, selector) {
+    if (!iframe) return;
+    const tryClick = () => {
+      const doc = iframe.contentDocument;
+      const el = doc && doc.querySelector(selector);
+      if (el) { el.click(); return true; }
+      return false;
+    };
+    if (!tryClick()) {
+      const poll = setInterval(() => { if (tryClick()) clearInterval(poll); }, 400);
+      setTimeout(() => clearInterval(poll), 15000);
+    }
+  }
+
+  // ── 'document' step: one screen that merges review + TIN validation +
+  //    download for a single report (SLS / SLP). The report renders in the
+  //    iframe above; this footer runs the party-TIN check as an inline banner
+  //    (blocking, since BIR rejects DAT files with missing TINs) and gates
+  //    Continue on both a passing check and a confirmed download. ────────────
+  function renderDocumentFooter(footer, root, state, step, iframe) {
+    const done = !!state.doneCache[step.key];
+    let tinOk = !step.check;   // no check ⇒ nothing to block on
+    let downloaded = done;     // resuming a completed step ⇒ already downloaded
+
+    footer.innerHTML = `
+      <div id="tfy-doc-tin" style="width:100%;"></div>
+      <div id="tfy-doc-dl" class="alert alert-warn" style="width:100%;margin:0 0 10px;">
+        ⚠️ Download the file${step.buttonIds.length > 1 ? 's' : ''} below (or mark it done) to continue.
+        A full quarter downloads one DAT file per month (3 files).
+      </div>
+      <button class="btn btn-primary" id="tfy-continue" disabled>Continue →</button>
+      <button class="btn btn-outline" id="tfy-skip" style="margin-left:6px;">I already downloaded this — mark complete</button>`;
+
+    const contBtn = footer.querySelector('#tfy-continue');
+    const dlAlert = footer.querySelector('#tfy-doc-dl');
+    const tinEl   = footer.querySelector('#tfy-doc-tin');
+
+    function refresh() {
+      if (downloaded) {
+        dlAlert.className = 'alert alert-success';
+        dlAlert.textContent = '✅ Download confirmed for this step.';
+      }
+      contBtn.disabled = !(tinOk && downloaded);
+    }
+    function markDownloaded() { downloaded = true; refresh(); }
+
+    footer.querySelector('#tfy-skip').onclick = markDownloaded;
+    contBtn.onclick = () => setStepDone(root, state, step.key, true);
+
+    if (!downloaded) {
+      const seenAll = (seen) => step.requireAll
+        ? step.buttonIds.every(id => seen.has(id))
+        : seen.size > 0;
+      watchDownloadButtons(iframe, step.buttonIds, (seen) => { if (seenAll(seen)) markDownloaded(); });
+    }
+
+    function runTinCheck() {
+      if (!step.check) return;
+      tinEl.innerHTML = `<div class="alert" style="margin:0 0 10px;">Checking TINs…</div>`;
+      step.check(state.biz).then(result => {
+        if (result.ok) {
+          tinOk = true;
+          tinEl.innerHTML = `<div class="alert alert-success" style="margin:0 0 10px;">✅ ${escHtml(result.passMessage || 'Every party has a TIN.')}</div>`;
+        } else {
+          tinOk = false;
+          const listHtml = (result.problems || []).slice(0, 15).map(p => `<li>${escHtml(p)}</li>`).join('');
+          tinEl.innerHTML = `
+            <div class="alert alert-error" style="margin:0 0 10px;">
+              ⚠️ ${escHtml(result.message || 'Some parties are missing a TIN — BIR will reject the DAT file until fixed.')}
+              ${listHtml ? `<ul class="tfy-problem-list">${listHtml}</ul>` : ''}
+              <div style="margin-top:6px;">
+                <button class="btn btn-outline" id="tfy-doc-fix">${escHtml(step.fixLabel || 'Fix TINs →')}</button>
+                <button class="btn btn-outline" id="tfy-doc-recheck" style="margin-left:6px;">↻ Re-check</button>
+              </div>
+            </div>`;
+          tinEl.querySelector('#tfy-doc-fix').onclick = () => clickIframeSelector(iframe, step.fixTabSelector);
+          tinEl.querySelector('#tfy-doc-recheck').onclick = runTinCheck;
+        }
+        refresh();
+      }).catch(e => {
+        tinOk = true; // a failed check shouldn't hard-block; surface it instead
+        tinEl.innerHTML = `<div class="alert alert-warn" style="margin:0 0 10px;">Couldn't check TINs (${escHtml(e.message)}). You can still continue.</div>`;
+        refresh();
+      });
+    }
+
+    runTinCheck();
+    refresh();
   }
 
   // Gates a 'review' step's Continue button on every employee having a Tax
@@ -461,19 +558,7 @@ const StepEngine = (function () {
       ${step.bundle ? `<button class="btn btn-success" id="tfy-download-all">⬇ Download all (${step.bundle.length} files)</button>` : ''}
       <button class="btn btn-primary" id="tfy-finish" style="margin-left:6px;">Continue to filing →</button>`;
     if (step.bundle) {
-      footer.querySelector('#tfy-download-all').onclick = () => {
-        step.bundle.forEach(targetStepKey => {
-          const targetStep = state.workflow.steps.find(s => s.key === targetStepKey);
-          if (!targetStep) return;
-          const targetIframe = state.iframes[targetStep.iframeId];
-          const doc = targetIframe && targetIframe.contentDocument;
-          if (!doc) return;
-          (targetStep.buttonIds || []).forEach(id => {
-            const btn = doc.getElementById(id);
-            if (btn && btn.style.display !== 'none') btn.click();
-          });
-        });
-      };
+      footer.querySelector('#tfy-download-all').onclick = () => triggerBundleDownloads(state, step.bundle);
     }
     footer.querySelector('#tfy-finish').onclick = () => setStepDone(root, state, step.key, true);
   }
@@ -481,10 +566,12 @@ const StepEngine = (function () {
   // ── Instruction step: static guidance with a Continue button. ──────────
   function mountInstructionStep(body, panel, state, step) {
     const footer = document.createElement('div');
-    body.innerHTML = `<div class="alert alert-warn" style="margin-bottom:12px;">${step.body || ''}</div>`;
+    // `info: true` marks read-only guidance — a softer info banner and a plain
+    // "Continue" rather than the checklist-style "I've checked this" gate.
+    body.innerHTML = `<div class="alert ${step.info ? 'alert-info' : 'alert-warn'}" style="margin-bottom:12px;">${step.body || ''}</div>`;
     footer.className = 'tfy-step-footer';
     body.appendChild(footer);
-    footer.innerHTML = `<button class="btn btn-primary" id="tfy-continue">I've checked this — Continue →</button>`;
+    footer.innerHTML = `<button class="btn btn-primary" id="tfy-continue">${step.info ? 'Continue →' : "I've checked this — Continue →"}</button>`;
     footer.querySelector('#tfy-continue').onclick = () => {
       const root = panel.closest('.tfy-step-wrap').parentElement;
       setStepDone(root, state, step.key, true);
@@ -643,6 +730,10 @@ const StepEngine = (function () {
         .sort((a, b) => a.name.localeCompare(b.name));
       const today = new Date().toISOString().slice(0, 10);
       const reference = `VAT ${state.period ? `${state.period.ptype === 'monthly' ? monthName(state.period.period) : 'Q' + state.period.period} ${state.period.year}` : ''}`.trim();
+      // Editable entry description, pre-filled as e.g. "VAT - Q2 2026". The
+      // preparer can change it; it becomes the payment description / journal
+      // narration on posting.
+      const defaultDesc = reference.replace(/^VAT /, 'VAT - ');
 
       // Pre-fill the editable line rows with the same clearing entries the
       // engine would compute on its own; the user can edit, retitle, add,
@@ -665,41 +756,61 @@ const StepEngine = (function () {
         <tr data-row="${i}">
           <td><select class="tfy-je-acct">${acctOpts(r.account)}</select></td>
           <td><input type="text" class="tfy-je-desc" value="${escHtml(r.desc || '')}"></td>
-          <td><input type="number" step="0.01" class="tfy-je-debit" value="${r.debit ? r.debit.toFixed(2) : ''}"></td>
-          <td><input type="number" step="0.01" class="tfy-je-credit" value="${r.credit ? r.credit.toFixed(2) : ''}"></td>
-          <td><button type="button" class="btn btn-outline tfy-je-remove" style="padding:2px 8px;">✕</button></td>
+          <td class="amt"><input type="number" step="0.01" class="tfy-je-debit" value="${r.debit ? r.debit.toFixed(2) : ''}"></td>
+          <td class="amt"><input type="number" step="0.01" class="tfy-je-credit" value="${r.credit ? r.credit.toFixed(2) : ''}"></td>
+          <td class="rm-col"><button type="button" class="tfy-je-remove" title="Remove line">✕</button></td>
         </tr>`;
 
+      // Compound journal-entry voucher: a header band (kind · date · pay-from ·
+      // editable description), the DR/CR ledger, and a footer with the balance
+      // badge + post button. Markup is presentational only — the ids/classes
+      // the recalc/post logic below reads (#tfy-je-*, .tfy-je-*) are unchanged.
       body.innerHTML = `
-        <div class="alert ${isPayable ? 'alert-warn' : 'alert-success'}" style="margin-bottom:10px;">
-          Output VAT: <strong>${fmtMoney(outputTax)}</strong> &nbsp;|&nbsp;
-          Input tax applied: <strong>${fmtMoney(inputUsed)}</strong> &nbsp;|&nbsp;
-          CWT/other credits applied: <strong>${fmtMoney(cwtUsed)}</strong> &nbsp;|&nbsp;
-          ${isPayable ? `Net VAT payable: <strong>${fmtMoney(netCash)}</strong> (posted as a Payment)` : `No cash due — posted as a Journal Entry.`}
-        </div>
-        <div class="filter-bar" style="flex-wrap:wrap;margin-bottom:10px;">
-          <label>Date</label>
-          <input type="date" id="tfy-je-date" value="${today}">
-          ${isPayable ? `
-          <label>Pay from (Bank/Cash)</label>
-          <select id="tfy-acct-bank">${bankOpts}</select>` : ''}
-        </div>
-        <table class="tax-codes-table" id="tfy-je-table">
-          <thead><tr><th>Account</th><th>Description</th><th style="width:110px;">Debit</th><th style="width:110px;">Credit</th><th style="width:30px;"></th></tr></thead>
-          <tbody>${initialRows.map(rowHtml).join('')}</tbody>
-          <tfoot><tr>
-            <td colspan="2" style="text-align:right;font-weight:700;">Total</td>
-            <td id="tfy-je-total-debit" class="num" style="font-weight:700;"></td>
-            <td id="tfy-je-total-credit" class="num" style="font-weight:700;"></td>
-            <td></td>
-          </tr></tfoot>
-        </table>
-        <button type="button" class="btn btn-outline" id="tfy-je-add" style="margin-top:8px;">+ Add line</button>
-        <div id="tfy-je-balance" style="margin-top:8px;font-size:12px;"></div>
-        <div class="tfy-step-footer">
-          <button class="btn btn-primary" id="tfy-post">${isPayable ? 'Record VAT payment' : 'Record VAT closing entry'}</button>
-          <span id="tfy-post-status" style="font-size:12px;color:#6b7280;margin-left:8px;"></span>
+        <div class="tfy-voucher">
+          <div class="tfy-voucher-head">
+            <div class="tfy-voucher-kind">
+              <span class="tfy-voucher-badge">${isPayable ? 'Payment' : 'Journal Entry'}</span>
+              <h4 id="tfy-voucher-title">${escHtml(defaultDesc)}</h4>
+            </div>
+            <div class="tfy-voucher-fields">
+              <div class="tfy-vf"><label>Date</label><input type="date" id="tfy-je-date" value="${today}"></div>
+              ${isPayable ? `<div class="tfy-vf"><label>Pay from (Bank / Cash)</label><select id="tfy-acct-bank">${bankOpts}</select></div>` : ''}
+              <div class="tfy-vf tfy-vf-wide"><label>Description</label><input type="text" id="tfy-je-ref" value="${escHtml(defaultDesc)}"></div>
+            </div>
+          </div>
+
+          <div class="tfy-vat-strip">
+            <div class="tfy-vat-cell"><span class="k">Output VAT</span><span class="v">${fmtMoney(outputTax)}</span></div>
+            <div class="tfy-vat-cell"><span class="k">Input tax applied</span><span class="v">${fmtMoney(inputUsed)}</span></div>
+            <div class="tfy-vat-cell"><span class="k">CWT / credits</span><span class="v">${fmtMoney(cwtUsed)}</span></div>
+            <div class="tfy-vat-cell ${isPayable ? 'due' : ''}"><span class="k">${isPayable ? 'Net VAT payable' : 'Cash due'}</span><span class="v">${isPayable ? fmtMoney(netCash) : '—'}</span></div>
+          </div>
+
+          <table class="tfy-ledger" id="tfy-je-table">
+            <thead><tr><th>Account</th><th>Description</th><th class="amt">Debit</th><th class="amt">Credit</th><th class="rm-col"></th></tr></thead>
+            <tbody>${initialRows.map(rowHtml).join('')}</tbody>
+            <tfoot><tr>
+              <td colspan="2" class="lbl">Total</td>
+              <td id="tfy-je-total-debit" class="amt"></td>
+              <td id="tfy-je-total-credit" class="amt"></td>
+              <td></td>
+            </tr></tfoot>
+          </table>
+          <div class="tfy-ledger-add"><button type="button" class="btn btn-outline" id="tfy-je-add">+ Add line</button></div>
+
+          <div class="tfy-voucher-foot">
+            <div id="tfy-je-balance" class="tfy-balance"></div>
+            <div class="tfy-voucher-actions">
+              <button class="btn btn-primary" id="tfy-post">${isPayable ? 'Record VAT payment' : 'Record VAT closing entry'}</button>
+              <span id="tfy-post-status" style="font-size:12px;color:#6b7280;margin-left:8px;"></span>
+            </div>
+          </div>
         </div>`;
+
+      // Keep the voucher heading in sync as the preparer edits the description.
+      body.querySelector('#tfy-je-ref').addEventListener('input', function () {
+        body.querySelector('#tfy-voucher-title').textContent = this.value || defaultDesc;
+      });
 
       const tbody = body.querySelector('#tfy-je-table tbody');
 
@@ -725,19 +836,22 @@ const StepEngine = (function () {
         body.querySelector('#tfy-je-total-credit').textContent = fmtMoney(totalCredit);
         const balanceEl = body.querySelector('#tfy-je-balance');
         const diff = totalDebit - totalCredit;
+        let ok;
         if (isPayable) {
           // For a Payment, the lines' net (debit − credit) is what's drawn
           // from the bank/cash account — it should equal the net VAT due.
-          const ok = Math.abs(diff - netCash) < 0.01;
+          ok = Math.abs(diff - netCash) < 0.01;
           balanceEl.innerHTML = ok
-            ? `✅ Net of lines (${fmtMoney(diff)}) matches the amount to be paid from the bank/cash account.`
-            : `⚠️ Net of lines (${fmtMoney(diff)}) should equal the net VAT payable (${fmtMoney(netCash)}).`;
+            ? `✔ Balanced — net of lines (${fmtMoney(diff)}) matches the amount paid`
+            : `⚠ Net of lines (${fmtMoney(diff)}) should equal the net VAT payable (${fmtMoney(netCash)})`;
         } else {
-          const ok = Math.abs(diff) < 0.01;
+          ok = Math.abs(diff) < 0.01;
           balanceEl.innerHTML = ok
-            ? `✅ Entry is balanced.`
-            : `⚠️ Debits and credits must be equal to post a journal entry (currently off by ${fmtMoney(diff)}).`;
+            ? `✔ Balanced — debits equal credits`
+            : `⚠ Debits and credits must be equal (off by ${fmtMoney(diff)})`;
         }
+        balanceEl.classList.toggle('ok', ok);
+        balanceEl.classList.toggle('bad', !ok);
         return { totalDebit, totalCredit, diff };
       }
 
@@ -759,6 +873,7 @@ const StepEngine = (function () {
         if (!rows.length) { statusEl.textContent = '❌ Add at least one line.'; return; }
         if (rows.some(r => !r.account)) { statusEl.textContent = '❌ Every line needs an account.'; return; }
 
+        const entryDesc = (body.querySelector('#tfy-je-ref').value || '').trim() || defaultDesc;
         statusEl.textContent = 'Posting…';
         try {
           if (isPayable) {
@@ -770,7 +885,7 @@ const StepEngine = (function () {
             }));
             await apiRequest('PUT', '/api4/payment', {
               key: crypto.randomUUID(),
-              value: { date: postDate, reference, paidFrom: bankAcct, description: `VAT payment — ${reference}`, lines },
+              value: { date: postDate, reference, paidFrom: bankAcct, description: entryDesc, lines },
             });
           } else {
             const lines = rows.map(r => ({
@@ -781,7 +896,7 @@ const StepEngine = (function () {
             }));
             await apiRequest('PUT', '/api4/journal-entry', {
               key: crypto.randomUUID(),
-              value: { date: postDate, reference, narration: `VAT close — ${reference}`, lines },
+              value: { date: postDate, reference, narration: entryDesc, lines },
             });
           }
           statusEl.textContent = '✅ Posted.';
@@ -1354,11 +1469,33 @@ const StepEngine = (function () {
         </tbody>
       </table>
       <div class="tfy-step-footer">
-        <button class="btn btn-primary" id="tfy-mark-filed">🔒 Mark as Filed</button>
+        ${step.bundle ? `<button class="btn btn-outline" id="tfy-download-all">⬇ Download working-paper files</button>` : ''}
+        <button class="btn btn-primary" id="tfy-mark-filed" ${step.bundle ? 'style="margin-left:6px;"' : ''}>🔒 Mark as Filed</button>
         <span id="tfy-file-status" style="font-size:12px;color:#6b7280;margin-left:8px;"></span>
       </div>`;
 
+    if (step.bundle) {
+      body.querySelector('#tfy-download-all').onclick = () => triggerBundleDownloads(state, step.bundle);
+    }
     body.querySelector('#tfy-mark-filed').onclick = () => doFreeze(body, root, state, step, ret, headlineDef);
+  }
+
+  // Re-fire the download buttons of a set of earlier steps' report iframes
+  // (working-paper bundle). Shared by the 'final' bundle step and the 'file'
+  // step's folded-in working-paper button. Only clicks visible buttons, so a
+  // skipped/optional step (e.g. SAWT) with hidden buttons is silently ignored.
+  function triggerBundleDownloads(state, bundle) {
+    bundle.forEach(targetStepKey => {
+      const targetStep = state.workflow.steps.find(s => s.key === targetStepKey);
+      if (!targetStep) return;
+      const targetIframe = state.iframes[targetStep.iframeId];
+      const doc = targetIframe && targetIframe.contentDocument;
+      if (!doc) return;
+      (targetStep.buttonIds || []).forEach(id => {
+        const btn = doc.getElementById(id);
+        if (btn && btn.style.display !== 'none') btn.click();
+      });
+    });
   }
 
   async function doFreeze(body, root, state, step, ret, headlineDef) {

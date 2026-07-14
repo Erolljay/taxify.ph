@@ -302,7 +302,7 @@ h3 { font-size: 13px; font-weight: 600; color: var(--ink); }
 
 /* ── PRINT ── */
 @media print {
-  .tfy-sidenav, .tabs, .filter-bar, .btn, .btn-group, .tfy-step-rail, .tfy-step-footer { display: none !important; }
+  .tfy-sidenav, .tabs, .filter-bar, .btn, .btn-group, .tfy-step-topbar, .tfy-step-footer { display: none !important; }
   body, .tfy-main { background: #fff !important; padding: 0 !important; }
   .data-table tbody tr:hover { background: none; }
 }

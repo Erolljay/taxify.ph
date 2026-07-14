@@ -272,7 +272,22 @@ async function generateSAWT(biz, setup, outputEl) {
     document.getElementById('sawt-dat').style.display    = '';
     document.getElementById('sawt-excel').onclick = () => exportSAWTExcel(rows, periodLabel, setup, datStart, datEnd, formType);
     if (ptype === 'quarterly') {
-      document.getElementById('sawt-dat').onclick = () => exportSAWTDat(rows, setup, datEnd, formType);
+      // SAWT is filed per month, so a quarterly view produces one DAT file per
+      // month of the quarter (not one file spanning the quarter). Each SAWT row
+      // already carries a per-month breakdown in r.months[0..2] aligned to the
+      // quarter's three months; re-use the single-period exporter for each.
+      document.getElementById('sawt-dat').onclick = () => {
+        const qStartMonth = datStart.getMonth();
+        for (let i = 0; i < 3; i++) {
+          const mStart = new Date(year, qStartMonth + i, 1);
+          const mEnd   = new Date(year, qStartMonth + i + 1, 0, 23, 59, 59, 999);
+          const mRows  = rows
+            .map(r => ({ ...r, base: r.months[i].base, ewt: r.months[i].ewt }))
+            .filter(r => Math.abs(r.ewt) > 0.005 || Math.abs(r.base) > 0.005);
+          if (!mRows.length) continue; // skip a month with no EWT (same as SLS/SLP)
+          exportSAWTDatSimple(mRows, setup, mStart, mEnd, formType, 'monthly');
+        }
+      };
     } else {
       document.getElementById('sawt-dat').onclick = () => exportSAWTDatSimple(rows, setup, datStart, datEnd, formType, ptype);
     }
@@ -439,6 +454,10 @@ function validateSAWTDat(rows) {
   );
 }
 
+// Retained fallback: emits ONE quarterly SAWT DAT (whole quarter in a single
+// file). No longer wired to the button — generateSAWT() now splits a quarter
+// into three monthly DAT files via exportSAWTDatSimple. Kept so we can revert
+// to single-file quarterly output if an RDO's eSubmission rejects monthly SAWT.
 function exportSAWTDat(rows, setup, periodEnd, formType) {
   if (!validateSAWTDat(rows)) return;
   const ourTin = tin9(setup.tin);
