@@ -150,6 +150,16 @@ sudo nginx -t && sudo systemctl reload nginx
 The snippet (`nginx-php-endpoints.conf`) uses the same `php8.5-fpm.sock` as
 `save-tax-rates.php` — bump the socket there if PHP is upgraded.
 
+**4. PHP needs the SQLite driver.** These endpoints (and `entitlement.php`) open
+`txform.db` via `PDO('sqlite:…')`. The base php-fpm install does NOT include SQLite
+(only `save-tax-rates.php`, which uses plain file I/O, ran before), so without it
+every request 500s with `{"error":"Subscriber database not initialized"}`:
+
+```bash
+ls /etc/php/8.5/fpm/conf.d/*sqlite* >/dev/null 2>&1 || sudo apt install -y php8.5-sqlite3
+sudo systemctl restart php8.5-fpm
+```
+
 ### How to check it's working
 
 ```bash
