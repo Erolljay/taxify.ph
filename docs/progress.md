@@ -30,6 +30,27 @@ rates, the graduated-tax engine and VAT 2550Q are verified; two income-tax bugs 
 
 ## Changelog
 
+### 2026-07-14 — Audit: withholding chain cleared + next two initiatives prioritized
+Continued the report correctness audit through the withholding forms — **no new bugs found:**
+- **1601C (compensation)** — MWE exemptions, cumulative ₱90k 13th-month cap (YTD), and SSS/PHIC/HDMF
+  net-of-contribution ordering all correct; reports actual tax withheld (right for a monthly remittance
+  return). *Caveat:* separation pay is treated as always non-taxable (only exempt for causes beyond the
+  employee's control).
+- **EWT / ATC rates** (`ewt-helpers.js`) — every ATC rate matches RR 11-2018 (professional 5/10% indiv,
+  10/15% corp; rentals 5%; contractors 2%; govt 1% goods / 2% services; final VAT 5%; royalties 20%).
+  The 0%-pass-through gross-up (`base = ewt ÷ rate`) is correct.
+- **0619E / 1601EQ** remittance aggregation — correct.
+- **1702Q corporate OSD** — 40% of gross income (the OSD bug was individual-only, as expected).
+- **SLS / SLP** — reuses the verified `lineAmounts` back-out and tax-code categorization, TIN-grouped;
+  ties out to 2550Q. Still to audit (lower-risk listings): SAWT/QAP, alphalist, 2307, SSS.
+
+**Agreed to prioritize two initiatives after the audit** (see [`to-do.md`](to-do.md) "Prioritized next
+initiatives"): **(1) report/code restructure** — move the flat root `*-report.js`/`*.html` files into a
+clean, concern-grouped layout (behavior-preserving, after a test harness lands); **(2) save/freeze
+reports** — persist a report when marked *Filed* so its figures snapshot as of filing and later edits to
+that period don't rewrite the filed return (Draft-vs-Filed status, amendment history, variance alert,
+per-tenant SQLite storage via a guarded endpoint).
+
 ### 2026-07-14 — BIR report correctness audit + two income-tax fixes (Phase 0)
 Static/logic audit of the report generators against BIR rules (part of the "verify every BIR report"
 Phase 0 item). **Cleared as correct:** `tax-rates-data.json` (all rates + effectivity windows), the

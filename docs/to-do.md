@@ -6,6 +6,32 @@ Open work, newest concerns first. Part of the ECC tracking triad
 
 _Last updated: 2026-07-14_
 
+## ⭐ Prioritized next initiatives (agreed 2026-07-14)
+
+Sequenced to run **after** the calc audit finishes, so we don't restructure files or add persistence
+on top of math that's still changing. Order matters: restructure first (behavior-preserving, into a
+clean layout), then build save-reports into that clean structure.
+
+- [ ] **PRIORITY 1 — Report/code restructure (clean architecture).** The extension grew as flat
+      `*-report.js` + form `*.html` files at the repo root (fine for a personal Manager.io extension,
+      messy for a product). Reorganize into a real directory structure grouped by concern
+      (reports/, helpers/, shared/, etc.), behavior-preserving. **Do it after a test harness exists**
+      so the move can't silently break a calculation. Prereq: report-generator tests (see below).
+- [ ] **PRIORITY 2 — Save / freeze generated reports (point-in-time snapshots).** Today every report
+      recomputes live from Manager.io, so editing a transaction inside an already-filed period silently
+      changes the "filed" figures. With the server + SQLite now in place, persist a report when marked
+      **Filed** so its numbers freeze as of filing; later edits to that period no longer alter it
+      (they flow to an amended return instead). Design agreed:
+      - **Draft vs Filed** status — Draft recomputes freely; only "Mark as Filed" locks a snapshot.
+      - **Keep amendment history** — original filed + each amendment as its own versioned snapshot.
+      - **Variance alert** — when opening a Filed period whose live books now differ, flag "filed ₱X,
+        books now ₱Y — amend?" (decide v1 vs later).
+      - **Storage** — per business, per firm (tenant), in `txform.db` via a guarded save/load endpoint
+        (same shape as the hardened tax-rates write). Bonus: persists the forms' manual-input fields,
+        which are currently lost on reload.
+      - **Freeze scope (recommended):** final figures + manual inputs + supporting detail (SLS/SLP
+        lines, alphalist rows); stored PDF optional later.
+
 ## Phase 0 — Foundation hardening
 
 - [x] **EBS/S3 backups** — AWS Backup snapshots + S3 Manager.io data backups, 2 AM
@@ -20,14 +46,16 @@ _Last updated: 2026-07-14_
       (localStorage), never ships it. Token file created on `txform-server` (`www-data`, mode 640);
       the value is pasted into the browser once on the first "Save to Server". Setup:
       [`DEPLOY-TAX-RATES-SAVE.md`](../DEPLOY-TAX-RATES-SAVE.md) step 3.
-- [ ] **BIR report correctness audit** — *in progress (static/logic pass).* Cleared: rates data,
-      graduated-tax engine, VAT 2550Q (lineAmounts back-out + output/input netting all correct).
-      **Fixed 2026-07-14:** (1) individual OSD in 1701 + 1701Q double-deducted COGS → understated
+- [ ] **BIR report correctness audit** — *in progress (static/logic pass).* **Cleared as correct:**
+      rates data, graduated-tax engine, VAT 2550Q (lineAmounts back-out + netting), the withholding
+      chain (1601C compensation, EWT/ATC rates vs RR 11-2018, 0619E/1601EQ remittance), 1702Q corporate
+      OSD (gross-income base), and SLS/SLP (reuses lineAmounts, TIN-grouped).
+      **Fixed 2026-07-14 (PR #25):** (1) individual OSD in 1701 + 1701Q double-deducted COGS → understated
       tax (RR 16-2008: OSD = 40% of gross sales, COGS not separately deductible); (2) MCIT start year
       in 1702-RT + 1702-Q was one year early → `>= 4` (RR 9-98: 4th taxable year *following*
-      commencement). Also added a "Tax Due" column to the Tax-Rates admin income-tax panel so brackets
-      can be checked against the BIR table. **Still to audit:** 1601C, 0619E, 1601EQ, 1702Q OSD base,
-      SLS/SLP, SAWT/QAP, alphalist, 2307, SSS.
+      commencement). Also added a "Tax Due" column to the Tax-Rates admin income-tax panel.
+      **Caveat noted:** 1601C treats separation pay as always non-taxable (only exempt for causes beyond
+      the employee's control). **Still to audit (lower-risk listings):** SAWT/QAP, alphalist, 2307, SSS.
 - [ ] **Report generators have no automated tests** — the `node --test` suite covers only the server
       side. The pure calc functions (`isMcitApplicable`, `netIncomeFor1701`, `computeGraduatedTax`)
       need to be made importable in Node so these fixes can be locked in with unit tests.
