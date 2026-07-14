@@ -143,6 +143,9 @@ async function generate0619E(biz, setup, outputEl) {
 
     render0619E(outputEl, atcRows, detail, setup, period);
     window._e = { totalEwt: atcRows.reduce((a, r) => a + r.ewt, 0) };
+    // Period this render represents, for the wizard's freeze/variance step
+    // (month is 0-based, matching monthName()).
+    window._period = { ptype: 'monthly', year: year, period: month, form: '0619E', label: period.label };
 
     ['me-print','me-pdf'].forEach(id => {
       const btn = document.getElementById(id);

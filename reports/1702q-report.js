@@ -222,6 +222,9 @@ function render1702Q(el, data, setup, period, rate, deduction) {
   el._itemizedTotal = schedule.total;
   el._mcitApplicable = mcitApplicable;
   el._year = period.year;
+  // The period this render represents, for the wizard's freeze/variance step
+  // (parallels window._itr) so the snapshot keys to exactly what's on screen.
+  window._period = { ptype: 'quarterly', year: period.year, period: period.quarter, form: '1702Q', label: period.label };
   bindIncomeTaxTabs(el);
   el.querySelectorAll('.recon-manual-input').forEach(inp => inp.addEventListener('input', () => recompute1702Q(el)));
   bindDeductionMappingTable(el, App.currentBusiness, () => render1702Q(el, data, setup, period, rate, deduction));

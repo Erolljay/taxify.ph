@@ -16,25 +16,29 @@
 
 const StepEngine = (function () {
 
-  // localStorage sentinel so a completed step survives a page reload.
-  function storageKey(biz, workflowKey, stepKey) {
-    return `taxify:step:${biz}:${workflowKey}:${stepKey}`;
+  // Draft step progress is a localStorage sentinel so a half-finished filing
+  // survives a page reload. It is scoped to the FILING (biz + workflow +
+  // period), so each period tracks its own progress independently — this is
+  // the ephemeral draft state (NOT the frozen snapshot, which is server-only).
+  // filingId = `${biz}:${workflowKey}:${periodKey}`.
+  function stepStorageKey(filingId, stepKey) {
+    return `taxify:step:${filingId}:${stepKey}`;
   }
-  function isDone(biz, workflowKey, stepKey) {
-    return localStorage.getItem(storageKey(biz, workflowKey, stepKey)) === '1';
+  function isStepDone(filingId, stepKey) {
+    return localStorage.getItem(stepStorageKey(filingId, stepKey)) === '1';
   }
-  function markDone(biz, workflowKey, stepKey, done) {
-    const k = storageKey(biz, workflowKey, stepKey);
+  function setStepDoneFlag(filingId, stepKey, done) {
+    const k = stepStorageKey(filingId, stepKey);
     if (done) localStorage.setItem(k, '1');
     else localStorage.removeItem(k);
   }
 
-  // Reset all step completion flags for a workflow (e.g. when starting a new period).
-  function resetWorkflow(biz, workflowKey, steps) {
-    steps.forEach(s => markDone(biz, workflowKey, s.key, false));
+  // Reset all step completion flags for a filing (e.g. when amending).
+  function resetSteps(filingId, steps) {
+    steps.forEach(s => setStepDoneFlag(filingId, s.key, false));
   }
 
-  const TYPE_ICON = { review: '📊', validate: '🔎', download: '📥', final: '🏁', instruction: 'ℹ️', period: '📅', payment: '💳', checklist: '📋' };
+  const TYPE_ICON = { review: '📊', validate: '🔎', download: '📥', final: '🏁', file: '🔒', instruction: 'ℹ️', period: '📅', payment: '💳', checklist: '📋' };
 
   function periodStorageKey(biz, workflowKey) {
     return `taxify:period:${biz}:${workflowKey}`;
@@ -60,35 +64,67 @@ const StepEngine = (function () {
     return params.toString();
   }
 
-  function mount(container, workflow, biz) {
+  // Mount a filing. opts = { period, status }:
+  //   period — the filing's period, chosen in the Filing overview (Phase D).
+  //   status — its known lifecycle state from the overview batch
+  //            ('draft' | 'filed' | 'amended').
+  // A filed/amended filing opens in frozen read-only mode (snapshot + variance);
+  // a draft opens the live step rail. A filing is identified by
+  // (biz, workflow, period) — see filingId.
+  function mount(container, workflow, biz, opts) {
+    opts = opts || {};
+    const period = opts.period || loadPeriod(biz, workflow.key) || null;
+    const periodKey = (typeof FilingCore !== 'undefined' && period) ? FilingCore.periodKey(period) : null;
+
     const state = {
-      biz, workflow,
+      biz, workflow, period, periodKey,
+      filingId: `${biz}:${workflow.key}:${periodKey || 'noperiod'}`,
+      status: opts.status || 'draft',
       activeIndex: 0,
       doneCache: {},     // stepKey -> bool (mirrors localStorage)
       bodyEls: {},        // stepKey -> the persistent <div class="tfy-step-body"> for that step
       iframes: {},        // iframeId -> <iframe> (shared across steps that reuse the same report file)
-      period: loadPeriod(biz, workflow.key),
+      _onShow: {},
     };
 
-    workflow.steps.forEach(s => { state.doneCache[s.key] = isDone(biz, workflow.key, s.key); });
+    const handle = {
+      reset() { amendFiling(container, state); },
+      amend() { amendFiling(container, state); },
+    };
+    container._tfyHandle = handle;
+    container._tfyState = state;
+
+    if (state.status === 'filed' || state.status === 'amended') {
+      renderFrozenView(container, state);
+    } else {
+      buildDraft(container, state);
+    }
+    return handle;
+  }
+
+  // Build (or rebuild) the live step rail for a draft filing.
+  function buildDraft(container, state) {
+    const { workflow, filingId } = state;
+    workflow.steps.forEach(s => { state.doneCache[s.key] = isStepDone(filingId, s.key); });
     const firstPending = workflow.steps.findIndex(s => !state.doneCache[s.key]);
     state.activeIndex = firstPending === -1 ? workflow.steps.length - 1 : firstPending;
 
     buildSkeleton(container, state);
     renderRail(container, state);
     showActiveStep(container, state);
+  }
 
-    const handle = {
-      reset() {
-        resetWorkflow(state.biz, workflow.key, workflow.steps);
-        workflow.steps.forEach(s => { state.doneCache[s.key] = false; });
-        state.activeIndex = 0;
-        renderRail(container, state);
-        showActiveStep(container, state);
-      },
-    };
-    container._tfyHandle = handle;
-    return handle;
+  // Leave frozen mode to prepare an amendment: the next freeze writes
+  // version+1 (the server supersedes the prior filed row). Draft step flags
+  // are preserved, so the preparer can jump straight to the freeze step and
+  // re-file, or revisit any step to change figures first.
+  function amendFiling(container, state) {
+    state.status = 'draft';
+    state.doneCache = {};
+    state.bodyEls = {};
+    state.iframes = {};
+    state._onShow = {};
+    buildDraft(container, state);
   }
 
   function isLocked(state, idx) {
@@ -101,19 +137,22 @@ const StepEngine = (function () {
   // Built exactly once per mount(); never replaced afterwards so step bodies
   // (and the iframes inside them) persist across rail navigation.
   function buildSkeleton(container, state) {
+    const periodLabel = (typeof FilingCore !== 'undefined' && state.period)
+      ? FilingCore.periodLabel(state.period) : '';
     container.innerHTML = `
       <div class="tfy-step-wrap">
         <div class="tfy-step-rail">
           <div class="tfy-step-rail-title">${escHtml(state.workflow.label)}</div>
+          ${periodLabel ? `<div class="tfy-step-rail-period">${escHtml(periodLabel)} · <span class="tfy-status-pill draft">Draft</span></div>` : ''}
           <div class="tfy-step-rail-list"></div>
-          <button type="button" class="tfy-step-restart" id="tfy-restart">↺ Restart workflow</button>
+          <button type="button" class="tfy-step-restart" id="tfy-restart">↺ Restart this filing</button>
         </div>
         <div class="tfy-step-panel" id="tfy-step-panel"></div>
       </div>`;
 
     container.querySelector('#tfy-restart').addEventListener('click', () => {
-      if (!confirm('Restart this workflow? Completion flags for every step will be cleared.')) return;
-      resetWorkflow(state.biz, state.workflow.key, state.workflow.steps);
+      if (!confirm('Restart this filing? Completion flags for every step will be cleared (the frozen return, if any, is not affected).')) return;
+      resetSteps(state.filingId, state.workflow.steps);
       state.workflow.steps.forEach(s => { state.doneCache[s.key] = false; });
       state.activeIndex = 0;
       renderRail(container, state);
@@ -182,7 +221,7 @@ const StepEngine = (function () {
   }
 
   function setStepDone(container, state, stepKey, done) {
-    markDone(state.biz, state.workflow.key, stepKey, done);
+    setStepDoneFlag(state.filingId, stepKey, done);
     state.doneCache[stepKey] = done;
     renderRail(container, state);
     refreshStepFooter(container, state, stepKey);
@@ -258,6 +297,8 @@ const StepEngine = (function () {
       mountIframeStep(body, panel, state, step);
     } else if (step.type === 'final') {
       mountBundleFinalStep(body, panel, state, step);
+    } else if (step.type === 'file') {
+      mountFileStep(body, panel, state, step);
     } else if (step.type === 'validate') {
       mountValidateStep(body, panel, state, step);
     } else if (step.type === 'checklist') {
@@ -411,11 +452,14 @@ const StepEngine = (function () {
     if (noop) noop.onclick = () => setStepDone(root, state, step.key, true);
   }
 
+  // A 'final' bundle step (working-paper downloads) is no longer the terminal
+  // action — the 'file' (freeze) step is. So its footer just re-triggers the
+  // bundled downloads and advances to the freeze step.
   function renderFinalFooter(body, root, state, step) {
     const footer = body.querySelector('.tfy-step-footer');
     footer.innerHTML = `
       ${step.bundle ? `<button class="btn btn-success" id="tfy-download-all">⬇ Download all (${step.bundle.length} files)</button>` : ''}
-      <button class="btn btn-primary" id="tfy-finish" style="margin-left:6px;">Mark workflow complete ✓</button>`;
+      <button class="btn btn-primary" id="tfy-finish" style="margin-left:6px;">Continue to filing →</button>`;
     if (step.bundle) {
       footer.querySelector('#tfy-download-all').onclick = () => {
         step.bundle.forEach(targetStepKey => {
@@ -431,55 +475,7 @@ const StepEngine = (function () {
         });
       };
     }
-    footer.querySelector('#tfy-finish').onclick = () => {
-      setStepDone(root, state, step.key, true);
-      showCompletionCelebration(root, state);
-    };
-  }
-
-  function showCompletionCelebration(root, state) {
-    const p = state.period;
-    const periodLabel = p
-      ? (p.ptype === 'monthly' ? monthName(p.period) : p.ptype === 'quarterly' ? `Q${p.period}` : 'Annual') + ' ' + p.year
-      : '';
-    const workflowLabel = state.workflow.label || 'Workflow';
-
-    const overlay = document.createElement('div');
-    overlay.id = 'tfy-completion-overlay';
-    overlay.style.cssText = `
-      position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:9999;
-      display:flex;align-items:center;justify-content:center;`;
-    overlay.innerHTML = `
-      <div style="
-        background:#fff;border-radius:16px;padding:40px 48px;max-width:480px;width:90%;
-        text-align:center;box-shadow:0 20px 60px rgba(0,0,0,0.25);position:relative;">
-        <div style="font-size:56px;line-height:1;margin-bottom:16px;">🎉</div>
-        <h2 style="margin:0 0 6px;font-size:22px;color:#111827;">Filing Complete!</h2>
-        <p style="margin:0 0 4px;font-size:15px;color:#374151;font-weight:600;">
-          ${escHtml(workflowLabel)}${periodLabel ? ` — ${escHtml(periodLabel)}` : ''}
-        </p>
-        <p style="margin:12px 0 24px;font-size:13px;color:#6b7280;line-height:1.6;">
-          Great work! Make sure you have downloaded and compiled all your
-          working papers and DAT files for this filing period before
-          starting a new one.
-        </p>
-        <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;">
-          <button id="tfy-cel-close" class="btn btn-outline" style="min-width:120px;">Close</button>
-          <button id="tfy-cel-restart" class="btn btn-primary" style="min-width:160px;">↺ Start New Period</button>
-        </div>
-      </div>`;
-
-    document.body.appendChild(overlay);
-
-    overlay.querySelector('#tfy-cel-close').onclick = () => overlay.remove();
-    overlay.querySelector('#tfy-cel-restart').onclick = () => {
-      overlay.remove();
-      // Trigger the workflow reset via the handle stored on the container
-      const handle = root._tfyHandle;
-      if (handle && handle.reset) handle.reset();
-    };
-    // Click outside to close
-    overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+    footer.querySelector('#tfy-finish').onclick = () => setStepDone(root, state, step.key, true);
   }
 
   // ── Instruction step: static guidance with a Continue button. ──────────
@@ -1267,5 +1263,295 @@ const StepEngine = (function () {
     body.querySelector('#tfy-recheck').onclick = () => runChecklist(body, panel, state, step);
   }
 
-  return { mount, isDone, markDone, resetWorkflow };
+  // ── FILE (freeze) step: the terminal action that snapshots the return. ──
+  // Reads the headline figure + the report's own period + manual inputs from
+  // the primary return iframe (the review step named by step.sourceStepKey,
+  // same technique the payment steps use to read window._v / _e / _itr), then
+  // POSTs a frozen snapshot. Success → the filing flips to frozen mode.
+  function mountFileStep(body, panel, state, step) {
+    if (!state._onShow) state._onShow = {};
+    state._onShow[step.key] = () => renderFileStep(body, panel, state, step);
+  }
+
+  // The primary return step (whose iframe holds the figures/period to freeze).
+  function primaryReturnStep(state) {
+    const fileStep = state.workflow.steps.find(s => s.type === 'file');
+    if (!fileStep || !fileStep.sourceStepKey) return null;
+    return state.workflow.steps.find(s => s.key === fileStep.sourceStepKey) || null;
+  }
+
+  function primaryReturnUrl(state, step) {
+    let file = step.fileFn ? step.fileFn(state.period) : step.file;
+    const params = new URLSearchParams({ biz: state.biz });
+    if (step.usesPeriod) {
+      const qs = periodQueryString(state, step);
+      if (qs) new URLSearchParams(qs).forEach((v, k) => params.set(k, v));
+    }
+    return file + (file.includes('?') ? '&' : '?') + params.toString();
+  }
+
+  // Read {figures, amount, period, form, manualInputs} out of the already-open
+  // primary return iframe. Returns null (or amount:null) if it hasn't generated
+  // yet — renderFileStep then shows a retry hint.
+  function readReturnFromIframe(state, fileStep) {
+    const srcStep = state.workflow.steps.find(s => s.key === fileStep.sourceStepKey);
+    if (!srcStep) return null;
+    const iframe = state.iframes[srcStep.iframeId];
+    const win = iframe && iframe.contentWindow;
+    if (!win) return null;
+    const headlineDef = (typeof FilingCore !== 'undefined') ? FilingCore.headlineFor(state.workflow.key) : null;
+    const figures = headlineDef ? win[headlineDef.winVar] : null;
+    const amount = (figures && headlineDef && typeof figures[headlineDef.field] === 'number')
+      ? figures[headlineDef.field] : null;
+    return {
+      figures: figures || null,
+      amount: amount,
+      period: win._period || state.period || null,
+      form: (win._period && win._period.form) || null,
+      manualInputs: captureManualInputs(state),
+    };
+  }
+
+  // Generic capture of every manual field the preparer typed, keyed by iframe.
+  // Currently lost on reload — this is the "persist manual inputs" bonus.
+  function captureManualInputs(state) {
+    const out = {};
+    Object.keys(state.iframes || {}).forEach(iframeId => {
+      const iframe = state.iframes[iframeId];
+      const doc = iframe && iframe.contentDocument;
+      if (!doc) return;
+      const fields = {};
+      doc.querySelectorAll('input[id], select[id], textarea[id]').forEach(el => {
+        if (['button', 'submit', 'file', 'image', 'reset'].indexOf(el.type) !== -1) return;
+        fields[el.id] = (el.type === 'checkbox' || el.type === 'radio') ? el.checked : el.value;
+      });
+      if (Object.keys(fields).length) out[iframeId] = fields;
+    });
+    return out;
+  }
+
+  function renderFileStep(body, panel, state, step) {
+    const root = panel.closest('.tfy-step-wrap').parentElement;
+    const headlineDef = (typeof FilingCore !== 'undefined') ? FilingCore.headlineFor(state.workflow.key) : null;
+    const ret = readReturnFromIframe(state, step);
+
+    if (!ret || ret.amount == null) {
+      body.innerHTML = `<div class="alert alert-warn">⚠️ Open and generate the return step above first, then come back here to freeze this filing. This will retry automatically when the figures are ready.</div>`;
+      return;
+    }
+
+    const periodLabel = (typeof FilingCore !== 'undefined' && ret.period) ? FilingCore.periodLabel(ret.period) : '';
+    body.innerHTML = `
+      <div class="alert alert-info" style="margin-bottom:12px;">
+        You're about to <strong>freeze</strong> this filing. The figures below are saved as of now, so later edits to
+        this period's books won't rewrite the filed return — they flow into an amendment instead.
+      </div>
+      <table class="tax-codes-table" style="margin-bottom:12px;">
+        <tbody>
+          <tr><td style="width:180px;">Filing</td><td><strong>${escHtml(state.workflow.label)}${ret.form ? ' — ' + escHtml(ret.form) : ''}</strong></td></tr>
+          <tr><td>Period</td><td><strong>${escHtml(periodLabel)}</strong></td></tr>
+          <tr><td>${escHtml((headlineDef && headlineDef.label) || 'Headline figure')}</td><td><strong>${fmtMoney(ret.amount)}</strong></td></tr>
+        </tbody>
+      </table>
+      <div class="tfy-step-footer">
+        <button class="btn btn-primary" id="tfy-mark-filed">🔒 Mark as Filed</button>
+        <span id="tfy-file-status" style="font-size:12px;color:#6b7280;margin-left:8px;"></span>
+      </div>`;
+
+    body.querySelector('#tfy-mark-filed').onclick = () => doFreeze(body, root, state, step, ret, headlineDef);
+  }
+
+  async function doFreeze(body, root, state, step, ret, headlineDef) {
+    const statusEl = body.querySelector('#tfy-file-status');
+    const btn = body.querySelector('#tfy-mark-filed');
+    if (typeof FilingStore === 'undefined') { statusEl.textContent = '❌ Filing store unavailable.'; return; }
+
+    const periodKey = (typeof FilingCore !== 'undefined') ? FilingCore.periodKey(ret.period || state.period) : state.periodKey;
+    if (!periodKey) { statusEl.textContent = '❌ This filing has no period.'; return; }
+
+    btn.disabled = true;
+    statusEl.textContent = 'Freezing…';
+    const snapshot = {
+      workflowKey: state.workflow.key,
+      periodKey: periodKey,
+      form: ret.form || null,
+      headline: { label: (headlineDef && headlineDef.label) || 'Headline figure', amount: ret.amount },
+      payload: {
+        figures: ret.figures || null,
+        period: ret.period || state.period || null,
+        manualInputs: ret.manualInputs || {},
+        filedAtClient: new Date().toISOString(),
+      },
+    };
+
+    try {
+      const res = await FilingStore.saveFilingSnapshot(state.biz, snapshot);
+      setStepDone(root, state, step.key, true);
+      // Keep periodKey aligned to what was actually filed (the report's own
+      // period may differ from the launch hint).
+      state.period = ret.period || state.period;
+      state.periodKey = periodKey;
+      state.status = (res.version > 1) ? 'amended' : 'filed';
+      renderFrozenView(root, state);
+    } catch (e) {
+      btn.disabled = false;
+      if (e && e.isAuthError) {
+        // Server-only store: a freeze must fail LOUDLY when there's no session.
+        statusEl.textContent = '';
+        body.querySelector('.tfy-step-footer').insertAdjacentHTML('beforebegin',
+          `<div class="alert alert-warn" style="margin-bottom:10px;">🔑 <strong>Sign in to freeze filings.</strong>
+             Freezing saves the return to your Txform account. Sign in at
+             <a href="/account" target="_blank" rel="noopener">txform.ph/account</a>, then click Mark as Filed again.
+             Your draft progress is kept.</div>`);
+      } else {
+        statusEl.textContent = '❌ ' + ((e && e.message) || 'Could not freeze filing.');
+      }
+    }
+  }
+
+  // ── FROZEN read-only mode: a filed/amended filing renders from its
+  //    snapshot instead of the live rail, with a variance check. ────────────
+  async function renderFrozenView(container, state) {
+    const periodLabel = (typeof FilingCore !== 'undefined' && state.period) ? FilingCore.periodLabel(state.period) : '';
+    container.innerHTML = `<div class="tfy-frozen"><div class="spinner-wrap"><div class="spinner"></div><span>Loading filed return…</span></div></div>`;
+
+    if (typeof FilingStore === 'undefined') {
+      container.innerHTML = `<div class="tfy-frozen"><div class="alert alert-error">Filing store unavailable.</div></div>`;
+      return;
+    }
+
+    let history = [];
+    try {
+      history = await FilingStore.loadFilingSnapshots(state.biz, state.workflow.key, state.periodKey);
+    } catch (e) {
+      const msg = (e && e.isAuthError)
+        ? `🔑 Sign in at <a href="/account" target="_blank" rel="noopener">txform.ph/account</a> to view filed returns.`
+        : `❌ ${escHtml((e && e.message) || 'Could not load filed return.')}`;
+      container.innerHTML = `<div class="tfy-frozen"><div class="alert ${e && e.isAuthError ? 'alert-warn' : 'alert-error'}">${msg}</div></div>`;
+      return;
+    }
+
+    const current = (typeof FilingCore !== 'undefined') ? FilingCore.currentSnapshot(history) : (history[0] || null);
+    if (!current) { state.status = 'draft'; buildDraft(container, state); return; }
+
+    const filedAtStr = current.filed_at
+      ? new Date(current.filed_at.replace(' ', 'T') + 'Z').toLocaleString('en-PH',
+          { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+      : '';
+    const amended = current.version > 1;
+    const headline = current.headline || {};
+
+    const historyRows = history.slice().sort((a, b) => (b.version || 0) - (a.version || 0)).map(s => {
+      const badge = (s.status === 'filed' || s.status == null)
+        ? '<span class="tfy-status-pill filed">current</span>'
+        : '<span class="tfy-status-pill">superseded</span>';
+      const amt = (s.headline && typeof s.headline.amount === 'number') ? fmtMoney(s.headline.amount) : '';
+      return `<tr><td>v${s.version || ''}</td><td>${badge}</td><td class="num">${amt}</td><td>${escHtml(s.filed_at || '')}</td><td>${escHtml(s.filed_by || '')}</td></tr>`;
+    }).join('');
+
+    container.innerHTML = `
+      <div class="tfy-frozen">
+        <div class="tfy-frozen-banner ${amended ? 'amended' : ''}">
+          <div>
+            <div class="tfy-frozen-title">🔒 ${escHtml(state.workflow.label)}${current.form ? ' — ' + escHtml(current.form) : ''} · ${escHtml(periodLabel)}</div>
+            <div class="tfy-frozen-sub">${amended ? 'Amended' : 'Filed'} — version ${current.version || 1}, on ${escHtml(filedAtStr)}${current.filed_by ? ' by ' + escHtml(current.filed_by) : ''}</div>
+          </div>
+          <span class="tfy-status-pill ${amended ? 'amended' : 'filed'}">${amended ? 'Amended' : 'Filed'}</span>
+        </div>
+
+        <div id="tfy-variance" class="tfy-variance checking">Checking live books against the filed figures…</div>
+
+        <div class="tfy-frozen-figure">
+          <div class="tfy-frozen-figure-label">${escHtml(headline.label || 'Filed figure')}</div>
+          <div class="tfy-frozen-figure-amt">${typeof headline.amount === 'number' ? fmtMoney(headline.amount) : '—'}</div>
+        </div>
+
+        ${renderFrozenManualInputs(current)}
+
+        <details class="tfy-frozen-history">
+          <summary>Amendment history (${history.length} version${history.length === 1 ? '' : 's'})</summary>
+          <table class="tax-codes-table"><thead><tr><th>Ver</th><th>Status</th><th>Headline</th><th>Filed at (UTC)</th><th>By</th></tr></thead>
+          <tbody>${historyRows}</tbody></table>
+        </details>
+
+        <div class="tfy-step-footer">
+          <button class="btn btn-outline" id="tfy-amend">✎ Amend filing</button>
+        </div>
+      </div>`;
+
+    container.querySelector('#tfy-amend').onclick = () => {
+      if (!confirm('Amend this filing? Change the figures and re-file — the new version supersedes the current one, and both are kept in history.')) return;
+      const handle = container._tfyHandle;
+      if (handle && handle.amend) handle.amend();
+    };
+
+    runFrozenVariance(container, state, current);
+  }
+
+  function renderFrozenManualInputs(current) {
+    const mi = current.payload && current.payload.manualInputs;
+    if (!mi || !Object.keys(mi).length) return '';
+    let rows = '';
+    Object.keys(mi).forEach(iframeId => {
+      const fields = mi[iframeId] || {};
+      Object.keys(fields).forEach(id => {
+        const v = fields[id];
+        if (v === '' || v == null || v === '0' || v === 0 || v === false) return; // tidy: skip empties/zeros
+        rows += `<tr><td>${escHtml(id)}</td><td class="num">${escHtml(String(v))}</td></tr>`;
+      });
+    });
+    if (!rows) return '';
+    return `<details class="tfy-frozen-history"><summary>Frozen manual inputs</summary>
+      <table class="tax-codes-table"><thead><tr><th>Field</th><th>Value</th></tr></thead><tbody>${rows}</tbody></table></details>`;
+  }
+
+  // Regenerate the same return for the same period in a hidden iframe and
+  // compare its headline against the frozen one. Auto-runs for returns that
+  // honor URL period params (VAT/EWT); degrades to a "check manually" note
+  // for those that don't — never blocks the frozen view.
+  function runFrozenVariance(container, state, current) {
+    const varEl = container.querySelector('#tfy-variance');
+    if (!varEl) return;
+    const headlineDef = (typeof FilingCore !== 'undefined') ? FilingCore.headlineFor(state.workflow.key) : null;
+    const srcStep = primaryReturnStep(state);
+    if (!headlineDef || !srcStep) { varEl.style.display = 'none'; return; }
+
+    const holder = document.createElement('div');
+    holder.style.cssText = 'position:absolute;width:1px;height:1px;overflow:hidden;left:-9999px;top:-9999px;';
+    const iframe = document.createElement('iframe');
+    iframe.src = primaryReturnUrl(state, srcStep);
+    holder.appendChild(iframe);
+    container.appendChild(holder);
+
+    let done = false;
+    const finish = (liveAmount) => {
+      if (done) return; done = true;
+      const v = (typeof FilingCore !== 'undefined')
+        ? FilingCore.computeVariance(current.headline || {}, liveAmount)
+        : { changed: false };
+      if (liveAmount == null) {
+        varEl.className = 'tfy-variance none';
+        varEl.textContent = 'Could not read live books automatically — open the workflow return to compare manually.';
+      } else if (v.changed) {
+        varEl.className = 'tfy-variance changed';
+        varEl.innerHTML = `⚠️ <strong>Books changed since filing.</strong> Filed ${fmtMoney(v.filedAmount)}, books now ${fmtMoney(v.liveAmount)} (${v.delta >= 0 ? '+' : ''}${fmtMoney(v.delta)}) — consider amending.`;
+      } else {
+        varEl.className = 'tfy-variance ok';
+        varEl.innerHTML = `✅ Live books still match the filed figure (${fmtMoney(v.filedAmount)}).`;
+      }
+      setTimeout(() => holder.remove(), 500);
+    };
+
+    const poll = setInterval(() => {
+      const win = iframe.contentWindow;
+      const figures = win && win[headlineDef.winVar];
+      if (figures && typeof figures[headlineDef.field] === 'number') {
+        clearInterval(poll);
+        finish(figures[headlineDef.field]);
+      }
+    }, 500);
+    setTimeout(() => { clearInterval(poll); if (!done) finish(null); }, 30000);
+  }
+
+  return { mount };
 })();
