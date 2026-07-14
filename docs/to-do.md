@@ -54,6 +54,9 @@ clean layout), then build save-reports into that clean structure.
          host-their-books model; a Cloud user on their *own* data hits no gate → free today. Monetizing
          self-serve needs a real server-side authorize-before-run gate that does **not** fail open — a
          different enforcement model than Phase 1's provisioner. See memory `manager-cloud-distribution`.
+      - **Decision (2026-07-14):** build this gate **as part of Phase 1 entitlement** work, not as a
+        separate effort — it's a second enforcement mode on the same system. Confirmed second
+        monetization path (reach existing Manager Cloud users directly, no hosted books).
 
 ## Phase 0 — Foundation hardening
 
