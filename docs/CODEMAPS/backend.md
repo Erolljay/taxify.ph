@@ -29,7 +29,7 @@ GET  /api/tenancy/overview      → overview        → owner-only → {account,
 GET /server/entitlement.php?business=<manager_business_guid>
    → reads txfsid session → 200 {status,...} | 401 unauth | 404 not-your-business
 ```
-Owners see all their businesses; staff only those granted via `user_business`. Same session table as the Node service. Authz logic mirrored in tested `entitlement-core.js` / `entitlement-authz` tests.
+Owners see all their businesses; staff only those granted via `user_business`. Same session table as the Node service. Authz logic mirrored in tested `shared/entitlement-core.js` / `entitlement-authz` tests.
 (`server/save-tax-rates.php` — writes shared `tax-rates-data.json`; guarded by nginx basic-auth. Flagged for a security pass in to-do.md.)
 
 ## Provisioner — `server/provisioner.js` (systemd timer, one `drainOnce`/tick)
