@@ -202,16 +202,22 @@ const WORKFLOWS = {
         key: 'ewt-instructions',
         type: 'instruction',
         label: 'Before you start',
+        short: 'Start',
+        info: true, // read-only guidance, not a gate — advances on its own
         body: `Open Manager's native <strong>Reports → Tax Audit</strong> report first and confirm there are no
           supplier payments missing an EWT Tax Code. Every purchase invoice or payment with an expanded withholding
           tax component must have its EWT tax code applied before generating the return — amounts are only correct
-          when all transactions are coded. Once confirmed, continue.`,
+          when all transactions are coded.`,
       },
       {
+        // EWT keeps both periods (unlike VAT's quarterly-only): the monthly
+        // 0619-E remittance and the quarterly 1601-EQ return, picked by the
+        // period the user selected.
         key: 'ewt-return-review',
         type: 'review',
         label: 'Review EWT Return',
-        help: 'Generate and review the return. For monthly periods this is the 0619-E; for quarterly it is the 1601-EQ. Confirm the figures look right before continuing.',
+        short: 'EWT Return',
+        help: 'Review the return. For a monthly period this is the 0619-E; for a quarterly period it is the 1601-EQ. Confirm the figures look right before continuing.',
         fileFn: (period) => period && period.ptype === 'monthly'
           ? findReport('0619e.html').file
           : findReport('1601eq.html').file,
@@ -219,57 +225,46 @@ const WORKFLOWS = {
         usesPeriod: true,
       },
       {
-        key: 'qap-review',
-        type: 'review',
-        label: 'Review QAP — Quarterly Alphalist of Payees',
-        help: 'Generate the Quarterly Alphalist of Payees (QAP) and confirm every payee and ATC code is correct. For monthly periods the QAP covers the single month so you have the DAT file ready.',
+        // Merged: review the QAP, fix any missing supplier TINs (blocking, as
+        // an inline banner — BIR's eSubmission rejects DAT files with missing
+        // payee TINs), and download — one screen instead of three steps.
+        // Unlike SLS/SLP, the QAP DAT is a single file for the period (the
+        // Annex A Excel always covers the full quarter), so datHint overrides
+        // the shared "one file per month" note.
+        key: 'qap',
+        type: 'document',
+        label: 'Quarterly Alphalist of Payees',
+        short: 'QAP',
+        help: 'Review the QAP — confirm every payee and ATC code — then fix any missing supplier TINs and download. The DAT file follows the period you picked; the Annex A Excel always covers the full quarter.',
         file: findReport('qap.html').file,
         iframeId: 'qap',
         usesPeriod: true,
-      },
-      {
-        key: 'qap-tin-check',
-        type: 'validate',
-        label: 'Check supplier TINs',
-        help: "Every supplier needs a TIN — BIR's eSubmission module rejects QAP and 1601-EQ DAT files with missing or all-zero payee TINs.",
         check: (biz) => checkPartyTIN(biz, 'supplier'),
-        fixLabel: 'Open Suppliers screen →',
-        fixIframeId: 'qap',
-        fixFile: findReport('qap.html').file,
+        fixLabel: 'Fix supplier TINs →',
         fixTabSelector: '[data-tab="suppliers"]',
-      },
-      {
-        key: 'qap-download',
-        type: 'download',
-        label: 'Download QAP (Excel / DAT)',
-        help: 'Click the Excel or DAT button inside the QAP report below to download. You can also go back to the <strong>Reports</strong> tab and open the QAP report there to download the files directly.',
-        file: findReport('qap.html').file,
-        iframeId: 'qap',
-        usesPeriod: true,
         buttonIds: ['qap-excel', 'qap-dat'],
         requireAll: false,
+        datHint: 'The DAT file follows the period you picked — one file for the quarter (or the selected month).',
       },
       {
         key: 'ewt-payment',
         type: 'payment',
         label: 'Record EWT remittance',
+        short: 'Payment',
         help: 'Posts the EWT remittance (debit Withholding Tax Payable, credit bank/cash) into Manager.',
         paymentFlavor: 'ewt',
         sourceStepKey: 'ewt-return-review',
       },
       {
-        key: 'ewt-final',
-        type: 'final',
-        label: 'Download working paper',
-        help: 'Re-download the QAP files for your working paper bundle. To save the EWT return or QAP as a PDF, open that step and use its own Print / Save as PDF button.',
-        bundle: ['qap-download'],
-      },
-      {
+        // Terminal step. The working-paper re-download (QAP) is folded into the
+        // freeze footer (bundle:) so it is no longer a separate step.
         key: 'ewt-file',
         type: 'file',
-        label: 'Mark as Filed (freeze)',
-        help: 'Freeze the EWT return figures as of filing. Later edits to this period’s books no longer change the filed return — they flow to an amendment instead.',
+        label: 'Mark as Filed',
+        short: 'File',
+        help: 'Freeze the EWT return figures as of filing. Later edits to this period’s books no longer change the filed return — they flow to an amendment instead. You can also re-download the QAP working-paper files here.',
         sourceStepKey: 'ewt-return-review',
+        bundle: ['qap'],
       },
     ],
   },
@@ -279,37 +274,59 @@ const WORKFLOWS = {
     label: 'Compensation (Payroll)',
     steps: [
       {
+        // First step = info-only guidance (the payslip-items reminder), matching
+        // VAT/EWT's "Before you start". Read-only, self-advancing — not a gate.
+        key: 'comp-instructions',
+        type: 'instruction',
+        label: 'Before you start',
+        short: 'Start',
+        info: true,
+        body: 'Payslip items (earnings, deductions, employer contributions) are configured in ' +
+          '<strong>Settings &rarr; Payslip items</strong>, not here. Before continuing, make sure every ' +
+          'payslip item used this period already has a BIR category — and, for new items, an expense/liability ' +
+          'account — mapped there. Also confirm this month\'s payroll is fully entered and posted.',
+      },
+      {
+        // The one real gate in this workflow: every employee must have a tax
+        // status before the return is trustworthy. Its own iframeId (distinct
+        // from the review step) so the engine doesn't leave the later step
+        // blank — the statuses are saved on the employee records, so the review
+        // iframe reloads them.
         key: 'taxstatus-check',
         type: 'review',
         label: 'Confirm employee tax status',
+        short: 'Tax Status',
         help: 'Every employee needs a Tax Status (MWE or NMWE) set before 1601-C, 1604-C Alphalist, and BIR Form 2316 can be filed correctly. Continue is blocked until none are blank — but please still double-check no one was misidentified.',
         file: findReport('1601c.html').file,
-        iframeId: 'payroll',
+        iframeId: 'payroll-taxstatus',
         focusTab: 'taxstatus',
         requireAllTaxStatus: true,
       },
       {
-        key: 'payslip-items-check',
-        type: 'instruction',
-        label: 'Confirm payslip items are mapped',
-        body: 'Payslip items (earnings, deductions, employer contributions) are configured in ' +
-          '<strong>Settings &rarr; Payslip items</strong>, not here. Before continuing, make sure every ' +
-          'payslip item used this period already has a BIR category — and, for new items, an expense/liability ' +
-          'account — mapped there.',
-      },
-      {
         key: 'payroll-review',
         type: 'review',
-        label: 'Review payroll withholding',
+        label: 'Review 1601-C withholding',
+        short: '1601-C',
+        help: 'Review the monthly compensation withholding return. Confirm the figures look right before continuing.',
         file: findReport('1601c.html').file,
-        iframeId: 'payroll',
+        iframeId: 'payroll-report',
         focusTab: 'report',
+      },
+      {
+        key: 'compensation-payment',
+        type: 'payment',
+        label: 'Record 1601-C remittance',
+        short: 'Payment',
+        help: 'Posts the compensation withholding remittance (debit Withholding Tax Payable – Compensation, credit bank/cash) into Manager.',
+        paymentFlavor: 'compensation',
+        sourceStepKey: 'payroll-review',
       },
       {
         key: 'compensation-file',
         type: 'file',
-        label: 'Mark as Filed (freeze)',
-        help: 'Freeze the 1601C figures for this month. Later payroll edits to this month no longer change the filed return — they flow to an amendment instead.',
+        label: 'Mark as Filed',
+        short: 'File',
+        help: 'Freeze the 1601-C figures for this month. Later payroll edits to this month no longer change the filed return — they flow to an amendment instead.',
         sourceStepKey: 'payroll-review',
       },
     ],
@@ -320,31 +337,59 @@ const WORKFLOWS = {
     label: 'Income Tax (Individual)',
     steps: [
       {
+        key: 'itr-instructions',
+        type: 'instruction',
+        label: 'Before you start',
+        short: 'Start',
+        info: true,
+        body: `Open Manager's native <strong>Reports → Tax Audit</strong> and confirm this period's income and
+          expense transactions are all recorded and coded — the 1701Q pulls straight from your books, so the
+          return is only right if the period is complete.`,
+      },
+      {
         key: 'itr-dta-check',
         type: 'checklist',
         label: 'Carry-forward account check',
+        short: 'Carry-forward',
         help: "Confirms whether the Deferred Tax Asset accounts for Prior Year's Excess Credit and Creditable Withholding Tax (2306) are set up. Informational only — you can continue either way.",
         check: (biz) => checkDtaAccounts(biz, ['priorYearExcessCredit', 'cwt2306']),
       },
       {
         key: 'itr-review',
         type: 'review',
-        label: 'File 1701Q',
+        label: 'Review 1701Q Return',
+        short: '1701-Q',
+        help: 'Review the quarterly individual income tax return. Confirm the figures look right before continuing.',
         file: findReport('1701q.html').file,
         iframeId: 'itr',
+        usesPeriod: true,
       },
       {
+        // Attachment merged into a document step: review the SAWT, fix any
+        // missing customer TINs (the payors who withheld from you), then
+        // download. Optional — skip if no creditable tax was withheld.
         key: 'itr-sawt',
-        type: 'review',
-        label: 'SAWT (1701Q)',
-        help: 'File the Summary Alphalist of Withholding Taxes attachment for this period.',
+        type: 'document',
+        label: 'SAWT — Summary Alphalist of Withholding Taxes',
+        short: 'SAWT',
+        optional: true,
+        help: 'The 1701Q attachment listing income payments where creditable tax (2307) was withheld from you. Fix any missing customer TINs, then download. A quarter downloads one DAT file per month (3 files).',
         file: findReport('sawt.html').file + '?form=1701Q',
         iframeId: 'itr-sawt',
+        usesPeriod: true,
+        check: (biz) => checkPartyTIN(biz, 'customer'),
+        fixLabel: 'Fix customer TINs →',
+        fixTabSelector: '[data-tab="customers"]',
+        buttonIds: ['sawt-excel', 'sawt-dat'],
+        requireAll: false,
+        skippable: true,
+        skipLabel: 'No creditable tax withheld this period — skip',
       },
       {
         key: 'itr-record-payment',
         type: 'payment',
-        label: 'Record Payment / Journal Entry',
+        label: 'Record income tax payment',
+        short: 'Payment',
         help: "Posts the total amount payable from the return into Manager. Pick which account it clears (e.g. a Deferred Tax Asset - ITR Payments role) — that choice is yours, not automated.",
         paymentFlavor: 'itr',
         sourceStepKey: 'itr-review',
@@ -352,9 +397,11 @@ const WORKFLOWS = {
       {
         key: 'itr-file',
         type: 'file',
-        label: 'Mark as Filed (freeze)',
-        help: 'Freeze the return figures as of filing. Later edits to this period’s books no longer change the filed return — they flow to an amendment instead.',
+        label: 'Mark as Filed',
+        short: 'File',
+        help: 'Freeze the return figures as of filing. Later edits to this period’s books no longer change the filed return — they flow to an amendment instead. You can also re-download the SAWT working-paper files here.',
         sourceStepKey: 'itr-review',
+        bundle: ['itr-sawt'],
       },
     ],
   },
@@ -364,31 +411,56 @@ const WORKFLOWS = {
     label: 'Income Tax (Corporation)',
     steps: [
       {
+        key: 'itr-instructions',
+        type: 'instruction',
+        label: 'Before you start',
+        short: 'Start',
+        info: true,
+        body: `Open Manager's native <strong>Reports → Tax Audit</strong> and confirm this period's income and
+          expense transactions are all recorded and coded — the 1702Q pulls straight from your books, so the
+          return is only right if the period is complete.`,
+      },
+      {
         key: 'itr-dta-check',
         type: 'checklist',
         label: 'Carry-forward accounts check',
+        short: 'Carry-forward',
         help: "Confirms whether the 5 Deferred Tax Asset accounts (Prior Year's Excess Credit, ITR Payments Regular/MCIT, MCIT Carryforward, Creditable Withholding Tax 2307) are set up. Informational only — you can continue either way.",
         check: (biz) => checkDtaAccounts(biz, ['priorYearExcessCredit', 'itrPaymentsRegular', 'itrPaymentsMcit', 'mcitCarryforward', 'cwt2307']),
       },
       {
         key: 'itr-review',
         type: 'review',
-        label: 'File 1702Q',
+        label: 'Review 1702Q Return',
+        short: '1702-Q',
+        help: 'Review the quarterly corporate income tax return. Confirm the figures look right before continuing.',
         file: findReport('1702q.html').file,
         iframeId: 'itr',
+        usesPeriod: true,
       },
       {
         key: 'itr-sawt',
-        type: 'review',
-        label: 'SAWT (1702Q)',
-        help: 'File the Summary Alphalist of Withholding Taxes attachment for this period.',
+        type: 'document',
+        label: 'SAWT — Summary Alphalist of Withholding Taxes',
+        short: 'SAWT',
+        optional: true,
+        help: 'The 1702Q attachment listing income payments where creditable tax (2307) was withheld from you. Fix any missing customer TINs, then download. A quarter downloads one DAT file per month (3 files).',
         file: findReport('sawt.html').file + '?form=1702Q',
         iframeId: 'itr-sawt',
+        usesPeriod: true,
+        check: (biz) => checkPartyTIN(biz, 'customer'),
+        fixLabel: 'Fix customer TINs →',
+        fixTabSelector: '[data-tab="customers"]',
+        buttonIds: ['sawt-excel', 'sawt-dat'],
+        requireAll: false,
+        skippable: true,
+        skipLabel: 'No creditable tax withheld this period — skip',
       },
       {
         key: 'itr-record-payment',
         type: 'payment',
-        label: 'Record Payment / Journal Entry',
+        label: 'Record income tax payment',
+        short: 'Payment',
         help: "Posts the total amount payable from the return into Manager. Pick which account it clears (e.g. a Deferred Tax Asset - ITR Payments role) — that choice is yours, not automated.",
         paymentFlavor: 'itr',
         sourceStepKey: 'itr-review',
@@ -396,9 +468,88 @@ const WORKFLOWS = {
       {
         key: 'itr-file',
         type: 'file',
-        label: 'Mark as Filed (freeze)',
-        help: 'Freeze the return figures as of filing. Later edits to this period’s books no longer change the filed return — they flow to an amendment instead.',
+        label: 'Mark as Filed',
+        short: 'File',
+        help: 'Freeze the return figures as of filing. Later edits to this period’s books no longer change the filed return — they flow to an amendment instead. You can also re-download the SAWT working-paper files here.',
         sourceStepKey: 'itr-review',
+        bundle: ['itr-sawt'],
+      },
+    ],
+  },
+
+  // Annual Filing groups the once-a-year returns into one guided sequence:
+  // the annual income tax return (1701 individual / 1702-RT corporation, by
+  // classification), the 1604-C and 1604-E year-end alphalists, and the annual
+  // Inventory List. The annual return pages carry their own year picker and
+  // don't publish a window headline, so this is a review-and-freeze guide (no
+  // auto-payment / auto-variance — the annual balance is settled on the return
+  // itself). 1604-E and the Inventory List don't have report pages yet, so they
+  // are optional "coming soon" placeholders that point the preparer to eFPS.
+  annual: {
+    key: 'annual',
+    label: 'Annual Filing',
+    steps: [
+      {
+        key: 'annual-instructions',
+        type: 'instruction',
+        label: 'Before you start',
+        short: 'Start',
+        info: true,
+        body: `This covers the <strong>once-a-year</strong> returns for the selected year: the annual income tax
+          return (1701 or 1702-RT), the 1604-C and 1604-E year-end alphalists, and — if the client keeps
+          inventory — the annual Inventory List. Make sure the full year's books are finalised (all periods
+          reviewed) before you file these.`,
+      },
+      {
+        // Individual → 1701, corporation → 1702-RT, chosen from setup.classification
+        // (the same signal workflowKeyForIncomeTax() uses for the quarterly return).
+        key: 'annual-itr-review',
+        type: 'review',
+        label: 'Review Annual Income Tax Return',
+        short: 'Annual ITR',
+        help: 'Review the annual income tax return (1701 for individuals, 1702-RT for corporations). Pick the year inside the report, then confirm the figures before continuing.',
+        fileFn: () => (typeof setup !== 'undefined' && setup && setup.classification === 'Individual')
+          ? findReport('1701.html').file
+          : findReport('1702rt.html').file,
+        iframeId: 'annual-itr',
+      },
+      {
+        key: 'annual-1604c',
+        type: 'review',
+        label: '1604-C — Annual Alphalist of Employees',
+        short: '1604-C',
+        help: 'Review the annual alphalist of compensation withholding (1604-C) and the BIR 2316 certificates. Pick the year inside the report.',
+        file: findReport('alphalist.html').file,
+        iframeId: 'annual-1604c',
+      },
+      {
+        key: 'annual-1604e',
+        type: 'instruction',
+        label: '1604-E — Annual Alphalist of Payees',
+        short: '1604-E',
+        info: true,
+        body: `The <strong>1604-E</strong> annual alphalist of income payments subject to expanded withholding
+          isn't generated in Txform yet. For now, compile it from your quarterly QAP data and file it directly
+          in eFPS / eBIRForms. <em>(A dedicated 1604-E report is on the roadmap.)</em>`,
+      },
+      {
+        key: 'annual-inventory',
+        type: 'instruction',
+        label: 'Annual Inventory List',
+        short: 'Inventory',
+        info: true,
+        body: `<strong>Only if this client maintains inventory.</strong> The annual Inventory List (due January 30)
+          isn't generated in Txform yet — export your closing inventory from Manager and file it with the RDO in
+          the BIR's prescribed format. <em>(A dedicated Inventory List report is on the roadmap.)</em> If the
+          client keeps no inventory, skip this.`,
+      },
+      {
+        key: 'annual-file',
+        type: 'file',
+        label: 'Mark as Filed',
+        short: 'Done',
+        help: 'Freeze this year\'s annual filings as complete. This records the annual return as filed for the year; later book edits flow to an amendment instead.',
+        sourceStepKey: 'annual-itr-review',
       },
     ],
   },

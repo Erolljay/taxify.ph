@@ -30,6 +30,94 @@ rates, the graduated-tax engine and VAT 2550Q are verified; two income-tax bugs 
 
 ## Changelog
 
+### 2026-07-15 — Income tax redesign + filing landing-screen overhaul
+Finished the tax-by-tax redesign (income tax = 4th/last type) and reworked the filing landing screen,
+on branch `feature/filing-workflow-ewt-redesign`.
+
+**Income tax (1701Q individual + 1702Q corporation)** — both workflows to the house style:
+- Info-first `Start` step + short chips; kept the DTA carry-forward checklist.
+- **SAWT converted to a `document` step** — customer-TIN blocking banner (the payors who withheld from
+  you) + gated download, **per-month 3-file DAT** (user-confirmed monthly cadence), and `optional` +
+  `skippable` when no creditable tax was withheld.
+- **ITR payment folded into the shared `mountRemittanceVoucherContent`** — all four tax types now share
+  one voucher renderer (VAT keeps its bespoke multi-row one). The helper gained an `extraNote` (carries
+  ITR's free-choice DTA-account guidance) and now handles a signed total (overpayment → balanced JE).
+- **Engine:** added real `skippable` support to the `document` footer (a "skip — nothing to file"
+  button that bypasses the TIN gate + download for optional attachments).
+
+**Filing landing screen:**
+- **Overview tabs reworked** — `All` scopes to the **current year** (was a 400-day rolling window),
+  `Needs filing` / `Filed` current-year, and a **new `Archived` tab** with a year dropdown for past
+  years. Enumeration widened to `[y-3 … y+1]`.
+- **Deadline Tracker removed** — the `deadlines` nav + page + `dtk*` code dropped; deadlines now live on
+  each category's Filings overview (due dates + Overdue pills). `dtkDate` kept (used by enumeration).
+- **"Others" category removed** (nav + `renderOthersScreen`).
+- **"Annual Filing" category added** — new `annual` workflow grouping annual 1701/1702-RT (by
+  classification), 1604-C (`alphalist.html`), plus **"coming soon" placeholders for 1604-E and the
+  Inventory List** (no report pages exist yet). Review-and-freeze guide (annual pages publish no
+  `window` headline, so no auto-payment/variance).
+
+**Verify:** `npm test` **119 green**, `node --check` clean on all changed JS. Presentation/structure
+only — no report-calc changes. Not runtime-tested in live Manager. *Open follow-ups: build the 1604-E +
+Inventory List reports; optional overdue notification; drop the now-dead `final` step type.*
+
+### 2026-07-15 — Filing-workflow UX redesign: Compensation 1601-C (third tax type)
+Applied the house style to the `compensation` (payroll) workflow, on branch
+`feature/filing-workflow-ewt-redesign` (same branch as EWT). **4 steps → 5** (added the missing
+remittance JE), and fixed a latent blank-iframe bug.
+
+- **`comp-instructions`** — the old payslip-items reminder promoted to the info-only first step
+  (`info: true` + `Start` chip), matching VAT/EWT. Added a "payroll fully entered & posted" line.
+- **Tax-status gate kept** — still `requireAllTaxStatus: true` (blocks until no employee is blank);
+  added the `Tax Status` chip.
+- **Blank-iframe fix** — the tax-status and review steps both used `iframeId: 'payroll'`. Because the
+  engine parents an iframe in the step that created it, the second step rendered **blank** (the exact
+  hazard the conventions warn about). Split into `payroll-taxstatus` / `payroll-report`; the statuses
+  live on the employee records so the review iframe reloads them.
+- **NEW `compensation-payment`** — the workflow had no remittance step. Added a JE voucher
+  (`paymentFlavor: 'compensation'`) reading `window._c.totalRemittance` (the "Tax still due" line):
+  DR Withholding Tax Payable – Compensation, CR bank/cash — the same shape as EWT.
+- **Freeze** — added the `File` chip; unchanged otherwise (no downloadable listing to bundle).
+
+**Shared engine refactor (also lifts EWT):** [`app/step-engine.js`](../app/step-engine.js) — the EWT
+payment renderer was still the *old* plain style (no voucher header band, no editable Description),
+so my EWT redesign had left it inconsistent with VAT. Extracted a **`mountRemittanceVoucherContent`**
+helper (the shared shape: clear one Withholding Tax Payable liability against bank/cash, Payment vs
+balanced JE) and routed **both EWT and compensation** through it — so both now get the VAT-style
+voucher with editable Description. EWT's and compensation's renderers are thin cfg wrappers. *ITR
+payment still uses its own older renderer — folded into the income-tax redesign (next).*
+
+- **Verify** — `npm test` **119 green**, `node --check` clean. *Presentation only — no calc changes*
+  (1601-C generator untouched; the new payment step only reads the already-computed total and posts a
+  standard remittance). *Eyeball after deploy: review step renders (not blank); payment voucher shows
+  editable Description + the remittance total; freeze re-opens frozen.*
+
+### 2026-07-15 — Filing-workflow UX redesign: EWT (second tax type)
+Applied the VAT house style (recorded in
+[`instruction.md`](instruction.md#filing-workflow-ux-conventions-apply-to-every-tax-type)) to the
+`expanded` (EWT) workflow. **8 gated steps → 5**, on branch
+`feature/filing-workflow-ewt-redesign`.
+
+- **`ewt-instructions`** — now `info: true` (read-only, self-advancing) + a `Start` chip, matching VAT.
+- **`ewt-return-review`** — added the `EWT Return` chip. Keeps the `fileFn` split (0619-E monthly /
+  1601-EQ quarterly) — EWT legitimately has **both** periods, unlike VAT's quarterly-only.
+- **QAP** — merged the old `qap-review` + `qap-tin-check` + `qap-download` into **one `document` step**
+  (inline blocking supplier-TIN banner with a "fix" deep-link into the report's Suppliers tab + gated
+  download). Unlike SLS/SLP, the QAP DAT is **a single file for the period** (the Annex A Excel always
+  covers the full quarter), so a new per-step **`datHint`** overrides the shared "one file per month"
+  note instead of stating it wrongly.
+- **`ewt-payment`** — added the `Payment` chip; unchanged posting logic (compound-JE voucher layer is
+  the shared engine change from PR #32).
+- **Freeze** — dropped the standalone `ewt-final` working-paper step; folded the QAP re-download into
+  the terminal `file` (freeze) step via `bundle: ['qap']`, exactly as VAT folds SLS/SLP/SAWT. Added the
+  `File` chip.
+- **Engine (shared)** — [`app/step-engine.js`](../app/step-engine.js) `renderDocumentFooter` now reads
+  an optional `step.datHint` (defaults to the SLS/SLP per-month text), so the `document` type serves
+  both monthly-per-file (SLS/SLP) and single-file-per-period (QAP) listings.
+- **Verify** — `npm test` **119 green**, `node --check` clean on both files. *Presentation only — no
+  calc changes* (QAP/0619-E/1601-EQ generators untouched). *Eyeball after deploy: QAP step shows the
+  TIN banner + single DAT; monthly period picks 0619-E, quarterly picks 1601-EQ; freeze re-downloads QAP.*
+
 ### 2026-07-15 — Filing-workflow UX redesign: VAT (first tax type) — PR #32
 Started the tax-by-tax UX redesign of the filing workflows (design conventions now recorded in
 [`instruction.md`](instruction.md#filing-workflow-ux-conventions-apply-to-every-tax-type) and

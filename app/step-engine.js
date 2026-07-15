@@ -431,7 +431,7 @@ const StepEngine = (function () {
   }
 
   // ── 'document' step: one screen that merges review + TIN validation +
-  //    download for a single report (SLS / SLP). The report renders in the
+  //    download for a single report (SLS / SLP / QAP). The report renders in the
   //    iframe above; this footer runs the party-TIN check as an inline banner
   //    (blocking, since BIR rejects DAT files with missing TINs) and gates
   //    Continue on both a passing check and a confirmed download. ────────────
@@ -444,14 +444,18 @@ const StepEngine = (function () {
       <div id="tfy-doc-tin" style="width:100%;"></div>
       <div id="tfy-doc-dl" class="alert alert-warn" style="width:100%;margin:0 0 10px;">
         ⚠️ Download the file${step.buttonIds.length > 1 ? 's' : ''} below (or mark it done) to continue.
-        A full quarter downloads one DAT file per month (3 files).
+        ${step.datHint || 'A full quarter downloads one DAT file per month (3 files).'}
       </div>
       <button class="btn btn-primary" id="tfy-continue" disabled>Continue →</button>
-      <button class="btn btn-outline" id="tfy-skip" style="margin-left:6px;">I already downloaded this — mark complete</button>`;
+      <button class="btn btn-outline" id="tfy-skip" style="margin-left:6px;">I already downloaded this — mark complete</button>
+      ${step.skippable ? `<button class="btn btn-outline" id="tfy-skip-all" style="margin-left:6px;">${escHtml(step.skipLabel || 'Skip — nothing to file')}</button>` : ''}`;
 
     const contBtn = footer.querySelector('#tfy-continue');
     const dlAlert = footer.querySelector('#tfy-doc-dl');
     const tinEl   = footer.querySelector('#tfy-doc-tin');
+    // Optional attachment (e.g. SAWT): skip the whole step — no TIN gate, no
+    // download required — when there's nothing to file this period.
+    if (step.skippable) footer.querySelector('#tfy-skip-all').onclick = () => setStepDone(root, state, step.key, true);
 
     function refresh() {
       if (downloaded) {
@@ -675,6 +679,8 @@ const StepEngine = (function () {
       if (posted) return;
       if (step.paymentFlavor === 'ewt') {
         mountEwtPaymentStepContent(body, panel, state, step, () => { posted = true; });
+      } else if (step.paymentFlavor === 'compensation') {
+        mountCompensationPaymentStepContent(body, panel, state, step, () => { posted = true; });
       } else if (step.paymentFlavor === 'itr') {
         mountItrPaymentStepContent(body, panel, state, step, () => { posted = true; });
       } else {
@@ -910,25 +916,69 @@ const StepEngine = (function () {
   }
 
   // ── EWT payment step: posts the withholding tax remittance. ─────────────
-  // Simpler than the VAT payment step — reads window._e.totalEwt from the
-  // EWT return iframe (0619-E or 1601-EQ depending on ptype) and builds a
-  // straight payment from a bank/cash account.
+  // Reads window._e.totalEwt from the EWT return iframe (0619-E or 1601-EQ
+  // depending on ptype). Thin wrapper over the shared remittance voucher.
   function mountEwtPaymentStepContent(body, panel, state, step, onPosted) {
+    mountRemittanceVoucherContent(body, panel, state, step, onPosted, {
+      spinnerLabel: 'Reading EWT return totals…',
+      sourceVar: '_e',
+      amountField: 'totalEwt',
+      missingHtml: '⚠️ Open and generate the EWT return step first so this step can read the computed totals.<br><br>Once that step has finished generating, come back here — this will retry automatically.',
+      taxLabel: 'EWT',
+      refPrefix: 'EWT',
+      debitDesc: 'Withholding Tax Payable (EWT)',
+      dueLabel: 'EWT due',
+      payBtn: 'Record EWT remittance',
+      closeBtn: 'Record EWT closing entry',
+    });
+  }
+
+  // ── Compensation (1601-C) payment step: posts the payroll withholding
+  //    remittance. Reads window._c.totalRemittance from the 1601-C report
+  //    iframe (the "Tax still due" line). Structurally identical to EWT — a
+  //    single Withholding Tax Payable debit cleared by a bank/cash payment —
+  //    so it shares the remittance voucher.
+  function mountCompensationPaymentStepContent(body, panel, state, step, onPosted) {
+    mountRemittanceVoucherContent(body, panel, state, step, onPosted, {
+      spinnerLabel: 'Reading 1601-C totals…',
+      sourceVar: '_c',
+      amountField: 'totalRemittance',
+      missingHtml: '⚠️ Open and generate the payroll-withholding review step first so this step can read the computed 1601-C total.<br><br>Once that step has finished generating, come back here — this will retry automatically.',
+      taxLabel: '1601-C',
+      refPrefix: '1601C',
+      debitDesc: 'Withholding Tax Payable – Compensation',
+      dueLabel: 'Tax to remit',
+      payBtn: 'Record 1601-C remittance',
+      closeBtn: 'Record 1601-C closing entry',
+    });
+  }
+
+  // ── Shared remittance voucher (EWT + compensation). ─────────────────────
+  // A withholding remittance is always the same shape: clear a single
+  // Withholding Tax Payable liability against a bank/cash account (a Payment
+  // when there's tax to remit, or a balanced Journal Entry when there isn't).
+  // The only differences are which window var/field holds the total and the
+  // wording — passed in via cfg. Presentation matches the VAT voucher
+  // (mountPaymentStepContent): a header band with an editable Description, a
+  // one-figure strip, the DR/CR ledger, and a balance badge. The ids/classes
+  // the recalc/post logic reads (#tfy-je-*, .tfy-je-*) are the shared ones.
+  function mountRemittanceVoucherContent(body, panel, state, step, onPosted, cfg) {
     const root = panel.closest('.tfy-step-wrap').parentElement;
-    body.innerHTML = `<div class="spinner-wrap"><div class="spinner"></div><span>Reading EWT return totals…</span></div>`;
+    body.innerHTML = `<div class="spinner-wrap"><div class="spinner"></div><span>${escHtml(cfg.spinnerLabel)}</span></div>`;
 
     const sourceStep = state.workflow.steps.find(s => s.key === step.sourceStepKey);
     const sourceIframe = sourceStep && state.iframes[sourceStep.iframeId];
     const win = sourceIframe && sourceIframe.contentWindow;
-    const e = win && win._e;
+    const src = win && win[cfg.sourceVar];
 
-    if (!e || e.totalEwt == null) {
-      body.innerHTML = `<div class="alert alert-warn">⚠️ Open and generate the EWT return step first so this step can read the computed totals.<br><br>Once that step has finished generating, come back here — this will retry automatically.</div>`;
+    if (!src || src[cfg.amountField] == null) {
+      body.innerHTML = `<div class="alert alert-warn">${cfg.missingHtml}</div>`;
       return;
     }
 
-    const totalEwt = e.totalEwt;
-    const isPayable = totalEwt > 0.005;
+    const total = src[cfg.amountField];
+    const amt = Math.abs(total);           // row/strip amount (ITR can be an overpayment)
+    const isPayable = total > 0.005;
 
     Promise.all([
       fetchAllBatch('/api4/bank-or-cash-account-batch', state.biz).catch(() => []),
@@ -949,10 +999,14 @@ const StepEngine = (function () {
       const pLabel = state.period
         ? (state.period.ptype === 'monthly' ? monthName(state.period.period) : 'Q' + state.period.period) + ' ' + state.period.year
         : '';
-      const reference = `EWT ${pLabel}`.trim();
+      const reference = `${cfg.refPrefix} ${pLabel}`.trim();
+      // Editable entry description, pre-filled as e.g. "EWT - Q2 2026" /
+      // "1601-C - March 2026"; becomes the payment description / journal
+      // narration on posting.
+      const defaultDesc = `${cfg.taxLabel} - ${pLabel}`.trim();
 
       const initialRows = [
-        { desc: 'Withholding Tax Payable (EWT)', debit: totalEwt, credit: 0 },
+        { desc: cfg.debitDesc, debit: amt, credit: 0 },
       ];
 
       const acctOpts = sel => allAccts.map(a => `<option value="${a.key}"${a.key === sel ? ' selected' : ''}>${escHtml(a.name)}</option>`).join('');
@@ -962,40 +1016,54 @@ const StepEngine = (function () {
         <tr data-row="${i}">
           <td><select class="tfy-je-acct">${acctOpts(r.account)}</select></td>
           <td><input type="text" class="tfy-je-desc" value="${escHtml(r.desc || '')}"></td>
-          <td><input type="number" step="0.01" class="tfy-je-debit" value="${r.debit ? r.debit.toFixed(2) : ''}"></td>
-          <td><input type="number" step="0.01" class="tfy-je-credit" value="${r.credit ? r.credit.toFixed(2) : ''}"></td>
-          <td><button type="button" class="btn btn-outline tfy-je-remove" style="padding:2px 8px;">✕</button></td>
+          <td class="amt"><input type="number" step="0.01" class="tfy-je-debit" value="${r.debit ? r.debit.toFixed(2) : ''}"></td>
+          <td class="amt"><input type="number" step="0.01" class="tfy-je-credit" value="${r.credit ? r.credit.toFixed(2) : ''}"></td>
+          <td class="rm-col"><button type="button" class="tfy-je-remove" title="Remove line">✕</button></td>
         </tr>`;
 
       body.innerHTML = `
-        <div class="alert ${isPayable ? 'alert-warn' : 'alert-success'}" style="margin-bottom:10px;">
-          ${isPayable
-            ? `EWT due: <strong>${fmtMoney(totalEwt)}</strong> — will be posted as a Payment from the chosen bank/cash account.`
-            : `No EWT due this period — posted as a Journal Entry.`}
-        </div>
-        <div class="filter-bar" style="flex-wrap:wrap;margin-bottom:10px;">
-          <label>Date</label>
-          <input type="date" id="tfy-je-date" value="${today}">
-          ${isPayable ? `
-          <label>Pay from (Bank/Cash)</label>
-          <select id="tfy-acct-bank">${bankOpts}</select>` : ''}
-        </div>
-        <table class="tax-codes-table" id="tfy-je-table">
-          <thead><tr><th>Account</th><th>Description</th><th style="width:110px;">Debit</th><th style="width:110px;">Credit</th><th style="width:30px;"></th></tr></thead>
-          <tbody>${initialRows.map(rowHtml).join('')}</tbody>
-          <tfoot><tr>
-            <td colspan="2" style="text-align:right;font-weight:700;">Total</td>
-            <td id="tfy-je-total-debit" class="num" style="font-weight:700;"></td>
-            <td id="tfy-je-total-credit" class="num" style="font-weight:700;"></td>
-            <td></td>
-          </tr></tfoot>
-        </table>
-        <button type="button" class="btn btn-outline" id="tfy-je-add" style="margin-top:8px;">+ Add line</button>
-        <div id="tfy-je-balance" style="margin-top:8px;font-size:12px;"></div>
-        <div class="tfy-step-footer">
-          <button class="btn btn-primary" id="tfy-post">${isPayable ? 'Record EWT remittance' : 'Record EWT closing entry'}</button>
-          <span id="tfy-post-status" style="font-size:12px;color:#6b7280;margin-left:8px;"></span>
+        <div class="tfy-voucher">
+          <div class="tfy-voucher-head">
+            <div class="tfy-voucher-kind">
+              <span class="tfy-voucher-badge">${isPayable ? 'Payment' : 'Journal Entry'}</span>
+              <h4 id="tfy-voucher-title">${escHtml(defaultDesc)}</h4>
+            </div>
+            <div class="tfy-voucher-fields">
+              <div class="tfy-vf"><label>Date</label><input type="date" id="tfy-je-date" value="${today}"></div>
+              ${isPayable ? `<div class="tfy-vf"><label>Pay from (Bank / Cash)</label><select id="tfy-acct-bank">${bankOpts}</select></div>` : ''}
+              <div class="tfy-vf tfy-vf-wide"><label>Description</label><input type="text" id="tfy-je-ref" value="${escHtml(defaultDesc)}"></div>
+            </div>
+          </div>
+
+          <div class="tfy-vat-strip">
+            <div class="tfy-vat-cell ${isPayable ? 'due' : ''}"><span class="k">${escHtml(cfg.dueLabel)}</span><span class="v">${isPayable ? fmtMoney(amt) : '—'}</span></div>
+          </div>
+          ${cfg.extraNote ? `<div class="alert" style="margin:0 0 10px;font-size:12px;">${cfg.extraNote}</div>` : ''}
+
+          <table class="tfy-ledger" id="tfy-je-table">
+            <thead><tr><th>Account</th><th>Description</th><th class="amt">Debit</th><th class="amt">Credit</th><th class="rm-col"></th></tr></thead>
+            <tbody>${initialRows.map(rowHtml).join('')}</tbody>
+            <tfoot><tr>
+              <td colspan="2" class="lbl">Total</td>
+              <td id="tfy-je-total-debit" class="amt"></td>
+              <td id="tfy-je-total-credit" class="amt"></td>
+              <td></td>
+            </tr></tfoot>
+          </table>
+          <div class="tfy-ledger-add"><button type="button" class="btn btn-outline" id="tfy-je-add">+ Add line</button></div>
+
+          <div class="tfy-voucher-foot">
+            <div id="tfy-je-balance" class="tfy-balance"></div>
+            <div class="tfy-voucher-actions">
+              <button class="btn btn-primary" id="tfy-post">${isPayable ? escHtml(cfg.payBtn) : escHtml(cfg.closeBtn)}</button>
+              <span id="tfy-post-status" style="font-size:12px;color:#6b7280;margin-left:8px;"></span>
+            </div>
+          </div>
         </div>`;
+
+      body.querySelector('#tfy-je-ref').addEventListener('input', function () {
+        body.querySelector('#tfy-voucher-title').textContent = this.value || defaultDesc;
+      });
 
       const tbody = body.querySelector('#tfy-je-table tbody');
 
@@ -1021,17 +1089,20 @@ const StepEngine = (function () {
         body.querySelector('#tfy-je-total-credit').textContent = fmtMoney(totalCredit);
         const balanceEl = body.querySelector('#tfy-je-balance');
         const diff = totalDebit - totalCredit;
+        let ok;
         if (isPayable) {
-          const ok = Math.abs(diff - totalEwt) < 0.01;
+          ok = Math.abs(diff - amt) < 0.01;
           balanceEl.innerHTML = ok
-            ? `✅ Net of lines (${fmtMoney(diff)}) matches the EWT amount to be paid.`
-            : `⚠️ Net of lines (${fmtMoney(diff)}) should equal the EWT due (${fmtMoney(totalEwt)}).`;
+            ? `✔ Balanced — net of lines (${fmtMoney(diff)}) matches the amount paid`
+            : `⚠ Net of lines (${fmtMoney(diff)}) should equal the ${escHtml(cfg.dueLabel.toLowerCase())} (${fmtMoney(amt)})`;
         } else {
-          const ok = Math.abs(diff) < 0.01;
+          ok = Math.abs(diff) < 0.01;
           balanceEl.innerHTML = ok
-            ? `✅ Entry is balanced.`
-            : `⚠️ Debits and credits must be equal (currently off by ${fmtMoney(diff)}).`;
+            ? `✔ Balanced — debits equal credits`
+            : `⚠ Debits and credits must be equal (off by ${fmtMoney(diff)})`;
         }
+        balanceEl.classList.toggle('ok', ok);
+        balanceEl.classList.toggle('bad', !ok);
         return { totalDebit, totalCredit, diff };
       }
 
@@ -1053,6 +1124,7 @@ const StepEngine = (function () {
         if (!rows.length) { statusEl.textContent = '❌ Add at least one line.'; return; }
         if (rows.some(r => !r.account)) { statusEl.textContent = '❌ Every line needs an account.'; return; }
 
+        const entryDesc = (body.querySelector('#tfy-je-ref').value || '').trim() || defaultDesc;
         statusEl.textContent = 'Posting…';
         try {
           if (isPayable) {
@@ -1064,7 +1136,7 @@ const StepEngine = (function () {
             }));
             await apiRequest('PUT', '/api4/payment', {
               key: crypto.randomUUID(),
-              value: { date: postDate, reference, paidFrom: bankAcct, description: `EWT remittance — ${reference}`, lines },
+              value: { date: postDate, reference, paidFrom: bankAcct, description: entryDesc, lines },
             });
           } else {
             const lines = rows.map(r => ({
@@ -1075,7 +1147,7 @@ const StepEngine = (function () {
             }));
             await apiRequest('PUT', '/api4/journal-entry', {
               key: crypto.randomUUID(),
-              value: { date: postDate, reference, narration: `EWT close — ${reference}`, lines },
+              value: { date: postDate, reference, narration: entryDesc, lines },
             });
           }
           statusEl.textContent = '✅ Posted.';
@@ -1090,186 +1162,25 @@ const StepEngine = (function () {
 
   // ── Income Tax payment step: posts the ITR balance due. ─────────────────
   // Reads window._itr.totalPayable from the 1701Q/1702Q return iframe (the
-  // "TOTAL AMOUNT PAYABLE/(OVERPAYMENT)" line, tax due + penalties). Unlike
-  // VAT/EWT, which account clears the debit is a free choice the preparer
-  // makes here — Income Tax has multiple Deferred Tax Asset roles (Regular
-  // vs MCIT, e.g.) that could apply depending on which basis the return was
-  // assessed under, and getting that right is the preparer's call, not
-  // something worth guessing at automatically.
+  // "TOTAL AMOUNT PAYABLE/(OVERPAYMENT)" line, tax due + penalties). Routes
+  // through the shared remittance voucher — the only ITR nuance is that which
+  // account clears the debit is a free choice the preparer makes here (Income
+  // Tax has multiple Deferred Tax Asset roles — Regular vs MCIT, etc. — that
+  // could apply depending on the basis the return was assessed under; getting
+  // that right is the preparer's call), surfaced via extraNote.
   function mountItrPaymentStepContent(body, panel, state, step, onPosted) {
-    const root = panel.closest('.tfy-step-wrap').parentElement;
-    body.innerHTML = `<div class="spinner-wrap"><div class="spinner"></div><span>Reading return totals…</span></div>`;
-
-    const sourceStep = state.workflow.steps.find(s => s.key === step.sourceStepKey);
-    const sourceIframe = sourceStep && state.iframes[sourceStep.iframeId];
-    const win = sourceIframe && sourceIframe.contentWindow;
-    const itr = win && win._itr;
-
-    if (!itr || itr.totalPayable == null) {
-      body.innerHTML = `<div class="alert alert-warn">⚠️ Open and generate the return step first so this step can read the computed total.<br><br>Once that step has finished generating, come back here — this will retry automatically.</div>`;
-      return;
-    }
-
-    const totalPayable = itr.totalPayable;
-    const isPayable = totalPayable > 0.005;
-
-    Promise.all([
-      fetchAllBatch('/api4/bank-or-cash-account-batch', state.biz).catch(() => []),
-      fetchAllBatch('/api4/balance-sheet-account-batch', state.biz).catch(() => []),
-      fetchAllBatch('/api4/profit-and-loss-statement-account-batch', state.biz).catch(() => []),
-    ]).then(([bankAcctsRaw, bsAcctsRaw, plAcctsRaw]) => {
-      const unwrap = it => {
-        const a = (it && (it.item || it.value)) || it;
-        if (!a) return null;
-        return { ...a, key: a.key || (it && it.key) };
-      };
-      const bankAccts = bankAcctsRaw.map(unwrap).filter(a => a && a.name && a.key);
-      const allAccts = [...bsAcctsRaw, ...plAcctsRaw]
-        .map(unwrap)
-        .filter(a => a && a.name && a.key)
-        .sort((a, b) => a.name.localeCompare(b.name));
-      const today = new Date().toISOString().slice(0, 10);
-      const pLabel = state.period
-        ? (state.period.ptype === 'monthly' ? monthName(state.period.period) : 'Q' + state.period.period) + ' ' + state.period.year
-        : '';
-      const reference = `ITR ${pLabel}`.trim();
-
-      // No account pre-selected — the preparer picks which Deferred Tax
-      // Asset role (or other account) this payment applies to.
-      const initialRows = [
-        { desc: 'Income Tax Due Paid', debit: Math.abs(totalPayable), credit: 0 },
-      ];
-
-      const acctOpts = sel => allAccts.map(a => `<option value="${a.key}"${a.key === sel ? ' selected' : ''}>${escHtml(a.name)}</option>`).join('');
-      const bankOpts = bankAccts.map(a => `<option value="${a.key}">${escHtml(a.name)}</option>`).join('');
-
-      const rowHtml = (r, i) => `
-        <tr data-row="${i}">
-          <td><select class="tfy-je-acct">${acctOpts(r.account)}</select></td>
-          <td><input type="text" class="tfy-je-desc" value="${escHtml(r.desc || '')}"></td>
-          <td><input type="number" step="0.01" class="tfy-je-debit" value="${r.debit ? r.debit.toFixed(2) : ''}"></td>
-          <td><input type="number" step="0.01" class="tfy-je-credit" value="${r.credit ? r.credit.toFixed(2) : ''}"></td>
-          <td><button type="button" class="btn btn-outline tfy-je-remove" style="padding:2px 8px;">✕</button></td>
-        </tr>`;
-
-      body.innerHTML = `
-        <div class="alert ${isPayable ? 'alert-warn' : 'alert-success'}" style="margin-bottom:10px;">
-          ${isPayable
-            ? `Total amount payable: <strong>${fmtMoney(totalPayable)}</strong> — will be posted as a Payment from the chosen bank/cash account. Pick which account(s) this clears below (e.g. a Deferred Tax Asset - ITR Payments role).`
-            : `No amount payable this period (overpayment or zero balance) — posted as a Journal Entry.`}
-        </div>
-        <div class="filter-bar" style="flex-wrap:wrap;margin-bottom:10px;">
-          <label>Date</label>
-          <input type="date" id="tfy-je-date" value="${today}">
-          ${isPayable ? `
-          <label>Pay from (Bank/Cash)</label>
-          <select id="tfy-acct-bank">${bankOpts}</select>` : ''}
-        </div>
-        <table class="tax-codes-table" id="tfy-je-table">
-          <thead><tr><th>Account</th><th>Description</th><th style="width:110px;">Debit</th><th style="width:110px;">Credit</th><th style="width:30px;"></th></tr></thead>
-          <tbody>${initialRows.map(rowHtml).join('')}</tbody>
-          <tfoot><tr>
-            <td colspan="2" style="text-align:right;font-weight:700;">Total</td>
-            <td id="tfy-je-total-debit" class="num" style="font-weight:700;"></td>
-            <td id="tfy-je-total-credit" class="num" style="font-weight:700;"></td>
-            <td></td>
-          </tr></tfoot>
-        </table>
-        <button type="button" class="btn btn-outline" id="tfy-je-add" style="margin-top:8px;">+ Add line</button>
-        <div id="tfy-je-balance" style="margin-top:8px;font-size:12px;"></div>
-        <div class="tfy-step-footer">
-          <button class="btn btn-primary" id="tfy-post">${isPayable ? 'Record ITR payment' : 'Record ITR closing entry'}</button>
-          <span id="tfy-post-status" style="font-size:12px;color:#6b7280;margin-left:8px;"></span>
-        </div>`;
-
-      const tbody = body.querySelector('#tfy-je-table tbody');
-
-      function addRow(r) {
-        const i = tbody.children.length;
-        tbody.insertAdjacentHTML('beforeend', rowHtml(r || {}, i));
-      }
-
-      function readRows() {
-        return Array.from(tbody.querySelectorAll('tr')).map(tr => ({
-          account: tr.querySelector('.tfy-je-acct').value,
-          desc: tr.querySelector('.tfy-je-desc').value.trim(),
-          debit: parseFloat(tr.querySelector('.tfy-je-debit').value) || 0,
-          credit: parseFloat(tr.querySelector('.tfy-je-credit').value) || 0,
-        })).filter(r => r.debit > 0.005 || r.credit > 0.005);
-      }
-
-      function recalcTotals() {
-        const rows = readRows();
-        const totalDebit = rows.reduce((a, r) => a + r.debit, 0);
-        const totalCredit = rows.reduce((a, r) => a + r.credit, 0);
-        body.querySelector('#tfy-je-total-debit').textContent = fmtMoney(totalDebit);
-        body.querySelector('#tfy-je-total-credit').textContent = fmtMoney(totalCredit);
-        const balanceEl = body.querySelector('#tfy-je-balance');
-        const diff = totalDebit - totalCredit;
-        if (isPayable) {
-          const ok = Math.abs(diff - totalPayable) < 0.01;
-          balanceEl.innerHTML = ok
-            ? `✅ Net of lines (${fmtMoney(diff)}) matches the amount payable.`
-            : `⚠️ Net of lines (${fmtMoney(diff)}) should equal the amount payable (${fmtMoney(totalPayable)}).`;
-        } else {
-          const ok = Math.abs(diff) < 0.01;
-          balanceEl.innerHTML = ok
-            ? `✅ Entry is balanced.`
-            : `⚠️ Debits and credits must be equal (currently off by ${fmtMoney(diff)}).`;
-        }
-        return { totalDebit, totalCredit, diff };
-      }
-
-      tbody.addEventListener('input', recalcTotals);
-      tbody.addEventListener('click', (ev) => {
-        if (ev.target.classList.contains('tfy-je-remove')) {
-          ev.target.closest('tr').remove();
-          recalcTotals();
-        }
-      });
-      body.querySelector('#tfy-je-add').onclick = () => { addRow(); recalcTotals(); };
-      recalcTotals();
-
-      body.querySelector('#tfy-post').onclick = async () => {
-        const statusEl = body.querySelector('#tfy-post-status');
-        const rows = readRows();
-        const postDate = body.querySelector('#tfy-je-date').value;
-        if (!postDate) { statusEl.textContent = '❌ Pick a date.'; return; }
-        if (!rows.length) { statusEl.textContent = '❌ Add at least one line.'; return; }
-        if (rows.some(r => !r.account)) { statusEl.textContent = '❌ Every line needs an account.'; return; }
-
-        statusEl.textContent = 'Posting…';
-        try {
-          if (isPayable) {
-            const bankAcct = body.querySelector('#tfy-acct-bank').value;
-            const lines = rows.map(r => ({
-              account: r.account,
-              lineDescription: r.desc || undefined,
-              amount: r.debit - r.credit,
-            }));
-            await apiRequest('PUT', '/api4/payment', {
-              key: crypto.randomUUID(),
-              value: { date: postDate, reference, paidFrom: bankAcct, description: `Income Tax payment — ${reference}`, lines },
-            });
-          } else {
-            const lines = rows.map(r => ({
-              account: r.account,
-              lineDescription: r.desc || undefined,
-              debit: r.debit,
-              credit: r.credit,
-            }));
-            await apiRequest('PUT', '/api4/journal-entry', {
-              key: crypto.randomUUID(),
-              value: { date: postDate, reference, narration: `Income Tax close — ${reference}`, lines },
-            });
-          }
-          statusEl.textContent = '✅ Posted.';
-          onPosted();
-          setStepDone(root, state, step.key, true);
-        } catch (err) {
-          statusEl.textContent = `❌ ${err.message}`;
-        }
-      };
+    mountRemittanceVoucherContent(body, panel, state, step, onPosted, {
+      spinnerLabel: 'Reading return totals…',
+      sourceVar: '_itr',
+      amountField: 'totalPayable',
+      missingHtml: '⚠️ Open and generate the return step first so this step can read the computed total.<br><br>Once that step has finished generating, come back here — this will retry automatically.',
+      taxLabel: 'Income Tax',
+      refPrefix: 'ITR',
+      debitDesc: 'Income Tax Due Paid',
+      dueLabel: 'Total amount payable',
+      payBtn: 'Record income tax payment',
+      closeBtn: 'Record income tax closing entry',
+      extraNote: 'Pick which account this payment clears (e.g. a <strong>Deferred Tax Asset — ITR Payments</strong> role) — that choice is yours, not automated. An overpayment or zero balance posts as a balanced Journal Entry instead.',
     });
   }
 
