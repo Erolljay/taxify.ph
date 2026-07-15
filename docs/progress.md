@@ -30,6 +30,37 @@ rates, the graduated-tax engine and VAT 2550Q are verified; two income-tax bugs 
 
 ## Changelog
 
+### 2026-07-15 — Filing-workflow UX redesign: Compensation 1601-C (third tax type)
+Applied the house style to the `compensation` (payroll) workflow, on branch
+`feature/filing-workflow-ewt-redesign` (same branch as EWT). **4 steps → 5** (added the missing
+remittance JE), and fixed a latent blank-iframe bug.
+
+- **`comp-instructions`** — the old payslip-items reminder promoted to the info-only first step
+  (`info: true` + `Start` chip), matching VAT/EWT. Added a "payroll fully entered & posted" line.
+- **Tax-status gate kept** — still `requireAllTaxStatus: true` (blocks until no employee is blank);
+  added the `Tax Status` chip.
+- **Blank-iframe fix** — the tax-status and review steps both used `iframeId: 'payroll'`. Because the
+  engine parents an iframe in the step that created it, the second step rendered **blank** (the exact
+  hazard the conventions warn about). Split into `payroll-taxstatus` / `payroll-report`; the statuses
+  live on the employee records so the review iframe reloads them.
+- **NEW `compensation-payment`** — the workflow had no remittance step. Added a JE voucher
+  (`paymentFlavor: 'compensation'`) reading `window._c.totalRemittance` (the "Tax still due" line):
+  DR Withholding Tax Payable – Compensation, CR bank/cash — the same shape as EWT.
+- **Freeze** — added the `File` chip; unchanged otherwise (no downloadable listing to bundle).
+
+**Shared engine refactor (also lifts EWT):** [`app/step-engine.js`](../app/step-engine.js) — the EWT
+payment renderer was still the *old* plain style (no voucher header band, no editable Description),
+so my EWT redesign had left it inconsistent with VAT. Extracted a **`mountRemittanceVoucherContent`**
+helper (the shared shape: clear one Withholding Tax Payable liability against bank/cash, Payment vs
+balanced JE) and routed **both EWT and compensation** through it — so both now get the VAT-style
+voucher with editable Description. EWT's and compensation's renderers are thin cfg wrappers. *ITR
+payment still uses its own older renderer — folded into the income-tax redesign (next).*
+
+- **Verify** — `npm test` **119 green**, `node --check` clean. *Presentation only — no calc changes*
+  (1601-C generator untouched; the new payment step only reads the already-computed total and posts a
+  standard remittance). *Eyeball after deploy: review step renders (not blank); payment voucher shows
+  editable Description + the remittance total; freeze re-opens frozen.*
+
 ### 2026-07-15 — Filing-workflow UX redesign: EWT (second tax type)
 Applied the VAT house style (recorded in
 [`instruction.md`](instruction.md#filing-workflow-ux-conventions-apply-to-every-tax-type)) to the

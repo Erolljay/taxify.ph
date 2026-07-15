@@ -25,12 +25,22 @@ Redesign each tax type's filing workflow to the agreed conventions (top arrow st
       file for the period (Annex A Excel is always the full quarter), so the shared `document` footer got a
       new per-step `datHint` to say so instead of the wrong "3 files" note. `npm test` 119 green; presentation
       only. *Eyeball after deploy: QAP step shows TIN banner + single DAT; monthly→0619-E, quarterly→1601-EQ.*
-- [ ] **Compensation (1601-C payroll)** — **NEXT.** Restyle to stepper + JE voucher; keep the tax-status gate.
-- [ ] **Income tax (1701Q / 1702Q individual & corporation)** — stepper + JE voucher; SAWT attachment as
-      a `document` step; keep the DTA carry-forward checklist.
+- [x] **Compensation (1601-C payroll)** — **DONE 2026-07-15 (branch `feature/filing-workflow-ewt-redesign`).**
+      4 → 5 steps. Info-only `Start` step + short chips; kept the `requireAllTaxStatus` gate. **Added the
+      missing remittance JE voucher** (`paymentFlavor: 'compensation'`, reads `window._c.totalRemittance`).
+      **Fixed a latent blank-iframe bug** — tax-status + review both used `iframeId: 'payroll'`, so the
+      second step rendered blank; split into `payroll-taxstatus` / `payroll-report`. Also extracted a
+      shared `mountRemittanceVoucherContent` engine helper so **EWT + compensation** share one house-style
+      voucher (this also lifted EWT's payment step, which my EWT PR had left in the old plain style).
+      `npm test` 119 green; presentation only.
+- [ ] **Income tax (1701Q / 1702Q individual & corporation)** — **NEXT.** Stepper + JE voucher; SAWT
+      attachment as a `document` step; keep the DTA carry-forward checklist. **Fold the ITR payment
+      renderer** (`mountItrPaymentStepContent`, still the old plain style) into the shared voucher — its
+      free-choice DTA debit account is the one nuance to preserve.
 - [ ] *Cross-cutting once all four are done:* confirm the top stepper + voucher read well on every
-      workflow and drop any now-unused step-engine paths (e.g. the standalone `final` bundle step if no
-      workflow still uses it).
+      workflow and drop any now-unused step-engine paths — e.g. the standalone `final` bundle step
+      (`renderFinalFooter`/`mountFinalStep`) is **no longer used by any workflow** now that VAT/EWT fold
+      the bundle into the freeze step; verify and remove.
 
 ## ⭐ Prioritized next initiatives (agreed 2026-07-14)
 

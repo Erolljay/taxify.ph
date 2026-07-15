@@ -49,6 +49,12 @@ one clear navigation model.
   a balanced badge. The Description defaults to `"<TAX> - <period>"` (e.g. `VAT - Q2 2026`) and
   feeds the Manager payment `description` / journal `narration`. Keep the pre-filled clearing
   lines and posting logic as-is — this is a visual layer over the existing recalc/post code.
+- **Simple remittances share one helper.** A withholding remittance (EWT, 1601-C) is always "clear
+  one Withholding Tax Payable liability against bank/cash" — EWT and compensation both route through
+  `mountRemittanceVoucherContent(cfg)` in `step-engine.js` (cfg = window var/field + wording). Reuse
+  it for any new single-liability remittance instead of copying a renderer. VAT keeps its own bespoke
+  renderer (multi-row output/input/CWT clearing + summary strip); ITR is still to be folded in with
+  the income-tax redesign.
 
 **Terminal step**
 - The `file` (freeze) step is the last action. Fold the working-paper re-download into it via

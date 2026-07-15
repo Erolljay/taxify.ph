@@ -274,37 +274,59 @@ const WORKFLOWS = {
     label: 'Compensation (Payroll)',
     steps: [
       {
+        // First step = info-only guidance (the payslip-items reminder), matching
+        // VAT/EWT's "Before you start". Read-only, self-advancing — not a gate.
+        key: 'comp-instructions',
+        type: 'instruction',
+        label: 'Before you start',
+        short: 'Start',
+        info: true,
+        body: 'Payslip items (earnings, deductions, employer contributions) are configured in ' +
+          '<strong>Settings &rarr; Payslip items</strong>, not here. Before continuing, make sure every ' +
+          'payslip item used this period already has a BIR category — and, for new items, an expense/liability ' +
+          'account — mapped there. Also confirm this month\'s payroll is fully entered and posted.',
+      },
+      {
+        // The one real gate in this workflow: every employee must have a tax
+        // status before the return is trustworthy. Its own iframeId (distinct
+        // from the review step) so the engine doesn't leave the later step
+        // blank — the statuses are saved on the employee records, so the review
+        // iframe reloads them.
         key: 'taxstatus-check',
         type: 'review',
         label: 'Confirm employee tax status',
+        short: 'Tax Status',
         help: 'Every employee needs a Tax Status (MWE or NMWE) set before 1601-C, 1604-C Alphalist, and BIR Form 2316 can be filed correctly. Continue is blocked until none are blank — but please still double-check no one was misidentified.',
         file: findReport('1601c.html').file,
-        iframeId: 'payroll',
+        iframeId: 'payroll-taxstatus',
         focusTab: 'taxstatus',
         requireAllTaxStatus: true,
       },
       {
-        key: 'payslip-items-check',
-        type: 'instruction',
-        label: 'Confirm payslip items are mapped',
-        body: 'Payslip items (earnings, deductions, employer contributions) are configured in ' +
-          '<strong>Settings &rarr; Payslip items</strong>, not here. Before continuing, make sure every ' +
-          'payslip item used this period already has a BIR category — and, for new items, an expense/liability ' +
-          'account — mapped there.',
-      },
-      {
         key: 'payroll-review',
         type: 'review',
-        label: 'Review payroll withholding',
+        label: 'Review 1601-C withholding',
+        short: '1601-C',
+        help: 'Review the monthly compensation withholding return. Confirm the figures look right before continuing.',
         file: findReport('1601c.html').file,
-        iframeId: 'payroll',
+        iframeId: 'payroll-report',
         focusTab: 'report',
+      },
+      {
+        key: 'compensation-payment',
+        type: 'payment',
+        label: 'Record 1601-C remittance',
+        short: 'Payment',
+        help: 'Posts the compensation withholding remittance (debit Withholding Tax Payable – Compensation, credit bank/cash) into Manager.',
+        paymentFlavor: 'compensation',
+        sourceStepKey: 'payroll-review',
       },
       {
         key: 'compensation-file',
         type: 'file',
-        label: 'Mark as Filed (freeze)',
-        help: 'Freeze the 1601C figures for this month. Later payroll edits to this month no longer change the filed return — they flow to an amendment instead.',
+        label: 'Mark as Filed',
+        short: 'File',
+        help: 'Freeze the 1601-C figures for this month. Later payroll edits to this month no longer change the filed return — they flow to an amendment instead.',
         sourceStepKey: 'payroll-review',
       },
     ],
