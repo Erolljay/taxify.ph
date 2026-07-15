@@ -55,14 +55,22 @@ Redesign each tax type's filing workflow to the agreed conventions (top arrow st
       `enumerateWorkflowPeriods`). *Follow-up idea from the user: a lightweight overdue **notification** instead
       of the full page — not built.*
 - [x] **"Others" category removed** — nav item + `renderOthersScreen` (Percentage Tax / Final WHT placeholders) gone.
-- [x] **"Annual Filing" category added** — new nav + `annual` workflow grouping the once-a-year returns:
-      annual income tax (1701 individual / 1702-RT corp by classification), 1604-C (`alphalist.html`), and
-      **"coming soon" info steps for 1604-E and the Inventory List** (no report pages exist yet). Review-and-freeze
-      guide — no auto-payment/variance because the annual return pages don't publish a `window` headline.
-  - [ ] **Build the 1604-E annual alphalist report** (annualised QAP) — currently an eFPS-pointer placeholder.
-  - [ ] **Build the annual Inventory List report** — currently an eFPS-pointer placeholder.
-  - [ ] *(optional)* expose `window._itr` on the annual `1701.html` / `1702rt.html` pages so Annual Filing gets
-        the JE voucher + auto-variance like the quarterly returns.
+- [x] **"Annual Filing" is a nav *header* (group), not a workflow** — restructured per user 2026-07-15. Under the
+      **Annual Filing** header: **Annual Income Tax (1701/1702-RT)** and **1604-C** open their report pages
+      directly (full-width iframe via `renderEmbeddedReport`, `?biz=` passed like Data Intake); **1604-E** and
+      **Inventory List** are placeholder panels (`PLACEHOLDER_SCREENS`). Keys `annual-itr` / `annual-1604c`
+      (report embeds via `ANNUAL_REPORTS`) + `annual-1604e` / `annual-inventory` (placeholders), routed in
+      `renderUserMode`. **The earlier single `annual` step-engine workflow was removed** — it crashed at load
+      (`findReport('alphalist.html')` → undefined; REPORTS stores it as `alphalist.html#2316`), which took down
+      `WORKFLOWS` and the whole app (the console error the user hit). No freeze/period tracking on annual items now.
+  - [ ] **Build the 1604-E annual alphalist report** (annualised QAP) — currently a placeholder panel.
+  - [ ] **Build the annual Inventory List report** — currently a placeholder panel.
+  - [ ] *(later)* if annual returns should get period tracking / freeze, give each its own workflow key with a
+        form-scoped period_key (the annual returns share `annual:YYYY`, so they'd collide in the filing store).
+- [x] **"Month-end (Quarterly closing)" header + placeholder added** — new nav group **before File Returns** with a
+      single `month-end` placeholder item (`PLACEHOLDER_SCREENS['month-end']`). *Placeholder for now.*
+  - [ ] **Build the month-end / quarterly-closing checklist** (accruals, bank/CoA recon, tax-code audit) — the
+        pre-filing "close the books" step.
 
 ## ⭐ Prioritized next initiatives (agreed 2026-07-14)
 
