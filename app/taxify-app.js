@@ -9,28 +9,25 @@
 let biz = '';
 let setup = null;
 
-// ── SIDENAV (Dashboard / VAT / Expanded / Compensation / Income / Others / Settings) ──
+// ── SIDENAV (Data Intake / VAT / Expanded / Compensation / Income / Annual / Settings) ──
 let _settingsActivated = false;
 
 function goToNav(key) {
   document.querySelectorAll('.tfy-nav-item').forEach(b => b.classList.toggle('active', b.dataset.nav === key));
   const isSettings   = key === 'settings';
-  const isDeadlines  = key === 'deadlines';
   const isDataIntake = key === 'data-intake';
   document.getElementById('settings-mode').hidden     = !isSettings;
-  document.getElementById('deadlines-mode').hidden    = !isDeadlines;
   document.getElementById('data-intake-mode').hidden  = !isDataIntake;
-  document.getElementById('user-mode').hidden         = isSettings || isDeadlines || isDataIntake;
+  document.getElementById('user-mode').hidden         = isSettings || isDataIntake;
 
   if (isSettings) {
     if (!_settingsActivated) { _settingsActivated = true; activateTab('welcome'); }
     return;
   }
-  if (isDeadlines)  { renderDeadlineTracker(); return; }
   if (isDataIntake) { renderDataIntake(); return; }
 
   if (key === 'income') _userActiveCategory = workflowKeyForIncomeTax();
-  else _userActiveCategory = key; // vat / expanded / compensation / others
+  else _userActiveCategory = key; // vat / expanded / compensation / annual
   renderUserMode();
 }
 
@@ -477,251 +474,13 @@ async function onSaveTcAccount(btn, b) {
   }
 }
 
-// ── DEADLINE TRACKER ───────────────────────────────────────────
-
-// Maps each BIR form to the sidenav workflow key it belongs to
-const DTK_FORM_NAV = {
-  '0619E':  'expanded',
-  '1601EQ': 'expanded',
-  '1604E':  'expanded',
-  '1601C':  'compensation',
-  '1604C':  'compensation',
-  '1702':   'income',
-  '1702Q':  'income',
-  '2550Q':  'vat',
-};
-
+// dtkDate — date helper retained for enumerateWorkflowPeriods. The Deadline
+// Tracker that used to live here was removed (2026-07-15): deadlines now
+// surface on each category’s Filings overview via due dates + Overdue pills.
 function dtkDate(y, m, d) {
   return new Date(y, m - 1, d);
 }
 
-function dtkComputeDeadlines(refDate) {
-  const y = refDate.getFullYear();
-  const deadlines = [];
-
-  // `period` mirrors FilingCore's {ptype,year,period} so a deadline can be
-  // matched to a frozen filing snapshot (see renderDeadlineTracker).
-  const push = (form, name, freq, date, period) => {
-    deadlines.push({ form, name, freq, date, period: period || null, navKey: DTK_FORM_NAV[form] || null });
-  };
-
-  // 1604C — Annual, Jan 31
-  for (const yr of [y - 1, y, y + 1]) push('1604C', 'Withholding Tax on Compensation', `Annual (for ${yr-1})`, dtkDate(yr, 1, 31), { ptype: 'annual', year: yr - 1 });
-
-  // 1604E — Annual, March 1
-  for (const yr of [y - 1, y, y + 1]) push('1604E', 'Withholding Tax – Expanded', `Annual (for ${yr-1})`, dtkDate(yr, 3, 1), { ptype: 'annual', year: yr - 1 });
-
-  // 1702 — Annual, April 15
-  for (const yr of [y - 1, y, y + 1]) push('1702', 'Corporate Income Tax', `Annual (for ${yr-1})`, dtkDate(yr, 4, 15), { ptype: 'annual', year: yr - 1 });
-
-  // Monthly: 1601C and 0619E — 10th of following month; December = Jan 15
-  const monthlyForms = [
-    { form: '1601C', name: 'Withholding Tax on Compensation' },
-    { form: '0619E', name: 'Withholding Tax – Expanded' },
-  ];
-  for (const yr of [y - 1, y, y + 1]) {
-    for (let m = 1; m <= 12; m++) {
-      for (const mf of monthlyForms) {
-        let dueY = yr, dueM, dueD;
-        if (m === 12) { dueY = yr + 1; dueM = 1; dueD = 15; }
-        else { dueM = m + 1; dueD = 10; }
-        const monthName = new Date(yr, m - 1, 1).toLocaleString('default', { month: 'short' });
-        push(mf.form, mf.name, `Monthly – ${monthName} ${yr}`, dtkDate(dueY, dueM, dueD), { ptype: 'monthly', year: yr, period: m - 1 });
-      }
-    }
-  }
-
-  // Quarterly: 1601EQ — last day of month following quarter end
-  const qtr1601EQ = [
-    { q: 'Q1', dueM: 4, dueD: 30 }, { q: 'Q2', dueM: 7, dueD: 31 },
-    { q: 'Q3', dueM: 10, dueD: 31 }, { q: 'Q4', dueM: 1, dueD: 31, nextYear: true },
-  ];
-  for (const yr of [y - 1, y, y + 1]) {
-    for (const q of qtr1601EQ) {
-      const dueY = q.nextYear ? yr + 1 : yr;
-      push('1601EQ', 'Withholding Tax – Expanded', `Quarterly ${q.q} ${yr}`, dtkDate(dueY, q.dueM, q.dueD), { ptype: 'quarterly', year: yr, period: parseInt(q.q.slice(1), 10) });
-    }
-  }
-
-  // Quarterly: 2550Q — 25th day following quarter close
-  const qtr2550Q = [
-    { q: 'Q1', dueM: 4, dueD: 25 }, { q: 'Q2', dueM: 7, dueD: 25 },
-    { q: 'Q3', dueM: 10, dueD: 25 }, { q: 'Q4', dueM: 1, dueD: 25, nextYear: true },
-  ];
-  for (const yr of [y - 1, y, y + 1]) {
-    for (const q of qtr2550Q) {
-      const dueY = q.nextYear ? yr + 1 : yr;
-      push('2550Q', 'Value Added Tax', `Quarterly ${q.q} ${yr}`, dtkDate(dueY, q.dueM, q.dueD), { ptype: 'quarterly', year: yr, period: parseInt(q.q.slice(1), 10) });
-    }
-  }
-
-  // Quarterly: 1702Q — 60 days after Q1/Q2/Q3 close
-  const qtr1702Q = [
-    { q: 'Q1', dueM: 5, dueD: 30 }, { q: 'Q2', dueM: 8, dueD: 29 }, { q: 'Q3', dueM: 11, dueD: 29 },
-  ];
-  for (const yr of [y - 1, y, y + 1]) {
-    for (const q of qtr1702Q) {
-      push('1702Q', 'Corporate Income Tax', `Quarterly ${q.q} ${yr}`, dtkDate(yr, q.dueM, q.dueD), { ptype: 'quarterly', year: yr, period: parseInt(q.q.slice(1), 10) });
-    }
-  }
-
-  return deadlines.sort((a, b) => a.date - b.date);
-}
-
-// Tracks which deadline cards the user has marked as filed / dismissed this session
-const _dtkFiled     = new Set();
-const _dtkDismissed = new Set();
-
-// Real filed status from frozen snapshots, keyed "workflowKey|periodKey".
-// null until loaded; {} when loaded (or no session). Replaces the old
-// session-only _dtkFiled toggle for workflow-backed forms.
-let _dtkFiledIndex = null;
-let _dtkFiledLoading = false;
-
-let _dtkFilter = 'upcoming';
-
-function dtkKey(d) { return d.form + '|' + d.date.getTime(); }
-
-function dtkStatus(date, today) {
-  const diff = Math.floor((date - today) / 86400000);
-  if (diff < 0) return 'overdue';
-  if (diff <= 7) return 'due-soon';
-  if (diff <= 30) return 'upcoming';
-  return 'done';
-}
-
-function dtkBadgeLabel(status, date, today) {
-  const diff = Math.floor((date - today) / 86400000);
-  if (status === 'overdue') return `${Math.abs(diff)}d overdue`;
-  if (status === 'due-soon') return diff === 0 ? 'Due TODAY' : `In ${diff}d`;
-  if (status === 'upcoming') return `In ${diff}d`;
-  return 'Upcoming';
-}
-
-function renderDeadlineTracker() {
-  const root = document.getElementById('deadlines-mode');
-  if (!root) return;
-
-  // Load real filed status once (server-only); re-render when it arrives. No
-  // session → {} (drafts/manual toggle still work).
-  if (_dtkFiledIndex === null && !_dtkFiledLoading && typeof FilingStore !== 'undefined') {
-    _dtkFiledLoading = true;
-    FilingStore.loadBusinessFilings(biz).then(filings => {
-      _dtkFiledIndex = {};
-      (filings || []).forEach(f => { _dtkFiledIndex[f.workflow_key + '|' + f.period_key] = f; });
-      _dtkFiledLoading = false;
-      renderDeadlineTracker();
-    }).catch(() => { _dtkFiledIndex = {}; _dtkFiledLoading = false; });
-  }
-
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const todayStr = today.toLocaleDateString('en-PH', { weekday:'long', year:'numeric', month:'long', day:'numeric' });
-
-  const allDeadlines = dtkComputeDeadlines(today);
-
-  const windowStart = new Date(today); windowStart.setDate(windowStart.getDate() - 30);
-  const windowEnd   = new Date(today); windowEnd.setDate(windowEnd.getDate() + 120);
-  const visible = allDeadlines.filter(d => d.date >= windowStart && d.date <= windowEnd && !_dtkDismissed.has(dtkKey(d)));
-
-  const filterLabels = { all:'All', overdue:'Overdue', 'due-soon':'Due Soon (7d)', upcoming:'Next 30 Days', done:'Future' };
-
-  const counts = { all: visible.length, overdue: 0, 'due-soon': 0, upcoming: 0, done: 0 };
-  visible.forEach(d => { const s = dtkStatus(d.date, today); if (counts[s] !== undefined) counts[s]++; });
-
-  let html = `
-    <div class="dtk-header">
-      <div class="dtk-title">📅 Tax Compliance Deadlines</div>
-      <div class="dtk-today">${escHtml(todayStr)}</div>
-    </div>
-    <div class="dtk-filter-bar">
-      ${Object.entries(filterLabels).map(([k, lbl]) =>
-        `<button class="dtk-filter-btn${_dtkFilter === k ? ' active' : ''}" data-filter="${k}">${escHtml(lbl)} <span style="opacity:.7">(${counts[k] ?? 0})</span></button>`
-      ).join('')}
-    </div>`;
-
-  const filtered = _dtkFilter === 'all'
-    ? visible
-    : visible.filter(d => dtkStatus(d.date, today) === _dtkFilter);
-
-  if (!filtered.length) {
-    html += `<div class="dtk-empty">No deadlines in this view.</div>`;
-  } else {
-    let lastStatus = null;
-    filtered.forEach(d => {
-      const status = dtkStatus(d.date, today);
-      const key = dtkKey(d);
-      // Real filed status (from a frozen snapshot) wins over the manual toggle.
-      let realFiled = false;
-      if (_dtkFiledIndex && d.period && typeof FilingCore !== 'undefined') {
-        const wf = FilingCore.formToWorkflow(d.form);
-        const pk = FilingCore.periodKey(d.period);
-        if (wf && pk && _dtkFiledIndex[wf + '|' + pk]) realFiled = true;
-      }
-      const filed = realFiled || _dtkFiled.has(key);
-      if (status !== lastStatus) {
-        const sectionNames = { overdue:'🔴 Overdue', 'due-soon':'🟡 Due Soon (within 7 days)', upcoming:'🔵 Upcoming (within 30 days)', done:'⚪ Further Ahead' };
-        if (_dtkFilter === 'all') html += `<div class="dtk-section-label">${sectionNames[status] || ''}</div>`;
-        lastStatus = status;
-      }
-      const mo  = d.date.toLocaleString('default', { month: 'short' }).toUpperCase();
-      const day = d.date.getDate();
-      const yr  = d.date.getFullYear();
-      const badge = dtkBadgeLabel(status, d.date, today);
-
-      // A real frozen filing shows a non-toggle indicator (you amend it inside
-      // the workflow, not by un-ticking here); otherwise the manual toggle.
-      const filedBtn = realFiled
-        ? `<span class="dtk-action-btn dtk-filed-active" style="cursor:default;" title="Filed in Txform">✓ Filed</span>`
-        : filed
-          ? `<button class="dtk-action-btn dtk-filed-active" data-key="${escHtml(key)}" title="Click to undo">✓ Already Filed</button>`
-          : `<button class="dtk-action-btn dtk-filed-btn" data-key="${escHtml(key)}">Already Filed</button>`;
-
-      const dismissBtn = `<button class="dtk-action-btn dtk-dismiss-btn" data-key="${escHtml(key)}" title="Remove from list">✕ Remove</button>`;
-
-      const startBtn = d.navKey
-        ? `<button class="dtk-action-btn dtk-start-btn" data-nav="${escHtml(d.navKey)}">Start Filing →</button>`
-        : '';
-
-      html += `
-        <div class="dtk-card ${status}${filed ? ' dtk-card-filed' : ''}">
-          <div class="dtk-date-box">
-            <div class="dtk-date-month">${mo}</div>
-            <div class="dtk-date-day">${day}</div>
-            <div class="dtk-date-year">${yr}</div>
-          </div>
-          <div>
-            <div class="dtk-info-form">BIR Form ${escHtml(d.form)}</div>
-            <div class="dtk-info-name">${escHtml(d.name)}</div>
-            <div class="dtk-info-freq">${escHtml(d.freq)}</div>
-          </div>
-          <div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end;">
-            <span class="dtk-badge ${filed ? 'filed' : status}">${filed ? '✓ Filed' : escHtml(badge)}</span>
-            <div style="display:flex;gap:6px;">${filedBtn}${dismissBtn}${startBtn}</div>
-          </div>
-        </div>`;
-    });
-  }
-
-  root.innerHTML = `<div class="dtk-grid">${html}</div>`;
-
-  root.querySelectorAll('.dtk-filter-btn').forEach(btn => {
-    btn.addEventListener('click', () => { _dtkFilter = btn.dataset.filter; renderDeadlineTracker(); });
-  });
-  root.querySelectorAll('.dtk-filed-btn, .dtk-filed-active').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const k = btn.dataset.key;
-      if (_dtkFiled.has(k)) _dtkFiled.delete(k); else _dtkFiled.add(k);
-      renderDeadlineTracker();
-    });
-  });
-  root.querySelectorAll('.dtk-dismiss-btn').forEach(btn => {
-    btn.addEventListener('click', () => { _dtkDismissed.add(btn.dataset.key); renderDeadlineTracker(); });
-  });
-  root.querySelectorAll('.dtk-start-btn').forEach(btn => {
-    btn.addEventListener('click', () => goToNav(btn.dataset.nav));
-  });
-}
 
 // ── USER MODE: CATEGORY CARDS + STEP ENGINE ────────────────────
 let _userActiveCategory = null;
@@ -734,27 +493,19 @@ function workflowKeyForIncomeTax() {
 
 function renderUserMode() {
   const root = document.getElementById('user-mode');
-  if (_userActiveCategory === 'others') { renderOthersScreen(root); return; }
   renderWorkflowScreen(root, _userActiveCategory);
 }
 
-function renderOthersScreen(root) {
-  root.innerHTML = `
-    <p class="muted">These categories aren't built yet:</p>
-    <ul>
-      <li>Percentage Tax</li>
-      <li>Final Withholding Tax</li>
-    </ul>`;
-}
-
 let _ovFilter = 'all';
+let _ovArchiveYear = null; // selected year for the Archived tab (past years)
 
 // The set of filing periods a workflow files, each with its BIR due date, so
 // the overview can show status + sort by recency. Bounded to a window around
 // today so the list stays scannable.
 function enumerateWorkflowPeriods(workflowKey, today) {
   const y = today.getFullYear();
-  const years = [y - 1, y, y + 1];
+  // Include a few past years so the Archived tab has history to browse.
+  const years = [y - 3, y - 2, y - 1, y, y + 1];
   const out = [];
   const push = (ptype, year, period, form, dueDate) => out.push({ period: { ptype, year, period }, form, dueDate });
 
@@ -777,6 +528,11 @@ function enumerateWorkflowPeriods(workflowKey, today) {
   } else if (workflowKey === 'nonindividual') {
     const dueQ = { 1: [5, 30], 2: [8, 29], 3: [11, 29] };
     years.forEach(yr => [1, 2, 3].forEach(q => { const [dm, dd] = dueQ[q]; push('quarterly', yr, q, '1702Q', dtkDate(yr, dm, dd)); }));
+  } else if (workflowKey === 'annual') {
+    // One filing per year, due Apr 15 of the following year (calendar-year
+    // filer). Form label follows classification, like the quarterly income tax.
+    const annualForm = (setup && setup.classification === 'Individual') ? '1701' : '1702RT';
+    years.forEach(yr => push('annual', yr, null, annualForm, dtkDate(yr + 1, 4, 15)));
   }
   return out;
 }
@@ -796,10 +552,9 @@ async function renderWorkflowOverview(root, workflowKey) {
   const workflow = WORKFLOWS[workflowKey];
   const today = new Date(); today.setHours(0, 0, 0, 0);
 
-  const winStart = new Date(today); winStart.setDate(winStart.getDate() - 400);
-  const winEnd = new Date(today); winEnd.setDate(winEnd.getDate() + 45);
+  // The tabs scope by year now (All = this year, Archived = a past year), so
+  // enumerate every period and let the tab filter below narrow it.
   const periods = enumerateWorkflowPeriods(workflowKey, today)
-    .filter(p => p.dueDate >= winStart && p.dueDate <= winEnd)
     .sort((a, b) => b.dueDate - a.dueDate);
 
   root.innerHTML = `
@@ -837,13 +592,35 @@ async function renderWorkflowOverview(root, workflowKey) {
     return { p, pk, filing, status };
   });
 
-  const filterDefs = { all: 'All', needed: 'Needs filing', filed: 'Filed' };
-  const filterBar = root.querySelector('#tfy-ov-filter');
-  filterBar.innerHTML = Object.entries(filterDefs).map(([k, lbl]) =>
-    `<button class="dtk-filter-btn${_ovFilter === k ? ' active' : ''}" data-ovf="${k}">${escHtml(lbl)}</button>`).join('');
-  filterBar.querySelectorAll('[data-ovf]').forEach(b => b.addEventListener('click', () => { _ovFilter = b.dataset.ovf; renderWorkflowOverview(root, workflowKey); }));
+  const currentYear = today.getFullYear();
+  // Past years that actually have periods, newest first — the Archived picker.
+  const archiveYears = [...new Set(rows.map(r => r.p.period.year).filter(yr => yr < currentYear))].sort((a, b) => b - a);
+  if (_ovArchiveYear === null || !archiveYears.includes(_ovArchiveYear)) {
+    _ovArchiveYear = archiveYears.length ? archiveYears[0] : currentYear - 1;
+  }
 
-  const shown = rows.filter(r => _ovFilter === 'all' ? true : _ovFilter === 'filed' ? (r.status === 'filed' || r.status === 'amended') : (r.status === 'draft' || r.status === 'overdue'));
+  const filterDefs = { all: 'All', needed: 'Needs filing', filed: 'Filed', archived: 'Archived' };
+  const filterBar = root.querySelector('#tfy-ov-filter');
+  const yearPicker = _ovFilter === 'archived' && archiveYears.length
+    ? `<select id="tfy-ov-year" style="margin-left:8px;padding:5px 8px;border:1px solid #cbd5e1;border-radius:8px;font:inherit;">${archiveYears.map(yr => `<option value="${yr}"${yr === _ovArchiveYear ? ' selected' : ''}>${yr}</option>`).join('')}</select>`
+    : '';
+  filterBar.innerHTML = Object.entries(filterDefs).map(([k, lbl]) =>
+    `<button class="dtk-filter-btn${_ovFilter === k ? ' active' : ''}" data-ovf="${k}">${escHtml(lbl)}</button>`).join('') + yearPicker;
+  filterBar.querySelectorAll('[data-ovf]').forEach(b => b.addEventListener('click', () => { _ovFilter = b.dataset.ovf; renderWorkflowOverview(root, workflowKey); }));
+  const yearSel = filterBar.querySelector('#tfy-ov-year');
+  if (yearSel) yearSel.addEventListener('change', () => { _ovArchiveYear = parseInt(yearSel.value, 10); renderWorkflowOverview(root, workflowKey); });
+
+  // All / Needs filing / Filed scope to the current year; Archived shows a
+  // chosen past year (any status).
+  const isFiled = (r) => r.status === 'filed' || r.status === 'amended';
+  const isNeeded = (r) => r.status === 'draft' || r.status === 'overdue';
+  const shown = rows.filter(r => {
+    if (_ovFilter === 'archived') return r.p.period.year === _ovArchiveYear;
+    if (r.p.period.year !== currentYear) return false;
+    if (_ovFilter === 'filed') return isFiled(r);
+    if (_ovFilter === 'needed') return isNeeded(r);
+    return true; // all
+  });
 
   const grid = root.querySelector('#tfy-ov-grid');
   if (!shown.length) { grid.innerHTML = `<div class="dtk-empty">No periods in this view.</div>`; return; }

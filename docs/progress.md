@@ -30,6 +30,37 @@ rates, the graduated-tax engine and VAT 2550Q are verified; two income-tax bugs 
 
 ## Changelog
 
+### 2026-07-15 — Income tax redesign + filing landing-screen overhaul
+Finished the tax-by-tax redesign (income tax = 4th/last type) and reworked the filing landing screen,
+on branch `feature/filing-workflow-ewt-redesign`.
+
+**Income tax (1701Q individual + 1702Q corporation)** — both workflows to the house style:
+- Info-first `Start` step + short chips; kept the DTA carry-forward checklist.
+- **SAWT converted to a `document` step** — customer-TIN blocking banner (the payors who withheld from
+  you) + gated download, **per-month 3-file DAT** (user-confirmed monthly cadence), and `optional` +
+  `skippable` when no creditable tax was withheld.
+- **ITR payment folded into the shared `mountRemittanceVoucherContent`** — all four tax types now share
+  one voucher renderer (VAT keeps its bespoke multi-row one). The helper gained an `extraNote` (carries
+  ITR's free-choice DTA-account guidance) and now handles a signed total (overpayment → balanced JE).
+- **Engine:** added real `skippable` support to the `document` footer (a "skip — nothing to file"
+  button that bypasses the TIN gate + download for optional attachments).
+
+**Filing landing screen:**
+- **Overview tabs reworked** — `All` scopes to the **current year** (was a 400-day rolling window),
+  `Needs filing` / `Filed` current-year, and a **new `Archived` tab** with a year dropdown for past
+  years. Enumeration widened to `[y-3 … y+1]`.
+- **Deadline Tracker removed** — the `deadlines` nav + page + `dtk*` code dropped; deadlines now live on
+  each category's Filings overview (due dates + Overdue pills). `dtkDate` kept (used by enumeration).
+- **"Others" category removed** (nav + `renderOthersScreen`).
+- **"Annual Filing" category added** — new `annual` workflow grouping annual 1701/1702-RT (by
+  classification), 1604-C (`alphalist.html`), plus **"coming soon" placeholders for 1604-E and the
+  Inventory List** (no report pages exist yet). Review-and-freeze guide (annual pages publish no
+  `window` headline, so no auto-payment/variance).
+
+**Verify:** `npm test` **119 green**, `node --check` clean on all changed JS. Presentation/structure
+only — no report-calc changes. Not runtime-tested in live Manager. *Open follow-ups: build the 1604-E +
+Inventory List reports; optional overdue notification; drop the now-dead `final` step type.*
+
 ### 2026-07-15 — Filing-workflow UX redesign: Compensation 1601-C (third tax type)
 Applied the house style to the `compensation` (payroll) workflow, on branch
 `feature/filing-workflow-ewt-redesign` (same branch as EWT). **4 steps → 5** (added the missing
