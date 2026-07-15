@@ -202,16 +202,22 @@ const WORKFLOWS = {
         key: 'ewt-instructions',
         type: 'instruction',
         label: 'Before you start',
+        short: 'Start',
+        info: true, // read-only guidance, not a gate — advances on its own
         body: `Open Manager's native <strong>Reports → Tax Audit</strong> report first and confirm there are no
           supplier payments missing an EWT Tax Code. Every purchase invoice or payment with an expanded withholding
           tax component must have its EWT tax code applied before generating the return — amounts are only correct
-          when all transactions are coded. Once confirmed, continue.`,
+          when all transactions are coded.`,
       },
       {
+        // EWT keeps both periods (unlike VAT's quarterly-only): the monthly
+        // 0619-E remittance and the quarterly 1601-EQ return, picked by the
+        // period the user selected.
         key: 'ewt-return-review',
         type: 'review',
         label: 'Review EWT Return',
-        help: 'Generate and review the return. For monthly periods this is the 0619-E; for quarterly it is the 1601-EQ. Confirm the figures look right before continuing.',
+        short: 'EWT Return',
+        help: 'Review the return. For a monthly period this is the 0619-E; for a quarterly period it is the 1601-EQ. Confirm the figures look right before continuing.',
         fileFn: (period) => period && period.ptype === 'monthly'
           ? findReport('0619e.html').file
           : findReport('1601eq.html').file,
@@ -219,57 +225,46 @@ const WORKFLOWS = {
         usesPeriod: true,
       },
       {
-        key: 'qap-review',
-        type: 'review',
-        label: 'Review QAP — Quarterly Alphalist of Payees',
-        help: 'Generate the Quarterly Alphalist of Payees (QAP) and confirm every payee and ATC code is correct. For monthly periods the QAP covers the single month so you have the DAT file ready.',
+        // Merged: review the QAP, fix any missing supplier TINs (blocking, as
+        // an inline banner — BIR's eSubmission rejects DAT files with missing
+        // payee TINs), and download — one screen instead of three steps.
+        // Unlike SLS/SLP, the QAP DAT is a single file for the period (the
+        // Annex A Excel always covers the full quarter), so datHint overrides
+        // the shared "one file per month" note.
+        key: 'qap',
+        type: 'document',
+        label: 'Quarterly Alphalist of Payees',
+        short: 'QAP',
+        help: 'Review the QAP — confirm every payee and ATC code — then fix any missing supplier TINs and download. The DAT file follows the period you picked; the Annex A Excel always covers the full quarter.',
         file: findReport('qap.html').file,
         iframeId: 'qap',
         usesPeriod: true,
-      },
-      {
-        key: 'qap-tin-check',
-        type: 'validate',
-        label: 'Check supplier TINs',
-        help: "Every supplier needs a TIN — BIR's eSubmission module rejects QAP and 1601-EQ DAT files with missing or all-zero payee TINs.",
         check: (biz) => checkPartyTIN(biz, 'supplier'),
-        fixLabel: 'Open Suppliers screen →',
-        fixIframeId: 'qap',
-        fixFile: findReport('qap.html').file,
+        fixLabel: 'Fix supplier TINs →',
         fixTabSelector: '[data-tab="suppliers"]',
-      },
-      {
-        key: 'qap-download',
-        type: 'download',
-        label: 'Download QAP (Excel / DAT)',
-        help: 'Click the Excel or DAT button inside the QAP report below to download. You can also go back to the <strong>Reports</strong> tab and open the QAP report there to download the files directly.',
-        file: findReport('qap.html').file,
-        iframeId: 'qap',
-        usesPeriod: true,
         buttonIds: ['qap-excel', 'qap-dat'],
         requireAll: false,
+        datHint: 'The DAT file follows the period you picked — one file for the quarter (or the selected month).',
       },
       {
         key: 'ewt-payment',
         type: 'payment',
         label: 'Record EWT remittance',
+        short: 'Payment',
         help: 'Posts the EWT remittance (debit Withholding Tax Payable, credit bank/cash) into Manager.',
         paymentFlavor: 'ewt',
         sourceStepKey: 'ewt-return-review',
       },
       {
-        key: 'ewt-final',
-        type: 'final',
-        label: 'Download working paper',
-        help: 'Re-download the QAP files for your working paper bundle. To save the EWT return or QAP as a PDF, open that step and use its own Print / Save as PDF button.',
-        bundle: ['qap-download'],
-      },
-      {
+        // Terminal step. The working-paper re-download (QAP) is folded into the
+        // freeze footer (bundle:) so it is no longer a separate step.
         key: 'ewt-file',
         type: 'file',
-        label: 'Mark as Filed (freeze)',
-        help: 'Freeze the EWT return figures as of filing. Later edits to this period’s books no longer change the filed return — they flow to an amendment instead.',
+        label: 'Mark as Filed',
+        short: 'File',
+        help: 'Freeze the EWT return figures as of filing. Later edits to this period’s books no longer change the filed return — they flow to an amendment instead. You can also re-download the QAP working-paper files here.',
         sourceStepKey: 'ewt-return-review',
+        bundle: ['qap'],
       },
     ],
   },

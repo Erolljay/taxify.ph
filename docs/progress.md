@@ -30,6 +30,32 @@ rates, the graduated-tax engine and VAT 2550Q are verified; two income-tax bugs 
 
 ## Changelog
 
+### 2026-07-15 — Filing-workflow UX redesign: EWT (second tax type)
+Applied the VAT house style (recorded in
+[`instruction.md`](instruction.md#filing-workflow-ux-conventions-apply-to-every-tax-type)) to the
+`expanded` (EWT) workflow. **8 gated steps → 5**, on branch
+`feature/filing-workflow-ewt-redesign`.
+
+- **`ewt-instructions`** — now `info: true` (read-only, self-advancing) + a `Start` chip, matching VAT.
+- **`ewt-return-review`** — added the `EWT Return` chip. Keeps the `fileFn` split (0619-E monthly /
+  1601-EQ quarterly) — EWT legitimately has **both** periods, unlike VAT's quarterly-only.
+- **QAP** — merged the old `qap-review` + `qap-tin-check` + `qap-download` into **one `document` step**
+  (inline blocking supplier-TIN banner with a "fix" deep-link into the report's Suppliers tab + gated
+  download). Unlike SLS/SLP, the QAP DAT is **a single file for the period** (the Annex A Excel always
+  covers the full quarter), so a new per-step **`datHint`** overrides the shared "one file per month"
+  note instead of stating it wrongly.
+- **`ewt-payment`** — added the `Payment` chip; unchanged posting logic (compound-JE voucher layer is
+  the shared engine change from PR #32).
+- **Freeze** — dropped the standalone `ewt-final` working-paper step; folded the QAP re-download into
+  the terminal `file` (freeze) step via `bundle: ['qap']`, exactly as VAT folds SLS/SLP/SAWT. Added the
+  `File` chip.
+- **Engine (shared)** — [`app/step-engine.js`](../app/step-engine.js) `renderDocumentFooter` now reads
+  an optional `step.datHint` (defaults to the SLS/SLP per-month text), so the `document` type serves
+  both monthly-per-file (SLS/SLP) and single-file-per-period (QAP) listings.
+- **Verify** — `npm test` **119 green**, `node --check` clean on both files. *Presentation only — no
+  calc changes* (QAP/0619-E/1601-EQ generators untouched). *Eyeball after deploy: QAP step shows the
+  TIN banner + single DAT; monthly period picks 0619-E, quarterly picks 1601-EQ; freeze re-downloads QAP.*
+
 ### 2026-07-15 — Filing-workflow UX redesign: VAT (first tax type) — PR #32
 Started the tax-by-tax UX redesign of the filing workflows (design conventions now recorded in
 [`instruction.md`](instruction.md#filing-workflow-ux-conventions-apply-to-every-tax-type) and

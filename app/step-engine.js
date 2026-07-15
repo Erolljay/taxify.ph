@@ -431,7 +431,7 @@ const StepEngine = (function () {
   }
 
   // ── 'document' step: one screen that merges review + TIN validation +
-  //    download for a single report (SLS / SLP). The report renders in the
+  //    download for a single report (SLS / SLP / QAP). The report renders in the
   //    iframe above; this footer runs the party-TIN check as an inline banner
   //    (blocking, since BIR rejects DAT files with missing TINs) and gates
   //    Continue on both a passing check and a confirmed download. ────────────
@@ -444,7 +444,7 @@ const StepEngine = (function () {
       <div id="tfy-doc-tin" style="width:100%;"></div>
       <div id="tfy-doc-dl" class="alert alert-warn" style="width:100%;margin:0 0 10px;">
         ⚠️ Download the file${step.buttonIds.length > 1 ? 's' : ''} below (or mark it done) to continue.
-        A full quarter downloads one DAT file per month (3 files).
+        ${step.datHint || 'A full quarter downloads one DAT file per month (3 files).'}
       </div>
       <button class="btn btn-primary" id="tfy-continue" disabled>Continue →</button>
       <button class="btn btn-outline" id="tfy-skip" style="margin-left:6px;">I already downloaded this — mark complete</button>`;

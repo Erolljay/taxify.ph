@@ -39,6 +39,10 @@ one clear navigation model.
   with a "fix" link into the report's own Customers/Suppliers tab, and gates Continue on a
   passing check **and** a confirmed download.
 - Optional attachments (e.g. SAWT for VAT) → `optional: true` + `skippable` with a clear skip label.
+- **DAT cadence note:** the footer defaults to the SLSP "one DAT per month (3 files)" line. For a
+  listing whose DAT is a **single file per period** (e.g. the **QAP** — its Annex A Excel always spans
+  the full quarter), set a per-step **`datHint`** string to override that text so it isn't stated
+  wrongly. (Added with EWT, 2026-07-15.)
 
 **Payment step = compound journal-entry voucher**
 - Header band (kind badge · date · pay-from · **editable Description**) over a DR/CR ledger with

@@ -17,12 +17,15 @@ Redesign each tax type's filing workflow to the agreed conventions (top arrow st
       2550Q split (Tax Codes / Return) + compound-JE payment with editable Description + SAWT 3-file
       monthly DAT. `npm test` 119 green. *Eyeball after deploy: split 2550Q Return shows mapped figures;
       SAWT DAT yields 3 accepted monthly files.*
-- [ ] **EWT (expanded withholding)** — **NEXT (2026-07-16).** Apply the same pattern to the `expanded`
-      workflow: monthly (0619-E) vs quarterly (1601-EQ) return, QAP as a `document` step (supplier-TIN
-      check + per-month DAT), EWT payment as the compound-JE voucher with editable Description. Note EWT
-      legitimately has **both** monthly and quarterly periods (unlike VAT's quarterly-only) — keep the
-      period picker's monthly option here.
-- [ ] **Compensation (1601-C payroll)** — restyle to stepper + JE voucher; keep the tax-status gate.
+- [x] **EWT (expanded withholding)** — **DONE 2026-07-15 (branch `feature/filing-workflow-ewt-redesign`).**
+      8 → 5 steps. `info` instruction + `EWT Return` review (keeps the 0619-E monthly / 1601-EQ quarterly
+      `fileFn` split — EWT genuinely has both periods) + **QAP merged into one `document` step**
+      (supplier-TIN blocking banner + gated download) + compound-JE payment + `bundle`-folded freeze.
+      **Correction to the original plan:** QAP is *not* a per-month DAT like SLS/SLP — its DAT is a single
+      file for the period (Annex A Excel is always the full quarter), so the shared `document` footer got a
+      new per-step `datHint` to say so instead of the wrong "3 files" note. `npm test` 119 green; presentation
+      only. *Eyeball after deploy: QAP step shows TIN banner + single DAT; monthly→0619-E, quarterly→1601-EQ.*
+- [ ] **Compensation (1601-C payroll)** — **NEXT.** Restyle to stepper + JE voucher; keep the tax-status gate.
 - [ ] **Income tax (1701Q / 1702Q individual & corporation)** — stepper + JE voucher; SAWT attachment as
       a `document` step; keep the DTA carry-forward checklist.
 - [ ] *Cross-cutting once all four are done:* confirm the top stepper + voucher read well on every
