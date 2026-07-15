@@ -30,6 +30,16 @@ rates, the graduated-tax engine and VAT 2550Q are verified; two income-tax bugs 
 
 ## Changelog
 
+### 2026-07-15 — Hotfix: Annual Filing crashed the app at load (PR #35)
+PR #34 was merged with an `annual` step-engine workflow whose `annual-1604c` step read
+`file: findReport('alphalist.html').file` at object-literal (load) time — but `REPORTS` stores that
+page as `alphalist.html#2316`, so `findReport` returned `undefined` and reading `.file` **threw**,
+aborting `workflows.js` and leaving `WORKFLOWS` undefined (whole app dead:
+`Cannot read properties of undefined (reading 'file')` → `WORKFLOWS is not defined`). Fixed by removing
+the `annual` workflow and reshaping Annual Filing as a nav **header** with direct report-embed items +
+placeholders (see the entry below, now corrected). `WORKFLOWS` builds cleanly (5 keys); `npm test` 119
+green. Lesson recorded: `findReport(x)` at load time throws unless `x` is an exact `REPORTS[].file`.
+
 ### 2026-07-15 — Income tax redesign + filing landing-screen overhaul
 Finished the tax-by-tax redesign (income tax = 4th/last type) and reworked the filing landing screen,
 on branch `feature/filing-workflow-ewt-redesign`.
@@ -52,10 +62,13 @@ on branch `feature/filing-workflow-ewt-redesign`.
 - **Deadline Tracker removed** — the `deadlines` nav + page + `dtk*` code dropped; deadlines now live on
   each category's Filings overview (due dates + Overdue pills). `dtkDate` kept (used by enumeration).
 - **"Others" category removed** (nav + `renderOthersScreen`).
-- **"Annual Filing" category added** — new `annual` workflow grouping annual 1701/1702-RT (by
-  classification), 1604-C (`alphalist.html`), plus **"coming soon" placeholders for 1604-E and the
-  Inventory List** (no report pages exist yet). Review-and-freeze guide (annual pages publish no
-  `window` headline, so no auto-payment/variance).
+- **"Annual Filing" added as a nav *header*** (a sidenav group, like Prepare / File returns — **not** a
+  workflow). Under it: **Annual Income Tax (1701 / 1702-RT, by classification)** and **1604-C**
+  (`alphalist.html`) open their report pages directly (full-width iframe, `?biz=` passed like Data
+  Intake); **1604-E** and **Inventory List** are placeholder panels (no report page exists yet). Also a
+  new **Month-end** header + **Quarterly Closing** placeholder item **before** File returns.
+  - *(Restructured from a first attempt that made Annual Filing a single step-engine workflow — that
+    version crashed the whole app at load; see the hotfix entry below.)*
 
 **Verify:** `npm test` **119 green**, `node --check` clean on all changed JS. Presentation/structure
 only — no report-calc changes. Not runtime-tested in live Manager. *Open follow-ups: build the 1604-E +
