@@ -491,9 +491,57 @@ function workflowKeyForIncomeTax() {
   return 'nonindividual';
 }
 
+// Annual Filing items open a single report page directly (their own year
+// picker lives inside the report). Value is a function so classification is
+// read at click time.
+const ANNUAL_REPORTS = {
+  'annual-itr':   () => (setup && setup.classification === 'Individual') ? '1701.html' : '1702rt.html',
+  'annual-1604c': () => 'alphalist.html',
+};
+
+// Nav items that are placeholders for now (no report page built yet).
+const PLACEHOLDER_SCREENS = {
+  'month-end': {
+    title: 'Month-end / Quarterly Closing',
+    body: `A guided month-end &amp; quarterly closing checklist (accruals, bank/CoA reconciliation, tax-code
+      audit) will live here — the step you run <strong>before</strong> filing returns, so the books are final
+      when the returns pull from them. <em>Placeholder for now.</em>`,
+  },
+  'annual-1604e': {
+    title: '1604-E — Annual Alphalist of Payees',
+    body: `The annual alphalist of income payments subject to expanded withholding isn't generated in Txform
+      yet. For now, compile it from your quarterly QAP data and file it directly in eFPS / eBIRForms.
+      <em>A dedicated 1604-E report is on the roadmap.</em>`,
+  },
+  'annual-inventory': {
+    title: 'Annual Inventory List',
+    body: `<strong>Only if this client maintains inventory.</strong> The annual Inventory List (due January 30)
+      isn't generated in Txform yet — export your closing inventory from Manager and file it with the RDO in the
+      BIR's prescribed format. <em>A dedicated Inventory List report is on the roadmap.</em>`,
+  },
+};
+
 function renderUserMode() {
   const root = document.getElementById('user-mode');
-  renderWorkflowScreen(root, _userActiveCategory);
+  const key = _userActiveCategory;
+  if (ANNUAL_REPORTS[key])       { renderEmbeddedReport(root, ANNUAL_REPORTS[key]()); return; }
+  if (PLACEHOLDER_SCREENS[key])  { renderPlaceholder(root, PLACEHOLDER_SCREENS[key]); return; }
+  renderWorkflowScreen(root, key);
+}
+
+// Embed a standalone report page full-width (passes ?biz= so it skips
+// Manager's page-context lookup, same as the Data Intake iframes).
+function renderEmbeddedReport(root, file) {
+  const src = `${file}${file.includes('?') ? '&' : '?'}${new URLSearchParams({ biz }).toString()}`;
+  root.innerHTML = `<div class="tfy-di-panel"><iframe class="tfy-di-iframe" src="${escHtml(src)}"></iframe></div>`;
+}
+
+function renderPlaceholder(root, screen) {
+  root.innerHTML = `
+    <div class="tfy-ov">
+      <div class="tfy-ov-head"><div class="tfy-ov-title">${escHtml(screen.title)}</div></div>
+      <div class="tfy-ov-help">${screen.body}</div>
+    </div>`;
 }
 
 let _ovFilter = 'all';
@@ -528,11 +576,6 @@ function enumerateWorkflowPeriods(workflowKey, today) {
   } else if (workflowKey === 'nonindividual') {
     const dueQ = { 1: [5, 30], 2: [8, 29], 3: [11, 29] };
     years.forEach(yr => [1, 2, 3].forEach(q => { const [dm, dd] = dueQ[q]; push('quarterly', yr, q, '1702Q', dtkDate(yr, dm, dd)); }));
-  } else if (workflowKey === 'annual') {
-    // One filing per year, due Apr 15 of the following year (calendar-year
-    // filer). Form label follows classification, like the quarterly income tax.
-    const annualForm = (setup && setup.classification === 'Individual') ? '1701' : '1702RT';
-    years.forEach(yr => push('annual', yr, null, annualForm, dtkDate(yr + 1, 4, 15)));
   }
   return out;
 }
