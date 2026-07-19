@@ -4,7 +4,31 @@ Open work, newest concerns first. Part of the ECC tracking triad
 (`instruction.md / progress.md / to-do.md`, see
 [`docs/ECC-PLAYBOOK.md`](ECC-PLAYBOOK.md)). Phase labels map to the 6-phase SaaS plan.
 
-_Last updated: 2026-07-15_
+_Last updated: 2026-07-19_
+
+## ⭐ Batch import — party dedup at data entry (Layer 1) (2026-07-19)
+
+The Excel batch-import templates (Sales / Purchase / Payroll) let bookkeepers type the same
+Customer/Supplier/Employee under different spellings, creating duplicate contacts on import.
+The importer already had **Layer 2** (import-time fuzzy-match resolver in
+[`batch/batch-import.js`](../batch/batch-import.js) — `normalizePartyName` + `levenshtein` +
+`findNearDupCandidates` + the "Possible duplicate → pick the match" preview dropdown). This adds
+**Layer 1** — prevention at data entry.
+
+- [x] **Party-name dropdown on the template's column B** — **DONE & MERGED 2026-07-19 (PR #37).** New
+      `Customers` / `Suppliers` / `Employees` reference sheet (sorted, de-duped, auto-pulled live from
+      Manager via the existing lookup cache — no new API calls) feeds a **warning-style** Data Validation
+      dropdown on the party-name column, mirroring the existing Account/ATC dropdowns. Warning (not Stop)
+      so a genuinely new party can still be typed and confirmed. Payroll's Withholding Tax Calculator now
+      reuses the shared `Employees` sheet (was creating a second same-named sheet → ExcelJS collision).
+      Instruction sheet documents the dropdown + the Microsoft 365 (filters as you type) vs older-Excel
+      (type full name + Enter) behavior. Presentation-only; `node --check` clean.
+  - [ ] *Eyeball after deploy:* download each of the 3 templates → column B shows the live contact list,
+        and typing a made-up name **warns** (not blocks). Not yet exercised end-to-end (needs ExcelJS +
+        Manager API at runtime).
+  - [ ] *(watch, not urgent)* very large contact lists (2,000+) make the dropdown long to scroll on older
+        Excel; Microsoft 365 filters as you type. No VBA/combobox workaround added by design (keeps the file
+        non-macro and robust).
 
 ## ⭐ Filing-workflow UX redesign — tax type by tax type (started 2026-07-15)
 
