@@ -190,6 +190,8 @@ function downloadTemplate() {
     instr.addRow([]);
     const steps = BI_IS_PAYROLL ? [
       '1. Fill in the "Batch Import" sheet below — one row per employee per pay period.',
+      '1a. "Employee Name" column: pick from the dropdown (sourced from the "Employees" sheet, pulled live from Manager) to avoid duplicate/misspelled names. For a genuinely new employee, just type the name — the dropdown allows it.',
+      '1b. Dropdown tip: on Microsoft 365 the dropdown filters as you type; on older Excel (2016/2019/2021) it does not filter — just type the full name and press Enter. Both work.',
       '2. Date columns use YYYY-MM-DD format (e.g. 2026-06-15).',
       '3. Earnings/Deduction/Contribution columns are the actual payslip items set up for this business in Manager — leave a column blank if it does not apply to this payslip.',
       '4. "Payment Account" column: pick a value from the dropdown (sourced from the "Payment Accounts" sheet) or type the exact cash/bank account title. All payroll is assumed paid the same day as the Pay Period End date entered in column 1 — net pay (earnings less deductions) is settled against the firm\'s Salaries Payable / Employee Clearing Account automatically.',
@@ -198,6 +200,10 @@ function downloadTemplate() {
       '7. When done, go back to the app, choose "Upload" and select this file, then click Validate before Post.',
     ] : [
       '1. Fill in the "Batch Import" sheet below — one row per invoice.',
+      BI_IS_SALE
+        ? '1a. "Customer Name" column: pick from the dropdown (sourced from the "Customers" sheet, pulled live from Manager) to avoid duplicate/misspelled contacts. For a genuinely new customer, just type the name — the dropdown allows it.'
+        : '1a. "Supplier Name" column: pick from the dropdown (sourced from the "Suppliers" sheet, pulled live from Manager) to avoid duplicate/misspelled contacts. For a genuinely new supplier, just type the name — the dropdown allows it.',
+      '1b. Dropdown tip: on Microsoft 365 the dropdown filters as you type; on older Excel (2016/2019/2021) it does not filter — just type the full name and press Enter. Both work.',
       '2. Date columns use YYYY-MM-DD format (e.g. 2026-06-18).',
       '3. Account columns: pick a value from the dropdown (sourced from the "Chart of Accounts" sheet) or type the exact account title.',
       BI_IS_SALE
@@ -304,6 +310,21 @@ function downloadTemplate() {
       atcCodes.forEach(n => atc.addRow([n]));
     }
 
+    // Party reference sheet (Customers/Suppliers/Employees) — the source for the
+    // party-name dropdown on the Batch Import sheet's column B. Auto-pulled from
+    // Manager so the list is always current; the dropdown itself is warning-style
+    // (see below), so a genuinely new party can still be typed in.
+    const partySheetName = BI_IS_PAYROLL ? 'Employees' : (BI_IS_SALE ? 'Customers' : 'Suppliers');
+    const partyNames = (BI_IS_PAYROLL ? cache.employeeNames : cache.partyList.map(p => p.name))
+      .filter(Boolean)
+      .filter((n, i, arr) => arr.indexOf(n) === i)
+      .sort((a, b) => a.localeCompare(b));
+    const partySheet = wb.addWorksheet(partySheetName);
+    partySheet.getColumn(1).width = 32;
+    partySheet.addRow([`${BI_PARTY_LABEL} Name`]).font = { bold: true };
+    partyNames.forEach(n => partySheet.addRow([n]));
+    const partyRange = `'${partySheetName}'!$A$2:$A$${Math.max(2, partyNames.length + 1)}`;
+
     // Dropdown validation on Account / ATC Code columns, sourced from the reference sheets
     const coaRange = `'${BI_IS_PAYROLL ? 'Payment Accounts' : 'Chart of Accounts'}'!$A$2:$A$${Math.max(2, accountNames.length + 1)}`;
     const atcRange = `'ATC Codes'!$A$2:$A$${Math.max(2, atcCodes.length + 1)}`;
@@ -325,6 +346,21 @@ function downloadTemplate() {
         };
       }
     });
+
+    // Party-name dropdown on column B (Customer/Supplier/Employee Name), sourced
+    // from the party reference sheet. Warning-style so the bookkeeper picks an
+    // existing contact by default but can still type a brand-new party.
+    for (let r = firstSampleRowIdx; r <= LAST_DATA_ROW; r++) {
+      ws.getCell(`B${r}`).dataValidation = {
+        type: 'list',
+        allowBlank: true,
+        formulae: [partyRange],
+        showErrorMessage: true,
+        errorStyle: 'warning',
+        errorTitle: 'Not in list',
+        error: `Pick a ${BI_PARTY_LABEL.toLowerCase()} from the dropdown, or type the exact name if it's a new one.`,
+      };
+    }
 
     // Payroll: Withholding Tax Calculator sheet — pick an employee, enter their
     // monthly gross compensation and non-taxable deductions (SSS/PhilHealth/
@@ -360,17 +396,14 @@ function downloadTemplate() {
         wht.getCell(`B${r}`).numFmt = '#,##0.00';
         wht.getCell(`C${r}`).numFmt = '#,##0.00';
       }
-      // Employee-name dropdown, sourced from the firm's actual employee list.
-      const empSheet = wb.addWorksheet('Employees');
-      empSheet.getColumn(1).width = 30;
-      empSheet.addRow(['Employee Name']).font = { bold: true };
-      cache.employeeNames.forEach(n => empSheet.addRow([n]));
-      const empRange = `'Employees'!$A$2:$A$${Math.max(2, cache.employeeNames.length + 1)}`;
+      // Employee-name dropdown, sourced from the shared Employees reference sheet
+      // (built above as the party reference sheet — reused here so there's only
+      // one "Employees" sheet in the workbook).
       for (let r = WHT_FIRST_ROW; r <= WHT_LAST_ROW; r++) {
         wht.getCell(`A${r}`).dataValidation = {
           type: 'list',
           allowBlank: true,
-          formulae: [empRange],
+          formulae: [partyRange],
           showErrorMessage: true,
           errorStyle: 'warning',
           errorTitle: 'Not in list',
