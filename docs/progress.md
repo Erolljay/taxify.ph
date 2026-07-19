@@ -77,6 +77,21 @@ rationale in memory `month-end-prep-restructure`.
   Compensation's payslip-item mapping needs an "unmapped" signal built before it can get its own conditional
   step. Two tunable thresholds noted (employee completeness strictness; which VAT categories count).
 
+### 2026-07-19 — Batch import: party dedup dropdown at data entry (PR #37)
+Added **Layer 1** duplicate prevention to the Excel batch-import templates (Sales / Purchase / Payroll),
+all in [`batch/batch-import.js`](../batch/batch-import.js). Each template now builds a `Customers` /
+`Suppliers` / `Employees` reference sheet — sorted, de-duped, auto-pulled live from Manager through the
+existing lookup cache (no new API calls) — and attaches a **warning-style** Data Validation dropdown to
+the party-name column (column B), mirroring the Account/ATC dropdowns already there. Warning (not Stop)
+means a genuinely new party can still be typed and confirmed rather than blocked. This complements the
+pre-existing **Layer 2** import-time fuzzy-match resolver (`normalizePartyName`/`levenshtein`/
+`findNearDupCandidates` + the preview "Possible duplicate → pick the match" dropdown): Layer 1 stops most
+duplicates at entry, Layer 2 catches whatever slips through. Also fixed a latent bug — payroll's
+Withholding Tax Calculator was creating a second sheet also named `Employees` (an ExcelJS collision); it
+now reuses the shared reference sheet. Instruction sheet documents the dropdown + the Microsoft 365
+(filters as you type) vs older-Excel (type full name + Enter) behavior. Presentation-only; `node --check`
+clean. Not yet exercised end-to-end (needs ExcelJS + Manager API at runtime) — eyeball after deploy.
+
 ### 2026-07-15 — Hotfix: Annual Filing crashed the app at load (PR #35)
 PR #34 was merged with an `annual` step-engine workflow whose `annual-1604c` step read
 `file: findReport('alphalist.html').file` at object-literal (load) time — but `REPORTS` stores that
