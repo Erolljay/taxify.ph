@@ -266,7 +266,7 @@
       <div class="tfy-navgroup">Prepare</div>
       <button type="button" class="tfy-nav-item active" data-nav="data-intake">Data Intake</button>
       <div class="tfy-navgroup">Month-end</div>
-      <button type="button" class="tfy-nav-item" data-nav="month-end">Quarterly Closing</button>
+      <button type="button" class="tfy-nav-item" data-nav="month-end">Month-end Prep</button>
       <div class="tfy-navgroup">File returns</div>
       <button type="button" class="tfy-nav-item" data-nav="vat">Value Added Tax</button>
       <button type="button" class="tfy-nav-item" data-nav="expanded">Expanded Withholding Tax</button>
@@ -294,14 +294,26 @@
         <button type="button" class="tab active" data-di-tab="sales">Sales</button>
         <button type="button" class="tab" data-di-tab="purchases">Purchases</button>
         <button type="button" class="tab" data-di-tab="payroll">Payroll</button>
-        <button type="button" class="tab" data-di-tab="receivables">Receivables</button>
-        <button type="button" class="tab" data-di-tab="payables">Payables</button>
       </div>
       <div class="tfy-di-panel" data-di-panel="sales"></div>
       <div class="tfy-di-panel" data-di-panel="purchases" hidden></div>
       <div class="tfy-di-panel" data-di-panel="payroll" hidden></div>
-      <div class="tfy-di-panel" data-di-panel="receivables" hidden></div>
-      <div class="tfy-di-panel" data-di-panel="payables" hidden></div>
+    </div>
+
+    <!-- ── MONTH-END PREP MODE (parties + AR/AP settled before filing) ── -->
+    <div id="month-end-mode" hidden>
+      <div class="tabs">
+        <button type="button" class="tab active" data-me-tab="customers">Customers</button>
+        <button type="button" class="tab" data-me-tab="suppliers">Suppliers</button>
+        <button type="button" class="tab" data-me-tab="employees">Employees</button>
+        <button type="button" class="tab" data-me-tab="receivables">Receivables</button>
+        <button type="button" class="tab" data-me-tab="payables">Payables</button>
+      </div>
+      <div class="tfy-di-panel" data-me-panel="customers"></div>
+      <div class="tfy-di-panel" data-me-panel="suppliers" hidden></div>
+      <div class="tfy-di-panel" data-me-panel="employees" hidden></div>
+      <div class="tfy-di-panel" data-me-panel="receivables" hidden></div>
+      <div class="tfy-di-panel" data-me-panel="payables" hidden></div>
     </div>
 
     <!-- ── USER MODE ────────────────────────────────────────────── -->

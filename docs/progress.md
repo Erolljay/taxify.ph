@@ -30,6 +30,53 @@ rates, the graduated-tax engine and VAT 2550Q are verified; two income-tax bugs 
 
 ## Changelog
 
+### 2026-07-19 — Month-end Prep restructure + party Excel round-trip + readiness-gated workflows
+Turned the "Month-end" nav placeholder into a real **Month-end Prep** screen (the "update your data
+before you file" hub) and made every filing workflow gate on data readiness up front. Full design
+rationale in memory `month-end-prep-restructure`.
+
+- **Excel round-trip in the party/employee editors** ([`shared/custom-fields.js`](../shared/custom-fields.js)):
+  📥 Download / 📤 Upload `.xlsx` for Customers, Suppliers, Employees. Upload matches rows by a locked
+  **Manager ID** column, **skips records already complete** (type-aware — individuals need last+first,
+  companies need a company name), shows a **preview/confirm modal**, and writes **only non-empty cells
+  (never erases existing data)**. SheetJS loaded on demand (same CDN build the SLS report uses).
+- **Month-end Prep screen** ([`taxify.html`](../taxify.html) new `#month-end-mode` +
+  [`app/taxify-app.js`](../app/taxify-app.js) `renderMonthEndPrep`): replaced the placeholder. One screen,
+  5 lazy tabs — Customers / Suppliers / Employees (inline `CF` mounts, same pattern as Settings) +
+  Receivables / Payables (batch-import iframes **moved out of Data Intake**; Data Intake is now just Sales /
+  Purchases / Payroll). The report party tabs were **kept** (in-line typo-fix fallback — Excel re-upload
+  skips complete records, so in-line edit is the only way to fix a mistyped-but-complete record).
+- **Readiness-gated workflows** ([`app/workflows.js`](../app/workflows.js) +
+  [`app/step-engine.js`](../app/step-engine.js)): two new engine behaviors — a **gating checklist**
+  (`gate: true` — Continue blocked until the check passes, with a "Fix in Month-end Prep →" button that
+  navigates via `window.tfyGoToMonthEnd(tab)`) and a **conditional step** (`showIf` predicate — hidden
+  entirely when there's nothing to do; `buildDraft` is now async and resolves `showIf` into
+  `state.hiddenKeys`; hidden steps are auto-done and skipped in the rail/nav). Wiring:
+  - **VAT** — upfront readiness gate on Customers + Suppliers; the **Tax-Codes step is now conditional**
+    (`hasUnmappedVatCore` — hidden when all 8 core VAT categories are mapped).
+  - **EWT** — readiness gate on payees (suppliers).
+  - **Compensation** — the old `taxstatus-check` review-gate **replaced** by an employee readiness gate
+    (TIN + Tax Status + name).
+  - **Income (1701Q/1702Q)** — a **non-blocking** customer readiness heads-up (SAWT is optional).
+  - Per-step party-TIN checks removed from sls/slp/qap/sawt (the upfront gate covers them); the dead
+    `checkPartyTIN` helper dropped.
+- **Address Line 2 → ZIP Code** — the party field `PARTY_GUIDS` `…009` was repurposed as a **4-digit
+  numeric ZIP Code** so it feeds **BIR Form 2307**'s payee ZIP boxes (`supp.zipCode`, which `loadPartyBIR`
+  never populated before — the boxes were always blank). `loadPartyBIR` now exposes `zipCode` (and keeps
+  `address2` for the SLS/SLP/1601EQ address line, where the ZIP appends normally); 2307's `payeeAddr` is
+  `address1` only to avoid doubling the ZIP. A `zip4()` helper + `maxlength=4`/numeric input enforce 4
+  digits on entry, save, and Excel up/download. *Migration note: businesses that previously typed
+  "City, Province" into Address Line 2 will see it treated as ZIP — the full address now belongs in Address.*
+- **Verify:** `npm test` **146 green** (+27: `test/custom-fields-helpers.test.js` locks the completeness
+  rule, select-value conversion and `zip4`; `test/workflows-structure.test.js` loads `workflows.js` in the
+  `vm` sandbox and locks the readiness gate / `showIf` / removed per-step checks). `node --check` clean on
+  every changed file. **Not runtime-tested in live Manager** (needs Manager's API context) — eyeball after
+  deploy: readiness gate blocks + "Fix" lands on the right tab; VAT Tax-Codes step hides when mapped; 2307
+  shows the payee ZIP; Excel upload preview + skip-complete behaves.
+- **Follow-up (in [`to-do.md`](to-do.md)):** the "conditional mapping" pattern only covers VAT so far —
+  Compensation's payslip-item mapping needs an "unmapped" signal built before it can get its own conditional
+  step. Two tunable thresholds noted (employee completeness strictness; which VAT categories count).
+
 ### 2026-07-19 — Batch import: party dedup dropdown at data entry (PR #37)
 Added **Layer 1** duplicate prevention to the Excel batch-import templates (Sales / Purchase / Payroll),
 all in [`batch/batch-import.js`](../batch/batch-import.js). Each template now builds a `Customers` /

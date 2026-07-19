@@ -513,7 +513,11 @@ const PARTY_GUIDS = {
   firstName:   'b1r00002-0000-4000-a000-000000000006',
   middleName:  'b1r00002-0000-4000-a000-000000000007',
   address1:    'b1r00002-0000-4000-a000-000000000008',
+  // Field …009 was formerly "Address Line 2"; repurposed as the 4-digit ZIP
+  // Code (feeds BIR Form 2307's payee ZIP boxes). Both aliases point at it so
+  // legacy address consumers keep working while zipCode is exposed explicitly.
   address2:    'b1r00002-0000-4000-a000-000000000009',
+  zipCode:     'b1r00002-0000-4000-a000-000000000009',
 };
 
 // Load business BIR setup from Manager and return a plain object.
@@ -597,6 +601,7 @@ async function loadPartyBIR(biz, partyType) {
         middleName:  cf[PARTY_GUIDS.middleName]  || '',
         address1:    cf[PARTY_GUIDS.address1]    || '',
         address2:    cf[PARTY_GUIDS.address2]    || '',
+        zipCode:     cf[PARTY_GUIDS.zipCode]     || '',
       };
     });
     return result;

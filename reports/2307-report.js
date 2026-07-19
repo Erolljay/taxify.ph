@@ -297,7 +297,9 @@ function renderCertificate(suppKey, atcMap, start, end, setup, periodLabel) {
   const payeeName = supp.companyName ||
     [supp.lastName, [supp.firstName, supp.middleName].filter(Boolean).join(' ')].filter(Boolean).join(', ') ||
     supp.name || suppKey;
-  const payeeAddr = [supp.address1, supp.address2].filter(Boolean).join(', ') || '';
+  // ZIP now lives in its own field (supp.zipCode → box 4A), so the address line
+  // is just address1 to avoid doubling the ZIP.
+  const payeeAddr = supp.address1 || '';
   const payeeForeign = supp.foreignAddress || '';
 
   const ownerIsInd = setup.classification === 'Individual';
