@@ -13,22 +13,95 @@ function findReport(file) {
   return REPORTS.find(r => r.file === file);
 }
 
-// Customers/suppliers missing a TIN block a filing — flag every party on
-// file rather than only ones with this quarter's transactions, since the
-// data model has no cheap way to scope "transacted this period" outside of
-// the report's own row-building logic (sls-report.js / slp-report.js).
-async function checkPartyTIN(biz, partyType) {
-  const parties = await loadPartyBIR(biz, partyType);
-  const problems = Object.values(parties)
-    .filter(p => !p.tin)
-    .map(p => p.name);
-  if (!problems.length) return { ok: true };
-  const noun = partyType === 'customer' ? 'customers' : 'suppliers';
+// ── READINESS GATE ─────────────────────────────────────────────
+// Customers/suppliers/employees missing BIR details block a filing — the gate
+// flags every party on file rather than only ones with this period's
+// transactions, since the data model has no cheap way to scope "transacted this
+// period" outside of the report's own row-building logic.
+// Type-aware "complete?" rule for a loadPartyBIR() record — the same rule the
+// Month-end Prep badge uses (CF.partyBlobComplete), expressed over this shape.
+// Individual: TIN + last + first + address1. Non-Individual: TIN + company +
+// address1.
+function partyRecordComplete(p) {
+  const isInd = p.type === 'Individual';
+  return !!(p.tin && (isInd ? (p.lastName && p.firstName) : p.companyName) && p.address1);
+}
+
+// Readiness check for the upfront gate: one row per party set, green only when
+// every record is fully complete (not just TIN — BIR needs name + address on the
+// DAT files too). specs: [{ partyType, label, used }].
+async function checkPartyReadiness(biz, specs) {
+  const rows = [];
+  let allOk = true;
+  for (const spec of specs) {
+    const parties = Object.values(await loadPartyBIR(biz, spec.partyType));
+    const incomplete = parties.filter(p => !partyRecordComplete(p));
+    const ok = incomplete.length === 0;
+    if (!ok) allOk = false;
+    const eg = incomplete.slice(0, 3).map(p => p.name).join(', ');
+    rows.push({
+      ok,
+      label: spec.label,
+      detail: ok
+        ? `All ${parties.length} complete — used by ${spec.used}.`
+        : `${incomplete.length} of ${parties.length} missing TIN / name / address (e.g. ${eg}${incomplete.length > 3 ? '…' : ''}) — used by ${spec.used}.`,
+    });
+  }
   return {
-    ok: false,
-    message: `${problems.length} ${noun} are missing a TIN.`,
-    problems,
+    ok: allOk,
+    message: allOk
+      ? 'Every party has complete BIR details. You can proceed.'
+      : 'Some parties are missing BIR details. Fix them in Month-end Prep, then Re-check.',
+    rows,
   };
+}
+
+// Employee readiness for the Compensation gate. No standalone employee BIR
+// loader exists, so load the batch here and reuse CF.employeeBlobComplete
+// (TIN + Tax Status + name).
+async function loadEmployeeBIR(biz) {
+  const [all, guids] = await Promise.all([fetchAllBatch('/api4/employee-batch', biz), ensureBIRFields(biz)]);
+  return all.map(it => {
+    const rec = it.item || {};
+    const cf  = parseBIRBlob((rec.customFields2 && rec.customFields2.strings) || rec.customFields || {}, guids.emp, 'b1r00003-');
+    return { name: rec.name || rec.Name || it.key, cf };
+  });
+}
+
+async function checkEmployeeReadiness(biz) {
+  const emps = await loadEmployeeBIR(biz);
+  const incomplete = emps.filter(e => !(typeof CF !== 'undefined' && CF.employeeBlobComplete(e.cf)));
+  const ok = incomplete.length === 0;
+  const eg = incomplete.slice(0, 3).map(e => e.name).join(', ');
+  return {
+    ok,
+    message: ok
+      ? 'Every employee has a TIN, Tax Status and name. You can proceed.'
+      : 'Some employees are missing a TIN, Tax Status or name. Fix them in Month-end Prep, then Re-check.',
+    rows: [{
+      ok,
+      label: 'Employees',
+      detail: ok
+        ? `All ${emps.length} complete — used by 1601-C, 1604-C, 2316.`
+        : `${incomplete.length} of ${emps.length} incomplete (e.g. ${eg}${incomplete.length > 3 ? '…' : ''}).`,
+    }],
+  };
+}
+
+// showIf for the VAT Tax-Codes step: show it only while a core VAT category is
+// still unmapped. When the business used the standard Setup (which creates the
+// standard-named codes that auto-match fills), all core categories map and the
+// step is hidden. Govt-withholding-VAT categories are excluded (niche). On any
+// error we show the step (safer than hiding a needed mapping).
+async function hasUnmappedVatCore(biz) {
+  const CORE = ['sales_taxable', 'sales_zero', 'sales_exempt',
+    'purch_capital', 'purch_other', 'purch_services', 'purch_zero', 'purch_exempt'];
+  try {
+    const { vm } = await getVatMapping(biz);
+    return CORE.some(k => !vm[k]);
+  } catch (e) {
+    return true;
+  }
 }
 
 // Reports whether each Deferred Tax Asset carry-forward account (see
@@ -97,6 +170,25 @@ const WORKFLOWS = {
           applied.`,
       },
       {
+        // Upfront readiness gate: every customer/supplier that lands on the
+        // SLS/SLP/SAWT needs a complete TIN, name and address before the DAT
+        // files pass BIR validation. Blocks until green; fixes happen in the
+        // Month-end Prep screen (the report tabs remain for ad-hoc in-line fixes
+        // during review).
+        key: 'vat-readiness',
+        type: 'checklist',
+        label: 'Party details ready?',
+        short: 'Parties',
+        gate: true,
+        fixTab: 'customers',
+        fixLabel: 'Fix in Month-end Prep →',
+        help: 'Confirm every customer and supplier has complete BIR details (TIN, name, address) before generating the SLS, SLP and SAWT. Fix any gaps in Month-end Prep, then Re-check.',
+        check: (biz) => checkPartyReadiness(biz, [
+          { partyType: 'customer', label: 'Customers', used: 'SLS & SAWT' },
+          { partyType: 'supplier', label: 'Suppliers', used: 'SLP' },
+        ]),
+      },
+      {
         // 2550Q's two tabs are split into their own steps: the Tax Codes
         // mapping drives every figure on the return, so it comes first as its
         // own decision instead of hiding behind a secondary tab.
@@ -113,6 +205,8 @@ const WORKFLOWS = {
         iframeId: 'vat-2550q-taxcodes',
         focusTab: 'taxcodes',
         usesPeriod: true,
+        // Conditional: only shown while a core VAT category is still unmapped.
+        showIf: (biz) => hasUnmappedVatCore(biz),
       },
       {
         key: 'vat-2550q-review',
@@ -126,19 +220,17 @@ const WORKFLOWS = {
         usesPeriod: true,
       },
       {
-        // Merged: review the SLS, fix any missing customer TINs (blocking, as
-        // an inline banner), and download — one screen instead of three steps.
+        // Party completeness is guaranteed by the upfront readiness gate, so
+        // this step is just review + download. The report's own Customers tab
+        // stays available for ad-hoc in-line fixes spotted during review.
         key: 'sls',
         type: 'document',
         label: 'Summary List of Sales',
         short: 'Sales (SLS)',
-        help: 'Review the SLS, fix any missing customer TINs, then download. A quarter downloads one DAT file per month (3 files).',
+        help: 'Review the SLS, then download. A quarter downloads one DAT file per month (3 files).',
         file: findReport('sls.html').file,
         iframeId: 'sls',
         usesPeriod: true,
-        check: (biz) => checkPartyTIN(biz, 'customer'),
-        fixLabel: 'Fix customer TINs →',
-        fixTabSelector: '[data-tab="customers"]',
         buttonIds: ['sl-excel', 'sl-dat'],
         requireAll: false,
       },
@@ -147,13 +239,10 @@ const WORKFLOWS = {
         type: 'document',
         label: 'Summary List of Purchases',
         short: 'Purchases (SLP)',
-        help: 'Review the SLP, fix any missing supplier TINs, then download. A quarter downloads one DAT file per month (3 files).',
+        help: 'Review the SLP, then download. A quarter downloads one DAT file per month (3 files).',
         file: findReport('slp.html').file,
         iframeId: 'slp',
         usesPeriod: true,
-        check: (biz) => checkPartyTIN(biz, 'supplier'),
-        fixLabel: 'Fix supplier TINs →',
-        fixTabSelector: '[data-tab="suppliers"]',
         buttonIds: ['sl-excel', 'sl-dat'],
         requireAll: false,
       },
@@ -210,6 +299,21 @@ const WORKFLOWS = {
           when all transactions are coded.`,
       },
       {
+        // Upfront readiness gate: every payee (supplier) on the QAP needs a
+        // complete TIN, name and address before the DAT passes BIR validation.
+        key: 'ewt-readiness',
+        type: 'checklist',
+        label: 'Payee details ready?',
+        short: 'Payees',
+        gate: true,
+        fixTab: 'suppliers',
+        fixLabel: 'Fix in Month-end Prep →',
+        help: 'Confirm every payee (supplier) has complete BIR details (TIN, name, address) before generating the QAP. Fix any gaps in Month-end Prep, then Re-check.',
+        check: (biz) => checkPartyReadiness(biz, [
+          { partyType: 'supplier', label: 'Payees (Suppliers)', used: 'QAP' },
+        ]),
+      },
+      {
         // EWT keeps both periods (unlike VAT's quarterly-only): the monthly
         // 0619-E remittance and the quarterly 1601-EQ return, picked by the
         // period the user selected.
@@ -235,13 +339,10 @@ const WORKFLOWS = {
         type: 'document',
         label: 'Quarterly Alphalist of Payees',
         short: 'QAP',
-        help: 'Review the QAP — confirm every payee and ATC code — then fix any missing supplier TINs and download. The DAT file follows the period you picked; the Annex A Excel always covers the full quarter.',
+        help: 'Review the QAP — confirm every payee and ATC code — then download. The DAT file follows the period you picked; the Annex A Excel always covers the full quarter.',
         file: findReport('qap.html').file,
         iframeId: 'qap',
         usesPeriod: true,
-        check: (biz) => checkPartyTIN(biz, 'supplier'),
-        fixLabel: 'Fix supplier TINs →',
-        fixTabSelector: '[data-tab="suppliers"]',
         buttonIds: ['qap-excel', 'qap-dat'],
         requireAll: false,
         datHint: 'The DAT file follows the period you picked — one file for the quarter (or the selected month).',
@@ -287,20 +388,18 @@ const WORKFLOWS = {
           'account — mapped there. Also confirm this month\'s payroll is fully entered and posted.',
       },
       {
-        // The one real gate in this workflow: every employee must have a tax
-        // status before the return is trustworthy. Its own iframeId (distinct
-        // from the review step) so the engine doesn't leave the later step
-        // blank — the statuses are saved on the employee records, so the review
-        // iframe reloads them.
-        key: 'taxstatus-check',
-        type: 'review',
-        label: 'Confirm employee tax status',
-        short: 'Tax Status',
-        help: 'Every employee needs a Tax Status (MWE or NMWE) set before 1601-C, 1604-C Alphalist, and BIR Form 2316 can be filed correctly. Continue is blocked until none are blank — but please still double-check no one was misidentified.',
-        file: findReport('1601c.html').file,
-        iframeId: 'payroll-taxstatus',
-        focusTab: 'taxstatus',
-        requireAllTaxStatus: true,
+        // Upfront readiness gate: every employee needs a TIN, Tax Status and
+        // name before 1601-C / 1604-C / 2316 are trustworthy. Fixes happen in
+        // Month-end Prep → Employees (which also has the Excel round-trip).
+        key: 'comp-readiness',
+        type: 'checklist',
+        label: 'Employee details ready?',
+        short: 'Employees',
+        gate: true,
+        fixTab: 'employees',
+        fixLabel: 'Fix in Month-end Prep →',
+        help: 'Every employee needs a TIN, Tax Status (MWE / NMWE) and name before 1601-C, 1604-C Alphalist and BIR Form 2316 can be filed correctly. Fix any gaps in Month-end Prep, then Re-check — and please still double-check no one was misidentified.',
+        check: (biz) => checkEmployeeReadiness(biz),
       },
       {
         key: 'payroll-review',
@@ -347,6 +446,21 @@ const WORKFLOWS = {
           return is only right if the period is complete.`,
       },
       {
+        // Non-blocking readiness heads-up: the SAWT (optional) lists customers
+        // who withheld 2307 from you; each needs complete BIR details. You can
+        // continue and skip the SAWT if it doesn't apply this period.
+        key: 'itr-readiness',
+        type: 'checklist',
+        label: 'Customer details ready?',
+        short: 'Parties',
+        fixTab: 'customers',
+        fixLabel: 'Fix in Month-end Prep →',
+        help: 'If creditable tax (2307) was withheld from you this period, the SAWT lists those customers — each needs a complete TIN, name and address. This is a heads-up, not a block: you can continue and skip the SAWT if it does not apply.',
+        check: (biz) => checkPartyReadiness(biz, [
+          { partyType: 'customer', label: 'Customers', used: 'SAWT (if withheld)' },
+        ]),
+      },
+      {
         key: 'itr-dta-check',
         type: 'checklist',
         label: 'Carry-forward account check',
@@ -373,13 +487,10 @@ const WORKFLOWS = {
         label: 'SAWT — Summary Alphalist of Withholding Taxes',
         short: 'SAWT',
         optional: true,
-        help: 'The 1701Q attachment listing income payments where creditable tax (2307) was withheld from you. Fix any missing customer TINs, then download. A quarter downloads one DAT file per month (3 files).',
+        help: 'The 1701Q attachment listing income payments where creditable tax (2307) was withheld from you. Review, then download. A quarter downloads one DAT file per month (3 files).',
         file: findReport('sawt.html').file + '?form=1701Q',
         iframeId: 'itr-sawt',
         usesPeriod: true,
-        check: (biz) => checkPartyTIN(biz, 'customer'),
-        fixLabel: 'Fix customer TINs →',
-        fixTabSelector: '[data-tab="customers"]',
         buttonIds: ['sawt-excel', 'sawt-dat'],
         requireAll: false,
         skippable: true,
@@ -421,6 +532,21 @@ const WORKFLOWS = {
           return is only right if the period is complete.`,
       },
       {
+        // Non-blocking readiness heads-up: the SAWT (optional) lists customers
+        // who withheld 2307 from you; each needs complete BIR details. You can
+        // continue and skip the SAWT if it doesn't apply this period.
+        key: 'itr-readiness',
+        type: 'checklist',
+        label: 'Customer details ready?',
+        short: 'Parties',
+        fixTab: 'customers',
+        fixLabel: 'Fix in Month-end Prep →',
+        help: 'If creditable tax (2307) was withheld from you this period, the SAWT lists those customers — each needs a complete TIN, name and address. This is a heads-up, not a block: you can continue and skip the SAWT if it does not apply.',
+        check: (biz) => checkPartyReadiness(biz, [
+          { partyType: 'customer', label: 'Customers', used: 'SAWT (if withheld)' },
+        ]),
+      },
+      {
         key: 'itr-dta-check',
         type: 'checklist',
         label: 'Carry-forward accounts check',
@@ -444,13 +570,10 @@ const WORKFLOWS = {
         label: 'SAWT — Summary Alphalist of Withholding Taxes',
         short: 'SAWT',
         optional: true,
-        help: 'The 1702Q attachment listing income payments where creditable tax (2307) was withheld from you. Fix any missing customer TINs, then download. A quarter downloads one DAT file per month (3 files).',
+        help: 'The 1702Q attachment listing income payments where creditable tax (2307) was withheld from you. Review, then download. A quarter downloads one DAT file per month (3 files).',
         file: findReport('sawt.html').file + '?form=1702Q',
         iframeId: 'itr-sawt',
         usesPeriod: true,
-        check: (biz) => checkPartyTIN(biz, 'customer'),
-        fixLabel: 'Fix customer TINs →',
-        fixTabSelector: '[data-tab="customers"]',
         buttonIds: ['sawt-excel', 'sawt-dat'],
         requireAll: false,
         skippable: true,

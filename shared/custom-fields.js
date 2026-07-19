@@ -51,8 +51,8 @@
     { id: 'b1r00002-0000-4000-a000-000000000005', label: 'Last Name',        type: 'text', placeholder: 'Dela Cruz' },
     { id: 'b1r00002-0000-4000-a000-000000000006', label: 'First Name',       type: 'text', placeholder: 'Juan' },
     { id: 'b1r00002-0000-4000-a000-000000000007', label: 'Middle Name',      type: 'text', placeholder: 'Santos' },
-    { id: 'b1r00002-0000-4000-a000-000000000008', label: 'Address Line 1',   type: 'text', placeholder: 'Unit, Bldg, Street, Brgy' },
-    { id: 'b1r00002-0000-4000-a000-000000000009', label: 'Address Line 2',   type: 'text', placeholder: 'City / Municipality, Province' },
+    { id: 'b1r00002-0000-4000-a000-000000000008', label: 'Address',          type: 'text', placeholder: 'Unit, Bldg, Street, Brgy, City, Province' },
+    { id: 'b1r00002-0000-4000-a000-000000000009', label: 'ZIP Code',         type: 'text', placeholder: '0000' },
   ];
 
   var EMPLOYEE_FIELDS = [
@@ -190,6 +190,97 @@
 
   function spinner(msg) {
     return '<div class="spinner-wrap"><div class="spinner"></div><span>' + esc(msg) + '</span></div>';
+  }
+
+  // ---- Excel round-trip helpers (shared by party + employee editors) ----
+
+  // Load SheetJS on demand (same CDN build the SLS/SLP report already uses).
+  function ensureXLSX() {
+    return new Promise(function(resolve, reject) {
+      if (window.XLSX) return resolve();
+      var s = document.createElement('script');
+      s.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+      s.onload = function() { resolve(); };
+      s.onerror = function() { reject(new Error('Could not load the Excel engine (check your internet connection).')); };
+      document.head.appendChild(s);
+    });
+  }
+
+  // Minimal promise-based confirm dialog so bulk writes get a preview + explicit OK.
+  function cfModal(opts) {
+    return new Promise(function(resolve) {
+      var overlay = document.createElement('div');
+      overlay.style.cssText = 'position:fixed;inset:0;background:rgba(15,23,42,.45);z-index:99999;display:flex;align-items:center;justify-content:center;padding:20px;';
+      var box = document.createElement('div');
+      box.style.cssText = 'background:#fff;border-radius:12px;max-width:560px;width:100%;max-height:80vh;overflow:auto;box-shadow:0 20px 60px rgba(0,0,0,.3);';
+      box.innerHTML =
+        '<div style="padding:16px 20px;border-bottom:1px solid #eef0f4;font-size:15px;font-weight:700;color:#0b1f4d;">' + esc(opts.title || '') + '</div>' +
+        '<div style="padding:16px 20px;font-size:13px;color:#334155;line-height:1.5;">' + (opts.bodyHtml || '') + '</div>' +
+        '<div style="padding:14px 20px;border-top:1px solid #eef0f4;display:flex;justify-content:flex-end;gap:8px;">' +
+        '<button class="btn btn-outline" data-cf-modal="cancel" style="font-size:12px;">' + esc(opts.cancelLabel || 'Cancel') + '</button>' +
+        '<button class="btn btn-primary" data-cf-modal="ok" style="font-size:12px;">' + esc(opts.confirmLabel || 'Confirm') + '</button>' +
+        '</div>';
+      overlay.appendChild(box);
+      document.body.appendChild(overlay);
+      function done(v) { if (overlay.parentNode) document.body.removeChild(overlay); resolve(v); }
+      box.querySelector('[data-cf-modal="cancel"]').onclick = function() { done(false); };
+      box.querySelector('[data-cf-modal="ok"]').onclick = function() { done(true); };
+      overlay.addEventListener('click', function(e) { if (e.target === overlay) done(false); });
+    });
+  }
+
+  // PH ZIP codes are 4 digits — strip anything non-numeric and cap at 4.
+  function zip4(v) {
+    return String(v == null ? '' : v).replace(/\D/g, '').slice(0, 4);
+  }
+
+  // Type-aware completeness for a parsed party blob — single source of truth for
+  // the on-screen badge AND the upload skip rule. Individual: TIN + last + first
+  // + address1. Non-Individual: TIN + company name + address1.
+  function partyBlobComplete(cf) {
+    var isInd = (cf[PARTY_FIELDS[0].id] || 'Non-Individual') === 'Individual';
+    var tin  = cf[PARTY_FIELDS[1].id] || '';
+    var corp = cf[PARTY_FIELDS[3].id] || '';
+    var ln   = cf[PARTY_FIELDS[4].id] || '';
+    var fn   = cf[PARTY_FIELDS[5].id] || '';
+    var a1   = cf[PARTY_FIELDS[7].id] || '';
+    return !!(tin && (isInd ? (ln && fn) : corp) && a1);
+  }
+
+  // Export a stored field value in a spreadsheet-friendly form: select codes
+  // (e.g. 'MWE') become their human label so a non-technical user can read them.
+  function fieldExportValue(field, raw) {
+    if (field.type === 'select' && raw) {
+      var i = (field.options || []).indexOf(raw);
+      if (i >= 0 && field.labels) return field.labels[i];
+    }
+    return raw || '';
+  }
+
+  // Convert a spreadsheet cell back to a stored value. Selects accept either the
+  // code or its label (case-insensitive); unrecognized select values are ignored
+  // rather than written as junk.
+  function fieldImportValue(field, cell) {
+    var v = String(cell == null ? '' : cell).trim();
+    if (!v) return '';
+    if (field.type === 'select') {
+      var opts = field.options || [], labels = field.labels || [];
+      if (opts.indexOf(v) >= 0) return v;
+      var lower = v.toLowerCase();
+      for (var i = 0; i < labels.length; i++) {
+        if (opts[i] && String(labels[i]).toLowerCase() === lower) return opts[i];
+      }
+      return '';
+    }
+    return v;
+  }
+
+  // Employee is "complete" for payroll filings when it has a TIN, a Tax Status
+  // (the 1601-C/2316 gate), and a name. EMPLOYEE_FIELDS: 0=TIN, 5=Tax Status,
+  // 10=Last Name, 11=First Name.
+  function employeeBlobComplete(cf) {
+    return !!(cf[EMPLOYEE_FIELDS[0].id] && cf[EMPLOYEE_FIELDS[5].id] &&
+      cf[EMPLOYEE_FIELDS[10].id] && cf[EMPLOYEE_FIELDS[11].id]);
   }
 
   // ---- BUSINESS SECTION ----
@@ -471,7 +562,7 @@
         var mn     = cf[PARTY_FIELDS[6].id] || '';
         var a1     = cf[PARTY_FIELDS[7].id] || '';
         var a2     = cf[PARTY_FIELDS[8].id] || '';
-        var isComplete = !!(tin && (isInd ? (ln && fn) : corp) && a1);
+        var isComplete = partyBlobComplete(cf);
         return '<tr data-key="' + esc(rec.key) + '" data-idx="' + idx + '" data-complete="' + (isComplete ? '1' : '0') + '">' +
           '<td style="font-weight:600;font-size:11px;">' + esc(rec.displayName) + '</td>' +
           '<td><select class="form-select cf-ptype" style="width:100%;font-size:10px;" onchange="cfPartyToggle(this)">' +
@@ -484,8 +575,8 @@
           '<td><input class="form-input cf-ln" style="width:100%;font-size:11px;" placeholder="Dela Cruz" value="' + esc(ln) + '"' + (!isInd ? ' disabled style="' + dis + 'width:100%;font-size:11px;"' : '') + '></td>' +
           '<td><input class="form-input cf-fn" style="width:100%;font-size:11px;" placeholder="Juan" value="' + esc(fn) + '"' + (!isInd ? ' disabled style="' + dis + 'width:100%;font-size:11px;"' : '') + '></td>' +
           '<td><input class="form-input cf-mn" style="width:100%;font-size:11px;" placeholder="Santos" value="' + esc(mn) + '"' + (!isInd ? ' disabled style="' + dis + 'width:100%;font-size:11px;"' : '') + '></td>' +
-          '<td><input class="form-input cf-a1" style="width:100%;font-size:11px;" placeholder="Unit, Bldg, Street, Brgy" value="' + esc(a1) + '"></td>' +
-          '<td><input class="form-input cf-a2" style="width:100%;font-size:11px;" placeholder="City / Municipality, Province" value="' + esc(a2) + '"></td>' +
+          '<td><input class="form-input cf-a1" style="width:100%;font-size:11px;" placeholder="Unit, Bldg, Street, Brgy, City, Province" value="' + esc(a1) + '"></td>' +
+          '<td><input class="form-input cf-a2" inputmode="numeric" maxlength="4" oninput="this.value=this.value.replace(/\\D/g,\'\').slice(0,4)" style="width:100%;font-size:11px;" placeholder="0000" value="' + esc(zip4(a2)) + '"></td>' +
           '<td><button class="btn btn-primary btn-sm" data-action="cf-save-row" onclick="cfSavePartyRow(this,\'' + partyType + '\')" style="font-size:10px;">Save</button></td>' +
           '</tr>';
       }).join('');
@@ -499,7 +590,12 @@
           '<option value="complete">Completed only</option>' +
         '</select>' +
         '<span id="cf-' + partyType + '-count" style="font-size:11px;color:#6b7280;">' + cache.length + ' record' + (cache.length !== 1 ? 's' : '') + ' — Save per row or use Save All</span>' +
-        '<button class="btn btn-secondary" style="margin-left:auto;font-size:11px;padding:5px 14px;" onclick="cfSaveAllParty(\'' + partyType + '\')">Save All</button>' +
+        '<span style="margin-left:auto;display:inline-flex;gap:8px;flex-wrap:wrap;">' +
+        '<button class="btn btn-outline" style="font-size:11px;padding:5px 14px;" onclick="cfPartyDownload(\'' + partyType + '\')">📥 Download Excel</button>' +
+        '<input type="file" id="cf-' + partyType + '-file" accept=".xlsx,.xls" style="display:none;" onchange="cfPartyUpload(\'' + partyType + '\', this)">' +
+        '<button class="btn btn-outline" style="font-size:11px;padding:5px 14px;" onclick="document.getElementById(\'cf-' + partyType + '-file\').click()">📤 Upload Excel</button>' +
+        '<button class="btn btn-secondary" style="font-size:11px;padding:5px 14px;" onclick="cfSaveAllParty(\'' + partyType + '\')">Save All</button>' +
+        '</span>' +
         '</div>' +
         '<div style="width:100%;">' +
         '<table class="data-table" id="cf-' + partyType + '-table" style="width:100%;table-layout:fixed;border-collapse:collapse;">' +
@@ -512,8 +608,8 @@
         '<th style="width:8%;">Last Name</th>' +
         '<th style="width:8%;">First Name</th>' +
         '<th style="width:7%;">Middle Name</th>' +
-        '<th style="width:13%;">Address Line 1</th>' +
-        '<th style="width:11%;">Address Line 2</th>' +
+        '<th style="width:18%;">Address</th>' +
+        '<th style="width:6%;">ZIP Code</th>' +
         '<th style="width:4%;"></th>' +
         '</tr></thead>' +
         '<tbody>' + rows + '</tbody>' +
@@ -539,7 +635,7 @@
         { field: PARTY_FIELDS[5], value: isInd ? tr.querySelector('.cf-fn').value.trim() : '' },
         { field: PARTY_FIELDS[6], value: isInd ? tr.querySelector('.cf-mn').value.trim() : '' },
         { field: PARTY_FIELDS[7], value: tr.querySelector('.cf-a1').value.trim() },
-        { field: PARTY_FIELDS[8], value: tr.querySelector('.cf-a2').value.trim() },
+        { field: PARTY_FIELDS[8], value: zip4(tr.querySelector('.cf-a2').value) },
       ];
       // Patch the BIR blob, then wrap in Manager customFields2
       var existingBlob = parseBIRBlob((rec.value.customFields2 && rec.value.customFields2.strings) || {}, birGuids && birGuids.party, 'b1r00002-');
@@ -580,7 +676,7 @@
             { field: PARTY_FIELDS[5], value: isInd ? tr.querySelector('.cf-fn').value.trim() : '' },
             { field: PARTY_FIELDS[6], value: isInd ? tr.querySelector('.cf-mn').value.trim() : '' },
             { field: PARTY_FIELDS[7], value: tr.querySelector('.cf-a1').value.trim() },
-            { field: PARTY_FIELDS[8], value: tr.querySelector('.cf-a2').value.trim() },
+            { field: PARTY_FIELDS[8], value: zip4(tr.querySelector('.cf-a2').value) },
           ];
           var existingBlob = parseBIRBlob((rec.value.customFields2 && rec.value.customFields2.strings) || {}, birGuids && birGuids.party, 'b1r00002-');
           var newBlob   = patchCF(existingBlob, updates);
@@ -596,8 +692,135 @@
       }
     }
 
-    window['cfSavePartyRow_' + partyType] = function(btn) { saveRow(btn); };
-    window['cfSaveAll_' + partyType]      = function()    { saveAll(); };
+    // Write one party record's BIR blob back to Manager (shared by upload).
+    async function persistPartyUpdates(rec, updates) {
+      var business = biz();
+      var existingBlob = parseBIRBlob((rec.value.customFields2 && rec.value.customFields2.strings) || {}, birGuids && birGuids.party, 'b1r00002-');
+      var newBlob    = patchCF(existingBlob, updates);
+      var managerCF2 = buildBIRCustomFields(rec.value, birGuids && birGuids.party, newBlob);
+      var putValue   = buildPartyValue(rec.value, managerCF2);
+      await apiRequest('PUT', putPath, { business: business, key: rec.key, value: putValue });
+      rec.value = Object.assign({}, rec.value, { customFields2: managerCF2 });
+    }
+
+    var EXCEL_HEADER = ['Manager ID (DO NOT EDIT)', 'Name in Manager', 'Taxpayer Type', 'TIN',
+      'Branch', 'Company / Corp Name', 'Last Name', 'First Name', 'Middle Name',
+      'Address', 'ZIP Code', 'Status'];
+
+    // Export the party list to .xlsx, honouring the current search + filter so
+    // "Missing details only" downloads exactly the incomplete records.
+    async function downloadExcel() {
+      try { await ensureXLSX(); } catch (e) { alert(e.message); return; }
+      var searchEl = document.getElementById('cf-' + partyType + '-search');
+      var filterEl = document.getElementById('cf-' + partyType + '-filter');
+      var q    = searchEl ? searchEl.value.toLowerCase() : '';
+      var mode = filterEl ? filterEl.value : 'all';
+      var aoa  = [EXCEL_HEADER];
+      cache.forEach(function(rec) {
+        var cf = parseBIRBlob((rec.value.customFields2 && rec.value.customFields2.strings) || {}, birGuids && birGuids.party, 'b1r00002-');
+        var complete = partyBlobComplete(cf);
+        if (mode === 'incomplete' && complete) return;
+        if (mode === 'complete' && !complete) return;
+        if (q && rec.displayName.toLowerCase().indexOf(q) < 0) return;
+        var isInd = (cf[PARTY_FIELDS[0].id] || 'Non-Individual') === 'Individual';
+        aoa.push([
+          rec.key, rec.displayName, isInd ? 'Individual' : 'Non-Individual',
+          cf[PARTY_FIELDS[1].id] || '', cf[PARTY_FIELDS[2].id] || '', cf[PARTY_FIELDS[3].id] || '',
+          cf[PARTY_FIELDS[4].id] || '', cf[PARTY_FIELDS[5].id] || '', cf[PARTY_FIELDS[6].id] || '',
+          cf[PARTY_FIELDS[7].id] || '', zip4(cf[PARTY_FIELDS[8].id] || ''), complete ? 'Complete' : 'Incomplete',
+        ]);
+      });
+      if (aoa.length === 1) { alert('No ' + partyType + 's match the current filter.'); return; }
+      var ws = XLSX.utils.aoa_to_sheet(aoa);
+      ws['!cols'] = [{wch:38},{wch:24},{wch:16},{wch:16},{wch:8},{wch:24},{wch:14},{wch:12},{wch:12},{wch:26},{wch:26},{wch:12}];
+      var wb = XLSX.utils.book_new();
+      var sheetName = partyType === 'customer' ? 'Customers' : 'Suppliers';
+      XLSX.utils.book_append_sheet(wb, ws, sheetName);
+      var d = new Date();
+      var stamp = '' + d.getFullYear() + String(d.getMonth() + 1).padStart(2, '0') + String(d.getDate()).padStart(2, '0');
+      XLSX.writeFile(wb, sheetName + '_' + stamp + '.xlsx');
+    }
+
+    // Import a filled workbook: match rows to Manager records by Manager ID,
+    // skip records already complete, preview, then write non-empty cells only
+    // (never erasing existing data).
+    async function uploadExcelFile(file) {
+      try { await ensureXLSX(); } catch (e) { alert(e.message); return; }
+      var buf;
+      try { buf = await file.arrayBuffer(); } catch (e) { alert('Could not read that file.'); return; }
+      var wb;
+      try { wb = XLSX.read(buf, { type: 'array' }); } catch (e) { alert('That does not look like a valid Excel file.'); return; }
+      var ws   = wb.Sheets[wb.SheetNames[0]];
+      var rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+      if (!rows.length) { alert('The sheet is empty.'); return; }
+      var head = rows[0].map(function(h) { return String(h == null ? '' : h).toLowerCase().trim(); });
+      function col(name) { for (var i = 0; i < head.length; i++) { if (head[i].indexOf(name) >= 0) return i; } return -1; }
+      var cId = col('manager id'), cType = col('taxpayer type'), cTin = col('tin'), cBranch = col('branch'),
+          cCorp = col('company'), cLast = col('last name'), cFirst = col('first name'), cMid = col('middle name'),
+          cA1 = col('address'), cZip = col('zip');
+      if (cId < 0) { alert('Could not find the "Manager ID" column. Please upload a file downloaded from this screen.'); return; }
+
+      var toUpdate = [], skipped = 0, unmatched = 0;
+      for (var r = 1; r < rows.length; r++) {
+        var row = rows[r];
+        var key = String(row[cId] == null ? '' : row[cId]).trim();
+        if (!key) continue;
+        var rec = cache.find(function(x) { return x.key === key; });
+        if (!rec) { unmatched++; continue; }
+        var cf = parseBIRBlob((rec.value.customFields2 && rec.value.customFields2.strings) || {}, birGuids && birGuids.party, 'b1r00002-');
+        if (partyBlobComplete(cf)) { skipped++; continue; }
+        var updates = [];
+        var addCell = function(idx, field) {
+          if (idx < 0) return;
+          var v = String(row[idx] == null ? '' : row[idx]).trim();
+          if (v) updates.push({ field: field, value: v });
+        };
+        if (cType >= 0) {
+          var tv = String(row[cType] == null ? '' : row[cType]).trim();
+          if (tv) updates.push({ field: PARTY_FIELDS[0], value: /^ind/i.test(tv) ? 'Individual' : 'Non-Individual' });
+        }
+        addCell(cTin, PARTY_FIELDS[1]); addCell(cBranch, PARTY_FIELDS[2]); addCell(cCorp, PARTY_FIELDS[3]);
+        addCell(cLast, PARTY_FIELDS[4]); addCell(cFirst, PARTY_FIELDS[5]); addCell(cMid, PARTY_FIELDS[6]);
+        addCell(cA1, PARTY_FIELDS[7]);
+        if (cZip >= 0) { var zv = zip4(row[cZip]); if (zv) updates.push({ field: PARTY_FIELDS[8], value: zv }); }
+        if (updates.length) toUpdate.push({ rec: rec, updates: updates, name: rec.displayName });
+      }
+
+      if (!toUpdate.length) {
+        alert('Nothing to update.\n\n' + skipped + ' already complete (skipped)' +
+          (unmatched ? ', ' + unmatched + ' row(s) could not be matched.' : '.'));
+        return;
+      }
+      var listHtml = '<ul style="margin:8px 0 0;padding-left:18px;max-height:220px;overflow:auto;">' +
+        toUpdate.slice(0, 50).map(function(u) { return '<li>' + esc(u.name) + '</li>'; }).join('') +
+        (toUpdate.length > 50 ? '<li>…and ' + (toUpdate.length - 50) + ' more</li>' : '') + '</ul>';
+      var body =
+        '<p><strong>' + toUpdate.length + '</strong> ' + partyType + '(s) will be updated.</p>' +
+        '<p style="color:#64748b;">' + skipped + ' already complete (skipped)' +
+        (unmatched ? ' · ' + unmatched + ' unmatched (skipped)' : '') + '</p>' +
+        '<p style="color:#64748b;font-size:12px;">Only blank or changed fields are filled in — existing data is never erased.</p>' +
+        listHtml;
+      var ok = await cfModal({ title: 'Confirm upload', bodyHtml: body,
+        confirmLabel: 'Update ' + toUpdate.length + ' ' + partyType + '(s)', cancelLabel: 'Cancel' });
+      if (!ok) return;
+
+      var done = 0, fail = 0;
+      for (var i = 0; i < toUpdate.length; i++) {
+        try { await persistPartyUpdates(toUpdate[i].rec, toUpdate[i].updates); done++; }
+        catch (e) { fail++; }
+      }
+      if (typeof showToast === 'function') {
+        showToast(done + ' updated' + (fail ? ', ' + fail + ' failed' : '') + '.', fail ? 'err' : 'ok');
+      } else {
+        alert(done + ' updated' + (fail ? ', ' + fail + ' failed' : '') + '.');
+      }
+      renderPartyTable();
+    }
+
+    window['cfSavePartyRow_' + partyType]  = function(btn) { saveRow(btn); };
+    window['cfSaveAll_' + partyType]       = function()    { saveAll(); };
+    window['cfPartyDownload_' + partyType] = function()    { downloadExcel(); };
+    window['cfPartyUpload_' + partyType]   = function(f)   { uploadExcelFile(f); };
 
     return { refresh: refresh };
   }
@@ -640,12 +863,21 @@
         return '<option value="' + esc(e.key) + '">' + esc(e.displayName) + '</option>';
       }).join('');
       container.innerHTML =
-        '<p style="font-size:11px;color:#6b7280;margin-bottom:12px;">BIR fields stored in Manager employee record. Select an employee to edit.</p>' +
-        '<div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;">' +
+        '<p style="font-size:11px;color:#6b7280;margin-bottom:12px;">BIR fields stored in Manager employee record. Select an employee to edit, or use Excel to update many at once.</p>' +
+        '<div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;flex-wrap:wrap;">' +
         '<label style="font-size:12px;color:#6b7280;">Employee</label>' +
         '<select id="cf-emp-picker" style="font-size:12px;min-width:220px;"><option value="">-- select an employee --</option>' + opts + '</select>' +
+        '<span style="margin-left:auto;display:inline-flex;gap:8px;flex-wrap:wrap;">' +
+        '<button class="btn btn-outline" style="font-size:11px;padding:5px 14px;" id="cf-emp-download">📥 Download Excel</button>' +
+        '<input type="file" id="cf-emp-file" accept=".xlsx,.xls" style="display:none;">' +
+        '<button class="btn btn-outline" style="font-size:11px;padding:5px 14px;" id="cf-emp-upload">📤 Upload Excel</button>' +
+        '</span>' +
         '</div><div id="cf-emp-form-host"></div>';
       container.querySelector('#cf-emp-picker').addEventListener('change', function(e) { renderEmpForm(e.target.value); });
+      container.querySelector('#cf-emp-download').addEventListener('click', downloadEmployees);
+      var fileInput = container.querySelector('#cf-emp-file');
+      container.querySelector('#cf-emp-upload').addEventListener('click', function() { fileInput.click(); });
+      fileInput.addEventListener('change', function() { var f = fileInput.files[0]; fileInput.value = ''; if (f) uploadEmployeesFile(f); });
     }
 
     function renderEmpForm(key) {
@@ -692,6 +924,109 @@
         console.error(err);
         flash(btn, false);
       }
+    }
+
+    async function persistEmployeeUpdates(emp, updates) {
+      var business = biz();
+      var existingBlob = parseBIRBlob((emp.value.customFields2 && emp.value.customFields2.strings) || {}, birGuids && birGuids.emp, 'b1r00003-');
+      var newBlob    = patchCF(existingBlob, updates);
+      var managerCF2 = buildBIRCustomFields(emp.value, birGuids && birGuids.emp, newBlob);
+      var updated    = buildSafeValue(emp.value, { customFields2: managerCF2 });
+      await apiRequest('PUT', '/api4/employee', { business: business, key: emp.key, value: updated });
+      emp.value = updated;
+    }
+
+    // Export every employee's BIR fields to .xlsx (one column per field).
+    async function downloadEmployees() {
+      try { await ensureXLSX(); } catch (e) { alert(e.message); return; }
+      var header = ['Manager ID (DO NOT EDIT)', 'Name in Manager']
+        .concat(EMPLOYEE_FIELDS.map(function(f) { return f.label; }))
+        .concat(['Status']);
+      var aoa = [header];
+      cache.forEach(function(emp) {
+        var cf = parseBIRBlob((emp.value.customFields2 && emp.value.customFields2.strings) || {}, birGuids && birGuids.emp, 'b1r00003-');
+        var row = [emp.key, emp.displayName].concat(EMPLOYEE_FIELDS.map(function(f) { return fieldExportValue(f, cf[f.id] || ''); }));
+        row.push(employeeBlobComplete(cf) ? 'Complete' : 'Incomplete');
+        aoa.push(row);
+      });
+      if (aoa.length === 1) { alert('No employees to export.'); return; }
+      var ws = XLSX.utils.aoa_to_sheet(aoa);
+      var wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Employees');
+      var d = new Date();
+      var stamp = '' + d.getFullYear() + String(d.getMonth() + 1).padStart(2, '0') + String(d.getDate()).padStart(2, '0');
+      XLSX.writeFile(wb, 'Employees_' + stamp + '.xlsx');
+    }
+
+    // Import a filled workbook: match by Manager ID, skip already-complete
+    // employees, preview, then write non-empty cells only (never erasing data).
+    async function uploadEmployeesFile(file) {
+      try { await ensureXLSX(); } catch (e) { alert(e.message); return; }
+      var buf;
+      try { buf = await file.arrayBuffer(); } catch (e) { alert('Could not read that file.'); return; }
+      var wb;
+      try { wb = XLSX.read(buf, { type: 'array' }); } catch (e) { alert('That does not look like a valid Excel file.'); return; }
+      var ws   = wb.Sheets[wb.SheetNames[0]];
+      var rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+      if (!rows.length) { alert('The sheet is empty.'); return; }
+      var head = rows[0].map(function(h) { return String(h == null ? '' : h).toLowerCase().trim(); });
+      var cId = -1;
+      for (var h = 0; h < head.length; h++) { if (head[h].indexOf('manager id') >= 0) cId = h; }
+      if (cId < 0) { alert('Could not find the "Manager ID" column. Please upload a file downloaded from this screen.'); return; }
+      var fieldCols = EMPLOYEE_FIELDS.map(function(f) {
+        var l = f.label.toLowerCase();
+        for (var i = 0; i < head.length; i++) { if (head[i] === l) return i; }
+        return -1;
+      });
+
+      var toUpdate = [], skipped = 0, unmatched = 0;
+      for (var r = 1; r < rows.length; r++) {
+        var row = rows[r];
+        var key = String(row[cId] == null ? '' : row[cId]).trim();
+        if (!key) continue;
+        var emp = cache.find(function(x) { return x.key === key; });
+        if (!emp) { unmatched++; continue; }
+        var cf = parseBIRBlob((emp.value.customFields2 && emp.value.customFields2.strings) || {}, birGuids && birGuids.emp, 'b1r00003-');
+        if (employeeBlobComplete(cf)) { skipped++; continue; }
+        var updates = [];
+        EMPLOYEE_FIELDS.forEach(function(f, idx) {
+          var c = fieldCols[idx];
+          if (c < 0) return;
+          var v = fieldImportValue(f, row[c]);
+          if (v) updates.push({ field: f, value: v });
+        });
+        if (updates.length) toUpdate.push({ emp: emp, updates: updates, name: emp.displayName });
+      }
+
+      if (!toUpdate.length) {
+        alert('Nothing to update.\n\n' + skipped + ' already complete (skipped)' +
+          (unmatched ? ', ' + unmatched + ' row(s) could not be matched.' : '.'));
+        return;
+      }
+      var listHtml = '<ul style="margin:8px 0 0;padding-left:18px;max-height:220px;overflow:auto;">' +
+        toUpdate.slice(0, 50).map(function(u) { return '<li>' + esc(u.name) + '</li>'; }).join('') +
+        (toUpdate.length > 50 ? '<li>…and ' + (toUpdate.length - 50) + ' more</li>' : '') + '</ul>';
+      var body =
+        '<p><strong>' + toUpdate.length + '</strong> employee(s) will be updated.</p>' +
+        '<p style="color:#64748b;">' + skipped + ' already complete (skipped)' +
+        (unmatched ? ' · ' + unmatched + ' unmatched (skipped)' : '') + '</p>' +
+        '<p style="color:#64748b;font-size:12px;">Only blank or changed fields are filled in — existing data is never erased.</p>' +
+        listHtml;
+      var ok = await cfModal({ title: 'Confirm upload', bodyHtml: body,
+        confirmLabel: 'Update ' + toUpdate.length + ' employee(s)', cancelLabel: 'Cancel' });
+      if (!ok) return;
+
+      var done = 0, fail = 0;
+      for (var i = 0; i < toUpdate.length; i++) {
+        try { await persistEmployeeUpdates(toUpdate[i].emp, toUpdate[i].updates); done++; }
+        catch (e) { fail++; }
+      }
+      if (typeof showToast === 'function') {
+        showToast(done + ' updated' + (fail ? ', ' + fail + ' failed' : '') + '.', fail ? 'err' : 'ok');
+      } else {
+        alert(done + ' updated' + (fail ? ', ' + fail + ' failed' : '') + '.');
+      }
+      renderEmpPicker();
     }
 
     return { refresh: refresh };
@@ -1089,6 +1424,19 @@
     if (fn) fn();
   };
 
+  window.cfPartyDownload = function(pType) {
+    var fn = window['cfPartyDownload_' + pType];
+    if (fn) fn();
+  };
+
+  window.cfPartyUpload = function(pType, input) {
+    var f = input && input.files && input.files[0];
+    if (input) input.value = ''; // reset so re-uploading the same file re-fires change
+    if (!f) return;
+    var fn = window['cfPartyUpload_' + pType];
+    if (fn) fn(f);
+  };
+
   // ---- PUBLIC API ----
 
   window.CF = {
@@ -1100,6 +1448,12 @@
     PARTY_FIELDS:      PARTY_FIELDS,
     EMPLOYEE_FIELDS:   EMPLOYEE_FIELDS,
     saveEmployeeTaxStatus: saveEmployeeTaxStatus,
+    // Exposed for reuse (readiness gate) and unit testing:
+    partyBlobComplete:    partyBlobComplete,
+    employeeBlobComplete: employeeBlobComplete,
+    fieldExportValue:     fieldExportValue,
+    fieldImportValue:     fieldImportValue,
+    zip4:                 zip4,
   };
 
 })();

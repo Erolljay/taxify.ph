@@ -81,6 +81,7 @@ const StepEngine = (function () {
       filingId: `${biz}:${workflow.key}:${periodKey || 'noperiod'}`,
       status: opts.status || 'draft',
       activeIndex: 0,
+      hiddenKeys: new Set(), // stepKeys hidden by a false showIf() — see computeHiddenSteps
       doneCache: {},     // stepKey -> bool (mirrors localStorage)
       bodyEls: {},        // stepKey -> the persistent <div class="tfy-step-body"> for that step
       iframes: {},        // iframeId -> <iframe> (shared across steps that reuse the same report file)
@@ -102,12 +103,55 @@ const StepEngine = (function () {
     return handle;
   }
 
+  // A step with a showIf(biz, state) predicate is hidden entirely when the
+  // predicate resolves false (e.g. the VAT Tax-Codes step when everything is
+  // already mapped). Hidden steps are treated as auto-done so they never gate
+  // the rail, and are skipped when navigating. Resolved once per draft build.
+  // On predicate error we default to SHOWING the step — never hide something
+  // that might actually be needed.
+  async function computeHiddenSteps(state) {
+    state.hiddenKeys = new Set();
+    for (const step of state.workflow.steps) {
+      if (typeof step.showIf !== 'function') continue;
+      try {
+        const show = await step.showIf(state.biz, state);
+        if (!show) state.hiddenKeys.add(step.key);
+      } catch (e) { /* keep it visible */ }
+    }
+  }
+
+  function firstVisibleIndex(state) {
+    for (let i = 0; i < state.workflow.steps.length; i++) {
+      if (!state.hiddenKeys.has(state.workflow.steps[i].key)) return i;
+    }
+    return 0;
+  }
+
+  function lastVisibleIndex(state) {
+    for (let i = state.workflow.steps.length - 1; i >= 0; i--) {
+      if (!state.hiddenKeys.has(state.workflow.steps[i].key)) return i;
+    }
+    return state.workflow.steps.length - 1;
+  }
+
+  function nextVisibleIndex(state, from) {
+    for (let i = from + 1; i < state.workflow.steps.length; i++) {
+      if (!state.hiddenKeys.has(state.workflow.steps[i].key)) return i;
+    }
+    return -1;
+  }
+
   // Build (or rebuild) the live step rail for a draft filing.
-  function buildDraft(container, state) {
+  async function buildDraft(container, state) {
     const { workflow, filingId } = state;
-    workflow.steps.forEach(s => { state.doneCache[s.key] = isStepDone(filingId, s.key); });
-    const firstPending = workflow.steps.findIndex(s => !state.doneCache[s.key]);
-    state.activeIndex = firstPending === -1 ? workflow.steps.length - 1 : firstPending;
+    container.innerHTML = `<div class="spinner-wrap"><div class="spinner"></div><span>Preparing…</span></div>`;
+    await computeHiddenSteps(state);
+    workflow.steps.forEach(s => {
+      // Hidden steps never gate and never show: treat them as done.
+      state.doneCache[s.key] = state.hiddenKeys.has(s.key) ? true : isStepDone(filingId, s.key);
+    });
+    const firstPending = workflow.steps.findIndex(s => !state.hiddenKeys.has(s.key) && !state.doneCache[s.key]);
+    state.activeIndex = firstPending === -1 ? lastVisibleIndex(state) : firstPending;
 
     buildSkeleton(container, state);
     renderRail(container, state);
@@ -155,8 +199,9 @@ const StepEngine = (function () {
     container.querySelector('#tfy-restart').addEventListener('click', () => {
       if (!confirm('Restart this filing? Completion flags for every step will be cleared (the frozen return, if any, is not affected).')) return;
       resetSteps(state.filingId, state.workflow.steps);
-      state.workflow.steps.forEach(s => { state.doneCache[s.key] = false; });
-      state.activeIndex = 0;
+      // Hidden steps stay auto-done so a restart doesn't resurrect them.
+      state.workflow.steps.forEach(s => { state.doneCache[s.key] = state.hiddenKeys.has(s.key); });
+      state.activeIndex = firstVisibleIndex(state);
       renderRail(container, state);
       showActiveStep(container, state);
     });
@@ -184,6 +229,7 @@ const StepEngine = (function () {
   function renderRail(container, state) {
     const { workflow } = state;
     const railHtml = workflow.steps.map((s, i) => {
+      if (state.hiddenKeys.has(s.key)) return ''; // conditional step, not applicable
       const done   = !!state.doneCache[s.key];
       const locked = isLocked(state, i);
       const active = i === state.activeIndex;
@@ -230,8 +276,9 @@ const StepEngine = (function () {
 
     if (done) {
       const idx = state.workflow.steps.findIndex(s => s.key === stepKey);
-      if (idx === state.activeIndex && idx < state.workflow.steps.length - 1) {
-        state.activeIndex = idx + 1;
+      const next = nextVisibleIndex(state, idx);
+      if (idx === state.activeIndex && next !== -1) {
+        state.activeIndex = next;
         renderRail(container, state);
         showActiveStep(container, state);
       }
@@ -1277,16 +1324,33 @@ const StepEngine = (function () {
       .map(r => `<li>${r.ok ? '✅' : '⚠️'} <strong>${escHtml(r.label)}</strong> — ${escHtml(r.detail || '')}</li>`)
       .join('');
 
+    // A gating checklist (step.gate) blocks Continue until the check passes and
+    // offers a Fix button that jumps to the Month-end Prep tab named by
+    // step.fixTab. A plain (informational) checklist always lets you continue.
+    const gate   = !!step.gate;
+    const passed = !gate || result.ok;
+    const icon       = result.ok ? '✅' : (gate ? '⛔' : '⚠️');
+    const alertClass = result.ok ? 'alert-success' : (gate ? 'alert-error' : 'alert-warn');
+    // Offer the Fix button whenever the check failed and a target tab is named —
+    // for a gating check it's the primary action (Continue is blocked); for an
+    // informational check it's a convenience (Continue still works).
+    const fixBtn = (!result.ok && step.fixTab)
+      ? `<button class="btn ${gate ? 'btn-primary' : 'btn-outline'}" id="tfy-fix">${escHtml(step.fixLabel || 'Fix in Month-end Prep →')}</button>`
+      : '';
+
     body.innerHTML = `
-      <div class="alert ${result.ok ? 'alert-success' : 'alert-warn'}" style="margin-bottom:10px;">${result.ok ? '✅' : '⚠️'} ${escHtml(result.message || '')}</div>
+      <div class="alert ${alertClass}" style="margin-bottom:10px;">${icon} ${escHtml(result.message || '')}</div>
       ${rowsHtml ? `<ul class="tfy-problem-list">${rowsHtml}</ul>` : ''}
       <div class="tfy-step-footer">
-        <button class="btn btn-primary" id="tfy-continue">Continue →</button>
+        ${fixBtn}
+        <button class="btn btn-primary" id="tfy-continue" ${passed ? '' : 'disabled'}>Continue →</button>
         <button class="btn btn-outline" id="tfy-recheck" style="margin-left:6px;">↻ Re-check</button>
       </div>`;
 
-    body.querySelector('#tfy-continue').onclick = () => setStepDone(root, state, step.key, true);
+    body.querySelector('#tfy-continue').onclick = () => { if (passed) setStepDone(root, state, step.key, true); };
     body.querySelector('#tfy-recheck').onclick = () => runChecklist(body, panel, state, step);
+    const fx = body.querySelector('#tfy-fix');
+    if (fx) fx.onclick = () => { if (typeof window.tfyGoToMonthEnd === 'function') window.tfyGoToMonthEnd(step.fixTab); };
   }
 
   // ── FILE (freeze) step: the terminal action that snapshots the return. ──
