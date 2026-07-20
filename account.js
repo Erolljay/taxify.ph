@@ -118,10 +118,17 @@ function renderBusinesses() {
     const li = document.createElement('li');
     const name = document.createElement('strong');
     name.textContent = b.name;
-    const guid = document.createElement('span');
-    guid.className = 'role';
-    guid.textContent = b.manager_business_guid;
-    li.append(name, guid);
+    li.append(name);
+    // The Manager-side name normally matches, so showing it would be noise.
+    // It only differs when another firm already registered this client name
+    // and ours was given a suffix — worth surfacing, because that's the name
+    // they'll actually see in Manager's business list.
+    if (b.manager_business_name && b.manager_business_name !== b.name) {
+      const alias = document.createElement('span');
+      alias.className = 'role';
+      alias.textContent = 'in Manager: ' + b.manager_business_name;
+      li.append(alias);
+    }
     list.append(li);
   });
 }
@@ -185,7 +192,7 @@ function renderMatrix() {
 $('biz-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   const r = await api('POST', '/api/tenancy/add-business', {
-    name: $('biz-name').value.trim(), managerBusinessGuid: $('biz-guid').value.trim(),
+    name: $('biz-name').value.trim(),
   });
   if (r.status === 201 || r.status === 200) { $('biz-form').reset(); await reload('Business saved.'); }
   else flash($('dash-msg'), 'err', errText(r, 'Could not add business.'));
@@ -216,7 +223,7 @@ function errText(r, fallback) {
   const e = r.json && r.json.error;
   if (e === 'seat_limit_reached') return 'Seat limit reached for your plan — upgrade to add more staff.';
   if (e === 'business_limit_reached') return 'Business limit reached for your plan — upgrade to add more clients.';
-  if (e && /another account/.test(e)) return 'That business is already registered to another account.';
+  if (e === 'name_unavailable') return 'You already have a client with that name — give this one a distinct name.';
   return e ? String(e) : fallback;
 }
 function th(text, cls) { const el = document.createElement('th'); if (cls) el.className = cls; el.textContent = text; return el; }

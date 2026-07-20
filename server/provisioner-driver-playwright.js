@@ -19,8 +19,8 @@
 
    Implements the driver interface consumed by provisioner.js:
      createUser({ email }) -> { managerUserRef, screenshot }
-     grantAccess({ managerUserRef, businessGuid }) -> { screenshot }
-     revokeAccess({ managerUserRef, businessGuid }) -> { screenshot }
+     grantAccess({ managerUserRef, businessName }) -> { screenshot }
+     revokeAccess({ managerUserRef, businessName }) -> { screenshot }
      disableUser({ managerUserRef }) -> { screenshot }
      close()
    ============================================================ */
@@ -83,19 +83,26 @@ function createDriver(cfg) {
       });
     },
 
-    async grantAccess({ managerUserRef, businessGuid }) {
+    // Manager has NO per-user permissions page. Access is the `Businesses`
+    // multi-select on the user form itself, so grant and revoke are the same
+    // operation: re-open /user-form?<base64 email>, edit the selection, save.
+    // Option values are base64(businessName) — hence businessName, not an id.
+    async grantAccess({ managerUserRef, businessName }) {
       return withPage(async (page) => {
-        await page.goto(baseUrl + '/admin/users/' + managerUserRef + '/permissions'); // TODO
-        // TODO: tick the business `businessGuid` and save
+        await page.goto(baseUrl + '/user-form?' + Buffer.from(managerUserRef).toString('base64'));
+        // TODO: select the option whose value is base64(businessName), keeping
+        // the existing selection, then submit the form.
         const screenshot = await shoot(page, 'grant');
         throw new Error('grantAccess not implemented');
         return { screenshot }; // eslint-disable-line no-unreachable
       });
     },
 
-    async revokeAccess({ managerUserRef, businessGuid }) {
+    async revokeAccess({ managerUserRef, businessName }) {
       return withPage(async (page) => {
-        await page.goto(baseUrl + '/admin/users/' + managerUserRef + '/permissions'); // TODO
+        await page.goto(baseUrl + '/user-form?' + Buffer.from(managerUserRef).toString('base64'));
+        // TODO: deselect the option whose value is base64(businessName),
+        // keeping the rest, then submit the form.
         const screenshot = await shoot(page, 'revoke');
         throw new Error('revokeAccess not implemented');
         return { screenshot }; // eslint-disable-line no-unreachable

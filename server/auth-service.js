@@ -212,11 +212,24 @@ function inviteStaff(db, input, deps) {
   return { status: 201, json: { ok: true, userId: userId } };
 }
 
-// POST /api/tenancy/add-business { managerBusinessGuid, name }
+// Pick the name this business will carry on the Manager server. Manager
+// keys businesses by name, so it must be globally unique across every
+// firm we host — but a bare "that name is taken" would let one firm probe
+// another's client list. Instead the loser of a collision silently gets an
+// account-scoped suffix: deterministic (same answer however many firms
+// collide, so the count leaks nothing) and invisible in the portal, which
+// always shows the firm's own `name`.
+function managerNameFor(db, accountId, name) {
+  const taken = (n) => !!db.prepare('SELECT 1 FROM businesses WHERE manager_business_name = ?').get(n);
+  if (!taken(name)) return name;
+  const scoped = name + ' (' + accountId + ')';
+  return taken(scoped) ? null : scoped;
+}
+
+// POST /api/tenancy/add-business { name }
 // Owner-only. Registers one of the firm's client businesses against the
-// business limit. The GUID is globally unique — claiming one already
-// registered to another account is refused. Granting a user access to it
-// is a separate step (setUserBusiness).
+// business limit. Granting a user access to it is a separate step
+// (setUserBusiness).
 function addBusiness(db, input, deps) {
   const now = deps.now();
   const s = loadSession(db, input.cookie, now);
@@ -225,25 +238,28 @@ function addBusiness(db, input, deps) {
   const authz = A.authorizeOwnerAction({ role: s.role, account_id: s.account_id, expires_at: s.expires_at }, account, now);
   if (!authz.ok) return { status: 403, json: { error: authz.reason } };
 
-  const guid = (input && typeof input.managerBusinessGuid === 'string') ? input.managerBusinessGuid.trim() : '';
   const name = (input && typeof input.name === 'string') ? input.name.trim() : '';
-  if (!guid || !name) return { status: 400, json: { error: 'managerBusinessGuid and name required' } };
+  if (!name) return { status: 400, json: { error: 'name required' } };
 
-  const existing = db.prepare('SELECT id, account_id FROM businesses WHERE manager_business_guid = ?').get(guid);
-  if (existing) {
-    if (existing.account_id === s.account_id) return { status: 200, json: { ok: true, businessId: existing.id, alreadyAdded: true } };
-    return { status: 409, json: { error: 'business already registered to another account' } };
-  }
+  // Re-adding a client the firm already has is idempotent and costs no slot.
+  const mine = db.prepare('SELECT id FROM businesses WHERE account_id = ? AND name = ?').get(s.account_id, name);
+  if (mine) return { status: 200, json: { ok: true, businessId: mine.id, alreadyAdded: true } };
 
   const count = db.prepare('SELECT COUNT(*) AS n FROM businesses WHERE account_id = ?').get(s.account_id).n;
   const room = A.canProvisionMore('business', { limit: account.businesses_limit, currentCount: count });
   if (!room.ok) return { status: 409, json: { error: room.reason } };
 
-  const businessId = Number(db.prepare('INSERT INTO businesses (account_id, manager_business_guid, name) VALUES (?,?,?)')
-    .run(s.account_id, guid, name).lastInsertRowid);
+  // Both the plain name and the account-scoped fallback are taken. Only
+  // reachable if this firm already holds the suffixed variant as a
+  // separate client, so naming it is safe — it's their own data.
+  const managerName = managerNameFor(db, s.account_id, name);
+  if (!managerName) return { status: 409, json: { error: 'name_unavailable' } };
+
+  const businessId = Number(db.prepare('INSERT INTO businesses (account_id, manager_business_name, name) VALUES (?,?,?)')
+    .run(s.account_id, managerName, name).lastInsertRowid);
   db.prepare('INSERT INTO audit_log (account_id, actor, action, target) VALUES (?,?,?,?)')
-    .run(s.account_id, s.email, 'add_business', 'business:' + businessId + ' ' + guid);
-  return { status: 201, json: { ok: true, businessId: businessId } };
+    .run(s.account_id, s.email, 'add_business', 'business:' + businessId + ' ' + managerName);
+  return { status: 201, json: { ok: true, businessId: businessId, managerBusinessName: managerName } };
 }
 
 // GET /api/tenancy/overview
@@ -258,7 +274,7 @@ function overview(db, input, deps) {
 
   const account = db.prepare('SELECT plan, status, seats_limit, businesses_limit FROM account WHERE id = ?').get(s.account_id);
   const users = db.prepare('SELECT id, email, role FROM users WHERE account_id = ? ORDER BY role DESC, email').all(s.account_id);
-  const businesses = db.prepare('SELECT id, name, manager_business_guid FROM businesses WHERE account_id = ? ORDER BY name').all(s.account_id);
+  const businesses = db.prepare('SELECT id, name, manager_business_name FROM businesses WHERE account_id = ? ORDER BY name').all(s.account_id);
   const grants = db.prepare(
     'SELECT ub.user_id, ub.business_id FROM user_business ub JOIN users u ON u.id = ub.user_id WHERE u.account_id = ?'
   ).all(s.account_id);
@@ -269,7 +285,7 @@ function overview(db, input, deps) {
 module.exports = {
   COOKIE_NAME, parseCookie, loadSession,
   requestLink, verifyLink, currentUser,
-  setUserBusiness, inviteStaff, addBusiness, overview,
+  setUserBusiness, inviteStaff, addBusiness, managerNameFor, overview,
 };
 
 // ── HTTP wiring (thin; not unit-tested — handlers are) ────────────
@@ -342,7 +358,7 @@ if (require.main === module) {
         if (url.pathname === '/api/auth/me') return send(res, currentUser(db, { cookie: cookie }, deps));
         if (req.method === 'POST' && url.pathname === '/api/tenancy/user-business') return send(res, setUserBusiness(db, { cookie: cookie, userId: json.userId, businessId: json.businessId, grant: json.grant }, deps));
         if (req.method === 'POST' && url.pathname === '/api/tenancy/invite-staff') return send(res, inviteStaff(db, { cookie: cookie, email: json.email }, deps));
-        if (req.method === 'POST' && url.pathname === '/api/tenancy/add-business') return send(res, addBusiness(db, { cookie: cookie, managerBusinessGuid: json.managerBusinessGuid, name: json.name }, deps));
+        if (req.method === 'POST' && url.pathname === '/api/tenancy/add-business') return send(res, addBusiness(db, { cookie: cookie, name: json.name }, deps));
         if (req.method === 'GET' && url.pathname === '/api/tenancy/overview') return send(res, overview(db, { cookie: cookie }, deps));
         send(res, { status: 404, json: { error: 'not found' } });
       } catch (e) {

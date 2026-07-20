@@ -4,7 +4,54 @@ Open work, newest concerns first. Part of the ECC tracking triad
 (`instruction.md / progress.md / to-do.md`, see
 [`docs/ECC-PLAYBOOK.md`](ECC-PLAYBOOK.md)). Phase labels map to the 6-phase SaaS plan.
 
-_Last updated: 2026-07-19_
+_Last updated: 2026-07-20_
+
+## ⭐ Firm-account IA — build-out (decided 2026-07-20)
+
+The firm/user/business model and its pricing are settled. Full IA — roles, permission matrix,
+sign-up flow, screen map, session model, gap list — is published as an artifact:
+<https://claude.ai/code/artifact/11868cee-4b68-4643-bdb7-94df63b100c9>. Decisions are recorded in
+[`progress.md`](progress.md#2026-07-20--firm-account-ia-decided--businesses-re-keyed-to-manager-name-pr-40).
+
+**Server checks — both answered 2026-07-20 (SSH, after re-pinning the security group to the current
+home IP per [`DEPLOY.md`](../DEPLOY.md)):**
+
+- [x] **`TXFORM_COOKIE_DOMAIN`** — **set to `.txform.ph`.** Not a live bug: the `txfsid` cookie does
+      reach `extension.txform.ph`, and since all three hosts share one registrable domain they are
+      same-site, so `SameSite=Lax` doesn't strip it inside the extension iframe. Signed-in users are
+      recognised in the books without signing in again.
+- [x] **Live `txform.db` is effectively empty** — `businesses=0, report_snapshot=0, users=1,
+      account=1` (just the seeded owner). **PR #40's column rename therefore needs no migration** —
+      drop and recreate from `schema.sql` at deploy time.
+- [ ] **Confirm the GUID finding** — on a live business, `fetch('/api4/businesses')` and check the
+      objects carry no `key`. Confirms entitlement + freeze were both dead before PR #40. *(Needs a
+      logged-in Manager session; not reachable over SSH.)*
+
+**Then, in order:**
+
+- [x] **Re-key businesses to the Manager name** — **DONE 2026-07-20 (PR #40).** `manager_business_guid`
+      → `manager_business_name` across schema, both PHP endpoints, provisioner, portal; both dead
+      name→GUID resolvers deleted; account-scoped fallback name on cross-firm collisions (no
+      cross-tenant oracle). Driver TODOs corrected to the real `/user-form` model. `npm test` 149 green.
+- [ ] **Schema additions** (one migration, cheap now, painful once firms are paying):
+      `account.firm_name` (nothing stores it — sign-up cannot be built without it) · `client` role
+      (schema has only `owner|staff`) · `businesses.status` for **archive, not delete** (filed
+      snapshots must survive; capacity frees at period end, else clients get cycled to dodge billing)
+      · **billing-period history per business** (high-water billing must know a business was active
+      in a month even after it's archived) · *(optional)* tax type per business — not billing-critical
+      since the rate is flat, but drives which reports and deadlines appear.
+- [ ] **Portal rework** — land on **Clients**, not admin (almost every session is "open a client and
+      file something"). **Let staff and clients in**: `overview()` is owner-gated today, so everyone
+      else signs in fine and then 403s at the dashboard. Staff get a filtered Clients screen; clients
+      get a read-only list of their filed returns; neither gets Team/Access/Billing/Activity. **Show
+      provisioner sync state** on the access grid — `provision_job.status` is already recorded but
+      never surfaced, and the queue runs on a timer, so an instantly-flipping checkbox misleads.
+- [ ] **Sign-up flow** (does not exist at all) — 6 steps: email → firm name → add businesses →
+      review & pay → provisioning progress → land on Clients. Businesses are collected **before** the
+      card because price depends on the count, and **nothing is provisioned until payment clears**
+      (no trial). Ends with one welcome email carrying *both* credentials: the magic link and the
+      Manager username/password.
+- [ ] **PayMongo** — last, and it's the security gate. See the Phase 3 note in `progress.md`.
 
 ## ⭐ Month-end Prep restructure + party Excel round-trip + readiness-gated workflows (2026-07-19)
 
@@ -284,7 +331,9 @@ clean layout), then build save-reports into that clean structure.
        emails existing users). Add `POST /api/auth/sign-up { email, firmName }` → create `account`
        (`trialing` or `pending_payment`, per the model decision) + owner `users` row → send the first
        magic link; add a sign-up view to `account.html`. Reuses the shipped verify/redirect + mailer.
-       **Decision needed: trial-first vs pay-first** (sets the starting `account.status`).
+       **Decided 2026-07-20: pay-first, no trial** — nothing is provisioned in Manager until the
+       card clears, so the account starts `active` only after payment. Full 6-step flow in the
+       Firm-account IA section at the top of this file.
     2. [ ] **Staff invite email** — `inviteStaff` creates the row + enqueues provisioning but sends
        nothing. Email the invited staffer a magic link (gives them the `txfsid` session
        `entitlement.php` reads) plus a "your firm added you" note.
@@ -293,7 +342,11 @@ clean layout), then build save-reports into that clean structure.
        invite). Confirm what Manager Server supports before touching the driver.
     4. [ ] **Live Playwright selectors** — map the real `books.txform.ph` admin DOM so
        `createUser`/`grantAccess`/`revokeAccess`/`disableUser` stop being stubs (they currently throw
-       "not implemented" and `createUser` returns a null ref). Depends on #3.
+       "not implemented" and `createUser` returns a null ref). Depends on #3. **Model corrected
+       2026-07-20 (PR #40):** there is no per-user permissions page — access is the `Businesses`
+       multi-select on `/user-form?<base64 email>`, whose option values are `base64(businessName)`,
+       so grant and revoke are the same operation (re-open the form, edit the selection, save).
+       Use the `/playwright` skill against a live admin session to pin the selectors.
     5. [ ] **Plan-status enforcement (expiry ladder)** — enforce `account.status`
        (active → grace → suspended → cancelled) on `verifyLink`/`/me` and in `entitlement.php`; wire
        `current_period_end` / `grace_until`. Nothing blocks a lapsed account today. (Couples with Phase 3 webhooks.)

@@ -27,8 +27,8 @@ function freshDb() {
   db.prepare('INSERT INTO account (id, plan, status, seats_limit, businesses_limit) VALUES (2,?,?,?,?)').run('starter', 'suspended', 1, 1);
   db.prepare('INSERT INTO users (id, account_id, email, role) VALUES (1,1,?,?)').run('owner@x.com', 'owner');
   db.prepare('INSERT INTO users (id, account_id, email, role) VALUES (2,1,?,?)').run('staff@x.com', 'staff');
-  db.prepare('INSERT INTO businesses (id, account_id, manager_business_guid, name) VALUES (1,1,?,?)').run('guid-1', 'Acme');
-  db.prepare('INSERT INTO businesses (id, account_id, manager_business_guid, name) VALUES (2,2,?,?)').run('guid-2', 'OtherCo');
+  db.prepare('INSERT INTO businesses (id, account_id, manager_business_name, name) VALUES (1,1,?,?)').run('Acme', 'Acme');
+  db.prepare('INSERT INTO businesses (id, account_id, manager_business_name, name) VALUES (2,2,?,?)').run('OtherCo', 'OtherCo');
   return db;
 }
 function makeDeps() {
@@ -43,13 +43,13 @@ function findSession(db, sessHash, now) {
       WHERE s.session_hash = ? AND s.expires_at > ? LIMIT 1`
   ).get(sessHash, now);
 }
-function findStatus(db, who, guid) {
+function findStatus(db, who, bizName) {
   return db.prepare(
     `SELECT a.status FROM businesses b JOIN account a ON a.id = b.account_id
-      WHERE b.manager_business_guid = ? AND b.account_id = ?
+      WHERE b.manager_business_name = ? AND b.account_id = ?
         AND ( ? = 'owner' OR EXISTS (SELECT 1 FROM user_business ub
               WHERE ub.user_id = ? AND ub.business_id = b.id) ) LIMIT 1`
-  ).get(guid, who.account_id, who.role, who.user_id);
+  ).get(bizName, who.account_id, who.role, who.user_id);
 }
 
 // Sign in and return the raw session secret (what the cookie carries).
@@ -65,13 +65,13 @@ test('owner: own business returns its account status', () => {
   const hash = A.hashToken(sessionSecret(db, deps, 'owner@x.com'));
   const who = findSession(db, hash, deps.state.now);
   assert.ok(who, 'valid session resolves');
-  assert.equal(findStatus(db, who, 'guid-1').status, 'active');
+  assert.equal(findStatus(db, who, 'Acme').status, 'active');
 });
 
 test('owner: another account\'s business is invisible (would be 404)', () => {
   const db = freshDb(), deps = makeDeps();
   const who = findSession(db, A.hashToken(sessionSecret(db, deps, 'owner@x.com')), deps.state.now);
-  assert.equal(findStatus(db, who, 'guid-2'), undefined, 'cross-account business must not resolve');
+  assert.equal(findStatus(db, who, 'OtherCo'), undefined, 'cross-account business must not resolve');
 });
 
 test('no / bogus session → nothing (would be 401)', () => {
@@ -89,12 +89,12 @@ test('expired session → nothing (would be 401)', () => {
 test('staff WITHOUT a grant cannot see the business (would be 404)', () => {
   const db = freshDb(), deps = makeDeps();
   const who = findSession(db, A.hashToken(sessionSecret(db, deps, 'staff@x.com')), deps.state.now);
-  assert.equal(findStatus(db, who, 'guid-1'), undefined);
+  assert.equal(findStatus(db, who, 'Acme'), undefined);
 });
 
 test('staff WITH a grant can see the business', () => {
   const db = freshDb(), deps = makeDeps();
   db.prepare('INSERT INTO user_business (user_id, business_id) VALUES (2,1)').run();
   const who = findSession(db, A.hashToken(sessionSecret(db, deps, 'staff@x.com')), deps.state.now);
-  assert.equal(findStatus(db, who, 'guid-1').status, 'active');
+  assert.equal(findStatus(db, who, 'Acme').status, 'active');
 });
