@@ -11,7 +11,7 @@ _Last updated: 2026-07-20_
 | Phase | Status | Notes |
 |-------|--------|-------|
 | **0 — Foundation hardening** | ✅ Largely done | Pull-based auto-deploy (`scripts/deploy.sh` via 2-min root cron), nginx web-root hardening, LF normalization. Hosting-license confirmed, Manager Server bought. **Backups live (2026-07-13):** AWS Backup EC2 snapshots + S3 Manager.io data backups, both 2 AM Manila, 7/56/400-day retention. **`save-tax-rates.php` hardened & LIVE (2026-07-14, PR #23):** shared-secret token + body cap + backup pruning on top of nginx basic-auth; token file created on the server. Still open: UFW, fail2ban, UptimeRobot, e2e BIR verification. |
-| **1 — Tenancy / entitlement / provisioning** | 🟡 Substantially built | `server/auth-*.js`, `smtp-mailer.js`, `entitlement.php`, `provisioner.js` + Playwright driver, `schema.sql`, systemd units. **95 passing tests.** **Email sender LIVE** — `txform-auth` service running, real magic-link email delivered via Google Workspace. **Magic-link now lands on the portal** — `verifyLink` 302-redirects a browser to `txform.ph/account` (cookie attached) instead of downloading `verify.json`; portal + `/api/*` share the apex origin. **2026-07-20 (PR #40): businesses re-keyed from a phantom GUID to the Manager business NAME** — the old key was a field Manager never sends, which had left both the entitlement gate and freeze/save-report silently dead. **122 passing tests.** Open: live Playwright selectors; `firm_name` / `client` role / archive / billing-period columns; portal access for staff+clients; sign-up flow. |
+| **1 — Tenancy / entitlement / provisioning** | 🟡 Substantially built | `server/auth-*.js`, `smtp-mailer.js`, `entitlement.php`, `provisioner.js` + Playwright driver, `schema.sql`, systemd units. **95 passing tests.** **Email sender LIVE** — `txform-auth` service running, real magic-link email delivered via Google Workspace. **Magic-link now lands on the portal** — `verifyLink` 302-redirects a browser to `txform.ph/account` (cookie attached) instead of downloading `verify.json`; portal + `/api/*` share the apex origin. **2026-07-20 (PR #40): businesses re-keyed from a phantom GUID to the Manager business NAME** — the old key was a field Manager never sends, which had left both the entitlement gate and freeze/save-report silently dead. **149 passing tests.** Open: live Playwright selectors; `firm_name` / `client` role / archive / billing-period columns; portal access for staff+clients; sign-up flow. |
 | **2 — Website rebuild & SEO** | ✅ Live | **Deployed 2026-07-14 (PR #21).** Full static multi-page site under `website/`: home + features/security/about/contact/faq/terms/privacy, shared `assets/css/site.css` + `assets/js/site.js`, real favicons, `robots.txt` + `sitemap.xml` + per-page meta & JSON-LD. **Positioned as a live product, not a waitlist** — CTAs are "Get started" → contact onboarding and "Sign in" → the owner portal at **`/account`**. Legal pages carry the firm's real details (TalloCPA, Iloilo City, DPO Erol Jay Tallo). Old JS bundle preserved as `index.legacy.html`. Open only: counsel review of legal pages, optional font self-hosting. |
 | **3 — Payments (PayMongo)** | 🔴 Not started | No PayMongo/webhook code yet. **Model decided 2026-07-20:** flat ₱500/business/month (no tiers), no trial, one monthly invoice billed on the high-water mark of active businesses. PayMongo cannot prorate, but invoice line items can be adjusted before an invoice finalises — that's the mechanism. Annual prepay deferred. |
 | **4 — ToS / Data Privacy (RA 10173)** | 🟡 Draft pages | `website/terms.html` + `website/privacy.html` drafted (RA 10173-aligned, NPC/DPO sections) with bracketed firm placeholders; needs real firm details + counsel review before launch. |
@@ -60,7 +60,9 @@ as an artifact: <https://claude.ai/code/artifact/11868cee-4b68-4643-bdb7-94df63b
   `txfsid` is issued with a configurable `Domain` (**`TXFORM_COOKIE_DOMAIN`**), and since
   `txform.ph` / `extension.txform.ph` / `books.txform.ph` share one registrable domain they are
   *same-site*, so `SameSite=Lax` does not strip the cookie inside the extension iframe.
-  **Unset, the cookie is host-only and every entitlement check fails for signed-in users.**
+  **Verified on the server the same day: `TXFORM_COOKIE_DOMAIN=.txform.ph` is set**, so this works
+  today. (Were it unset the cookie would be host-only and every entitlement check would fail for
+  signed-in users — worth re-checking first if entitlement ever misbehaves.)
 
 **The fix (PR #40).** Manager Server has no business GUIDs — `api4/businesses` returns objects
 carrying only `name`, and the user form's Businesses multi-select uses `base64(name)`. The portal
@@ -80,8 +82,74 @@ count, so it never reveals how many other firms hold the name. The Playwright dr
 also corrected: they described an `/admin/users/<id>/permissions` page that does not exist —
 access is the Businesses multi-select on `/user-form`, making grant and revoke the same operation.
 
-`npm test` **119 → 122 green**. Not deployed: the schema change needs the live `txform.db`
-migrated or recreated first.
+**Deploy note:** the live `txform.db` was checked the same day and is effectively empty
+(`businesses=0, report_snapshot=0, users=1, account=1` — just the seeded owner), so the column
+rename needs **no migration**: drop and recreate from `schema.sql` when this merges. Freeze has
+never worked in production, so it needs an end-to-end test after deploy rather than a regression check.
+
+`npm test` **149 green** (+3 from this change). Not yet deployed.
+
+### 2026-07-19 — Month-end Prep restructure + party Excel round-trip + readiness-gated workflows
+Turned the "Month-end" nav placeholder into a real **Month-end Prep** screen (the "update your data
+before you file" hub) and made every filing workflow gate on data readiness up front. Full design
+rationale in memory `month-end-prep-restructure`.
+
+- **Excel round-trip in the party/employee editors** ([`shared/custom-fields.js`](../shared/custom-fields.js)):
+  📥 Download / 📤 Upload `.xlsx` for Customers, Suppliers, Employees. Upload matches rows by a locked
+  **Manager ID** column, **skips records already complete** (type-aware — individuals need last+first,
+  companies need a company name), shows a **preview/confirm modal**, and writes **only non-empty cells
+  (never erases existing data)**. SheetJS loaded on demand (same CDN build the SLS report uses).
+- **Month-end Prep screen** ([`taxify.html`](../taxify.html) new `#month-end-mode` +
+  [`app/taxify-app.js`](../app/taxify-app.js) `renderMonthEndPrep`): replaced the placeholder. One screen,
+  5 lazy tabs — Customers / Suppliers / Employees (inline `CF` mounts, same pattern as Settings) +
+  Receivables / Payables (batch-import iframes **moved out of Data Intake**; Data Intake is now just Sales /
+  Purchases / Payroll). The report party tabs were **kept** (in-line typo-fix fallback — Excel re-upload
+  skips complete records, so in-line edit is the only way to fix a mistyped-but-complete record).
+- **Readiness-gated workflows** ([`app/workflows.js`](../app/workflows.js) +
+  [`app/step-engine.js`](../app/step-engine.js)): two new engine behaviors — a **gating checklist**
+  (`gate: true` — Continue blocked until the check passes, with a "Fix in Month-end Prep →" button that
+  navigates via `window.tfyGoToMonthEnd(tab)`) and a **conditional step** (`showIf` predicate — hidden
+  entirely when there's nothing to do; `buildDraft` is now async and resolves `showIf` into
+  `state.hiddenKeys`; hidden steps are auto-done and skipped in the rail/nav). Wiring:
+  - **VAT** — upfront readiness gate on Customers + Suppliers; the **Tax-Codes step is now conditional**
+    (`hasUnmappedVatCore` — hidden when all 8 core VAT categories are mapped).
+  - **EWT** — readiness gate on payees (suppliers).
+  - **Compensation** — the old `taxstatus-check` review-gate **replaced** by an employee readiness gate
+    (TIN + Tax Status + name).
+  - **Income (1701Q/1702Q)** — a **non-blocking** customer readiness heads-up (SAWT is optional).
+  - Per-step party-TIN checks removed from sls/slp/qap/sawt (the upfront gate covers them); the dead
+    `checkPartyTIN` helper dropped.
+- **Address Line 2 → ZIP Code** — the party field `PARTY_GUIDS` `…009` was repurposed as a **4-digit
+  numeric ZIP Code** so it feeds **BIR Form 2307**'s payee ZIP boxes (`supp.zipCode`, which `loadPartyBIR`
+  never populated before — the boxes were always blank). `loadPartyBIR` now exposes `zipCode` (and keeps
+  `address2` for the SLS/SLP/1601EQ address line, where the ZIP appends normally); 2307's `payeeAddr` is
+  `address1` only to avoid doubling the ZIP. A `zip4()` helper + `maxlength=4`/numeric input enforce 4
+  digits on entry, save, and Excel up/download. *Migration note: businesses that previously typed
+  "City, Province" into Address Line 2 will see it treated as ZIP — the full address now belongs in Address.*
+- **Verify:** `npm test` **146 green** (+27: `test/custom-fields-helpers.test.js` locks the completeness
+  rule, select-value conversion and `zip4`; `test/workflows-structure.test.js` loads `workflows.js` in the
+  `vm` sandbox and locks the readiness gate / `showIf` / removed per-step checks). `node --check` clean on
+  every changed file. **Not runtime-tested in live Manager** (needs Manager's API context) — eyeball after
+  deploy: readiness gate blocks + "Fix" lands on the right tab; VAT Tax-Codes step hides when mapped; 2307
+  shows the payee ZIP; Excel upload preview + skip-complete behaves.
+- **Follow-up (in [`to-do.md`](to-do.md)):** the "conditional mapping" pattern only covers VAT so far —
+  Compensation's payslip-item mapping needs an "unmapped" signal built before it can get its own conditional
+  step. Two tunable thresholds noted (employee completeness strictness; which VAT categories count).
+
+### 2026-07-19 — Batch import: party dedup dropdown at data entry (PR #37)
+Added **Layer 1** duplicate prevention to the Excel batch-import templates (Sales / Purchase / Payroll),
+all in [`batch/batch-import.js`](../batch/batch-import.js). Each template now builds a `Customers` /
+`Suppliers` / `Employees` reference sheet — sorted, de-duped, auto-pulled live from Manager through the
+existing lookup cache (no new API calls) — and attaches a **warning-style** Data Validation dropdown to
+the party-name column (column B), mirroring the Account/ATC dropdowns already there. Warning (not Stop)
+means a genuinely new party can still be typed and confirmed rather than blocked. This complements the
+pre-existing **Layer 2** import-time fuzzy-match resolver (`normalizePartyName`/`levenshtein`/
+`findNearDupCandidates` + the preview "Possible duplicate → pick the match" dropdown): Layer 1 stops most
+duplicates at entry, Layer 2 catches whatever slips through. Also fixed a latent bug — payroll's
+Withholding Tax Calculator was creating a second sheet also named `Employees` (an ExcelJS collision); it
+now reuses the shared reference sheet. Instruction sheet documents the dropdown + the Microsoft 365
+(filters as you type) vs older-Excel (type full name + Enter) behavior. Presentation-only; `node --check`
+clean. Not yet exercised end-to-end (needs ExcelJS + Manager API at runtime) — eyeball after deploy.
 
 ### 2026-07-15 — Hotfix: Annual Filing crashed the app at load (PR #35)
 PR #34 was merged with an `annual` step-engine workflow whose `annual-1604c` step read

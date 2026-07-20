@@ -16,15 +16,18 @@ function goToNav(key) {
   document.querySelectorAll('.tfy-nav-item').forEach(b => b.classList.toggle('active', b.dataset.nav === key));
   const isSettings   = key === 'settings';
   const isDataIntake = key === 'data-intake';
+  const isMonthEnd   = key === 'month-end';
   document.getElementById('settings-mode').hidden     = !isSettings;
   document.getElementById('data-intake-mode').hidden  = !isDataIntake;
-  document.getElementById('user-mode').hidden         = isSettings || isDataIntake;
+  document.getElementById('month-end-mode').hidden    = !isMonthEnd;
+  document.getElementById('user-mode').hidden         = isSettings || isDataIntake || isMonthEnd;
 
   if (isSettings) {
     if (!_settingsActivated) { _settingsActivated = true; activateTab('welcome'); }
     return;
   }
   if (isDataIntake) { renderDataIntake(); return; }
+  if (isMonthEnd)   { renderMonthEndPrep(); return; }
 
   if (key === 'income') _userActiveCategory = workflowKeyForIncomeTax();
   else _userActiveCategory = key; // vat / expanded / compensation / annual
@@ -501,12 +504,6 @@ const ANNUAL_REPORTS = {
 
 // Nav items that are placeholders for now (no report page built yet).
 const PLACEHOLDER_SCREENS = {
-  'month-end': {
-    title: 'Month-end / Quarterly Closing',
-    body: `A guided month-end &amp; quarterly closing checklist (accruals, bank/CoA reconciliation, tax-code
-      audit) will live here — the step you run <strong>before</strong> filing returns, so the books are final
-      when the returns pull from them. <em>Placeholder for now.</em>`,
-  },
   'annual-1604e': {
     title: '1604-E — Annual Alphalist of Payees',
     body: `The annual alphalist of income payments subject to expanded withholding isn't generated in Txform
@@ -717,12 +714,12 @@ function openFiling(root, workflowKey, period, status) {
 // already-known business via ?biz= so it skips Manager's own page-context
 // lookup (see getReportBusiness() in shared.js) — same technique StepEngine
 // uses to embed report pages inside this wizard.
+// Receivables + Payables moved to the Month-end Prep screen (see
+// MONTH_END_INTAKE_FILES) — settling AR/AP is closing work, not raw intake.
 const DATA_INTAKE_FILES = {
   sales:        'batch-import-sales.html',
   purchases:    'batch-import-purchase.html',
   payroll:      'batch-import-payroll.html',
-  receivables:  'batch-import-receivables.html',
-  payables:     'batch-import-payables.html',
 };
 const _diIframes = {};
 let _diActiveTab = 'sales';
@@ -752,6 +749,67 @@ function ensureDataIntakeIframe(tabKey) {
 document.querySelectorAll('#data-intake-mode .tab').forEach(t => {
   t.addEventListener('click', () => showDataIntakeTab(t.dataset.diTab));
 });
+
+// ── MONTH-END PREP (Customers / Suppliers / Employees / Receivables / Payables) ──
+// The "update first" hub: party master data + AR/AP settled before returns pull
+// from the books. Party/employee tabs mount the shared CF editors inline (same as
+// Settings); Receivables/Payables embed the batch-import pages (moved here from
+// Data Intake). Each tab mounts lazily on first view, then persists (this whole
+// container is hidden/shown, never re-rendered — like Data Intake).
+const MONTH_END_INTAKE_FILES = {
+  receivables: 'batch-import-receivables.html',
+  payables:    'batch-import-payables.html',
+};
+const _meMounted = {};
+const _meControllers = {};
+const _meIframes = {};
+let _meActiveTab = 'customers';
+
+function renderMonthEndPrep() {
+  showMonthEndTab(_meActiveTab);
+}
+
+function showMonthEndTab(tabKey) {
+  _meActiveTab = tabKey;
+  document.querySelectorAll('#month-end-mode .tab').forEach(t => t.classList.toggle('active', t.dataset.meTab === tabKey));
+  document.querySelectorAll('#month-end-mode .tfy-di-panel').forEach(p => { p.hidden = p.dataset.mePanel !== tabKey; });
+  ensureMonthEndTab(tabKey);
+}
+
+function ensureMonthEndTab(tabKey) {
+  if (_meMounted[tabKey] || !biz) return;
+  const panel = document.querySelector(`#month-end-mode .tfy-di-panel[data-me-panel="${tabKey}"]`);
+  if (!panel || typeof CF === 'undefined') return;
+
+  if (tabKey === 'customers') {
+    _meControllers.customers = CF.mountParty(panel, 'customer');
+    _meControllers.customers.refresh();
+  } else if (tabKey === 'suppliers') {
+    _meControllers.suppliers = CF.mountParty(panel, 'supplier');
+    _meControllers.suppliers.refresh();
+  } else if (tabKey === 'employees') {
+    _meControllers.employees = CF.mountEmployees(panel);
+    _meControllers.employees.refresh();
+  } else if (MONTH_END_INTAKE_FILES[tabKey]) {
+    const iframe = document.createElement('iframe');
+    iframe.className = 'tfy-di-iframe';
+    iframe.src = `${MONTH_END_INTAKE_FILES[tabKey]}?${new URLSearchParams({ biz }).toString()}`;
+    panel.appendChild(iframe);
+    _meIframes[tabKey] = iframe;
+  }
+  _meMounted[tabKey] = true;
+}
+
+document.querySelectorAll('#month-end-mode .tab').forEach(t => {
+  t.addEventListener('click', () => showMonthEndTab(t.dataset.meTab));
+});
+
+// Host hook for the workflow readiness gate's "Fix in Month-end Prep →" button
+// (step-engine.js): jump to the Month-end Prep screen and open a specific tab.
+window.tfyGoToMonthEnd = function(tab) {
+  goToNav('month-end');
+  if (tab) showMonthEndTab(tab);
+};
 
 // ── BOOTSTRAP ────────────────────────────────────────────────
 (async function init() {

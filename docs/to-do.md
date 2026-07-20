@@ -13,24 +13,26 @@ sign-up flow, screen map, session model, gap list — is published as an artifac
 <https://claude.ai/code/artifact/11868cee-4b68-4643-bdb7-94df63b100c9>. Decisions are recorded in
 [`progress.md`](progress.md#2026-07-20--firm-account-ia-decided--businesses-re-keyed-to-manager-name-pr-40).
 
-**Verify on the server first — cheap, and one of them may be a live bug:**
+**Server checks — both answered 2026-07-20 (SSH, after re-pinning the security group to the current
+home IP per [`DEPLOY.md`](../DEPLOY.md)):**
 
-- [ ] **`TXFORM_COOKIE_DOMAIN`** — `sudo grep TXFORM_COOKIE_DOMAIN /etc/txform/auth.env`. If unset,
-      the `txfsid` cookie is host-only, never reaches `extension.txform.ph`, and **every entitlement
-      and freeze call fails for signed-in users**. Should be `.txform.ph`; needs a
-      `systemctl restart txform-auth` after. *(Blocked 2026-07-20: SSH timed out — home IP changed,
-      see [`DEPLOY.md`](../DEPLOY.md) security-group fix.)*
+- [x] **`TXFORM_COOKIE_DOMAIN`** — **set to `.txform.ph`.** Not a live bug: the `txfsid` cookie does
+      reach `extension.txform.ph`, and since all three hosts share one registrable domain they are
+      same-site, so `SameSite=Lax` doesn't strip it inside the extension iframe. Signed-in users are
+      recognised in the books without signing in again.
+- [x] **Live `txform.db` is effectively empty** — `businesses=0, report_snapshot=0, users=1,
+      account=1` (just the seeded owner). **PR #40's column rename therefore needs no migration** —
+      drop and recreate from `schema.sql` at deploy time.
 - [ ] **Confirm the GUID finding** — on a live business, `fetch('/api4/businesses')` and check the
-      objects carry no `key`. Confirms entitlement + freeze were both dead before PR #40.
-- [ ] **Live `txform.db` contents** — `SELECT COUNT(*) FROM businesses; SELECT COUNT(*) FROM
-      report_snapshot;`. Decides migrate-vs-recreate for PR #40's column rename.
+      objects carry no `key`. Confirms entitlement + freeze were both dead before PR #40. *(Needs a
+      logged-in Manager session; not reachable over SSH.)*
 
 **Then, in order:**
 
 - [x] **Re-key businesses to the Manager name** — **DONE 2026-07-20 (PR #40).** `manager_business_guid`
       → `manager_business_name` across schema, both PHP endpoints, provisioner, portal; both dead
       name→GUID resolvers deleted; account-scoped fallback name on cross-firm collisions (no
-      cross-tenant oracle). Driver TODOs corrected to the real `/user-form` model. 119 → 122 green.
+      cross-tenant oracle). Driver TODOs corrected to the real `/user-form` model. `npm test` 149 green.
 - [ ] **Schema additions** (one migration, cheap now, painful once firms are paying):
       `account.firm_name` (nothing stores it — sign-up cannot be built without it) · `client` role
       (schema has only `owner|staff`) · `businesses.status` for **archive, not delete** (filed
@@ -50,6 +52,75 @@ sign-up flow, screen map, session model, gap list — is published as an artifac
       (no trial). Ends with one welcome email carrying *both* credentials: the magic link and the
       Manager username/password.
 - [ ] **PayMongo** — last, and it's the security gate. See the Phase 3 note in `progress.md`.
+
+## ⭐ Month-end Prep restructure + party Excel round-trip + readiness-gated workflows (2026-07-19)
+
+Turned the "Month-end" nav placeholder into a real **Month-end Prep** screen and made the filing
+workflows gate on data readiness up front. See memory `month-end-prep-restructure`.
+
+- [x] **Excel round-trip in the party/employee editors** ([`shared/custom-fields.js`](../shared/custom-fields.js)) —
+      📥 Download / 📤 Upload `.xlsx` for Customers, Suppliers, Employees. Matches rows by a locked
+      **Manager ID** column, **skips already-complete records** (type-aware), previews in a confirm modal,
+      writes **non-empty cells only (never erases)**. SheetJS loaded on demand.
+- [x] **Month-end Prep screen** ([`taxify.html`](../taxify.html) `#month-end-mode` +
+      [`taxify-app.js`](../app/taxify-app.js)) — replaced the "Quarterly Closing" placeholder. One screen,
+      5 lazy tabs: Customers / Suppliers / Employees (inline CF mounts) + Receivables / Payables
+      (batch-import iframes **moved out of Data Intake** — Data Intake is now just Sales / Purchases / Payroll).
+- [x] **Report party tabs retained** (reversed an earlier "remove them" plan) — SLS/SLP/QAP/SAWT/Alphalist
+      keep their party tabs as the in-line typo-fix fallback (Excel re-upload skips complete records, so
+      in-line edit is the only path to fix a mistyped-but-complete record).
+- [x] **Readiness-gated workflows** ([`app/workflows.js`](../app/workflows.js) +
+      [`app/step-engine.js`](../app/step-engine.js)) — each workflow opens with a **gating checklist** on
+      full type-aware party/employee completeness (TIN + name + address); blocks Continue until green with a
+      "Fix in Month-end Prep →" button (`window.tfyGoToMonthEnd`). VAT / EWT / Compensation block; Income's
+      customer row is **non-blocking** (SAWT is optional). Per-step party-TIN checks removed from
+      sls/slp/qap/sawt (the gate covers them); replaced Compensation's `taxstatus-check` with the gate.
+- [x] **Conditional steps** — new engine `showIf` predicate hides a step entirely when there's nothing to
+      do (hidden steps auto-done + skipped in the rail). Applied to the **VAT Tax-Codes** step
+      (`hasUnmappedVatCore` — hidden when all core VAT categories are mapped).
+- [x] **Address Line 2 → ZIP Code** — party field `…009` repurposed as a 4-digit numeric ZIP (feeds BIR
+      2307's payee ZIP boxes via a new `loadPartyBIR().zipCode`); `zip4()` validation on entry / save / Excel.
+      *Migration note: existing "City, Province" text in that field now reads as ZIP — move it into Address.*
+- [x] **Tests** — [`test/custom-fields-helpers.test.js`](../test/custom-fields-helpers.test.js) (completeness
+      rule, select-value conversion, `zip4`) + [`test/workflows-structure.test.js`](../test/workflows-structure.test.js)
+      (readiness gate / `showIf` / no per-step checks). `npm test` **146 green**. *Logic/structure only —
+      not runtime-tested in live Manager.*
+- [ ] **Compensation payslip-item mapping conditional step** — the one remaining piece of the "conditional
+      mapping" pattern. Only VAT got a conditional mapping step (clean `!vm[coreCat]` signal); Compensation's
+      payslip-item→BIR-category mapping has no cheap "unmapped" signal yet (would need a new loader across the
+      3 payslip endpoints + their category map). Build that check, then add a conditional "Map payslip items"
+      step to the compensation workflow (embeds the Settings payslip-items mapper). EWT/Income have no separate
+      mapping step, so the pattern doesn't apply there.
+- [ ] *Eyeball in live Manager:* readiness gate blocks + "Fix" lands on the right Month-end Prep tab; VAT
+      Tax-Codes step hides when all core codes are mapped; 2307 shows the payee ZIP; Excel upload preview +
+      skip-complete behaves.
+- [ ] *(tunable)* employee completeness = TIN + Tax Status + name (may feel strict for monthly payroll); the
+      VAT step hides only when all 8 core VAT categories are mapped — loosen if it nags businesses without
+      zero-rated / exempt codes.
+
+## ⭐ Batch import — party dedup at data entry (Layer 1) (2026-07-19)
+
+The Excel batch-import templates (Sales / Purchase / Payroll) let bookkeepers type the same
+Customer/Supplier/Employee under different spellings, creating duplicate contacts on import.
+The importer already had **Layer 2** (import-time fuzzy-match resolver in
+[`batch/batch-import.js`](../batch/batch-import.js) — `normalizePartyName` + `levenshtein` +
+`findNearDupCandidates` + the "Possible duplicate → pick the match" preview dropdown). This adds
+**Layer 1** — prevention at data entry.
+
+- [x] **Party-name dropdown on the template's column B** — **DONE & MERGED 2026-07-19 (PR #37).** New
+      `Customers` / `Suppliers` / `Employees` reference sheet (sorted, de-duped, auto-pulled live from
+      Manager via the existing lookup cache — no new API calls) feeds a **warning-style** Data Validation
+      dropdown on the party-name column, mirroring the existing Account/ATC dropdowns. Warning (not Stop)
+      so a genuinely new party can still be typed and confirmed. Payroll's Withholding Tax Calculator now
+      reuses the shared `Employees` sheet (was creating a second same-named sheet → ExcelJS collision).
+      Instruction sheet documents the dropdown + the Microsoft 365 (filters as you type) vs older-Excel
+      (type full name + Enter) behavior. Presentation-only; `node --check` clean.
+  - [ ] *Eyeball after deploy:* download each of the 3 templates → column B shows the live contact list,
+        and typing a made-up name **warns** (not blocks). Not yet exercised end-to-end (needs ExcelJS +
+        Manager API at runtime).
+  - [ ] *(watch, not urgent)* very large contact lists (2,000+) make the dropdown long to scroll on older
+        Excel; Microsoft 365 filters as you type. No VBA/combobox workaround added by design (keeps the file
+        non-macro and robust).
 
 ## ⭐ Filing-workflow UX redesign — tax type by tax type (started 2026-07-15)
 
@@ -113,9 +184,12 @@ Redesign each tax type's filing workflow to the agreed conventions (top arrow st
   - [ ] *(later)* if annual returns should get period tracking / freeze, give each its own workflow key with a
         form-scoped period_key (the annual returns share `annual:YYYY`, so they'd collide in the filing store).
 - [x] **"Month-end (Quarterly closing)" header + placeholder added** — new nav group **before File Returns** with a
-      single `month-end` placeholder item (`PLACEHOLDER_SCREENS['month-end']`). *Placeholder for now.*
+      single `month-end` placeholder item (`PLACEHOLDER_SCREENS['month-end']`). **Superseded 2026-07-19:** the
+      placeholder became the real **Month-end Prep** screen (party master data + AR/AP + readiness gates — see the
+      top section).
   - [ ] **Build the month-end / quarterly-closing checklist** (accruals, bank/CoA recon, tax-code audit) — the
-        pre-filing "close the books" step.
+        pre-filing "close the books" step. *(Still open — Month-end Prep covers party/AR-AP readiness, not the
+        accounting-close checklist.)*
 
 ## ⭐ Prioritized next initiatives (agreed 2026-07-14)
 
