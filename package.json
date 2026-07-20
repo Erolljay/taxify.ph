@@ -4,9 +4,7 @@
   "private": true,
   "description": "Txform.ph — Philippine BIR Manager.io extension and SaaS backend",
   "scripts": {
-    "test": "node --test test/*.test.js"
-  },
-  "dependencies": {
-    "playwright": "^1.61.1"
+    "test": "node --test test/*.test.js",
+    "contract": "node --test test/contract/*.contract.js"
   }
 }

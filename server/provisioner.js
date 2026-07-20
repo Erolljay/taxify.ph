@@ -154,17 +154,16 @@ if (require.main === module) {
   const { DatabaseSync } = require('node:sqlite');
   const dbPath = process.env.TXFORM_DB || path.join(__dirname, 'txform.db');
   const db = new DatabaseSync(dbPath);
-  // The Playwright adapter is the one piece that needs `npm install
-  // playwright`; required lazily so tests never load it.
-  const { createDriver } = require('./provisioner-driver-playwright.js');
+  const { createDriver } = require('./provisioner-driver-http.js');
   const driver = createDriver({
-    baseUrl: process.env.MANAGER_URL || 'https://books.txform.ph',
+    // Talk to Manager over the loopback by default: the provisioner runs
+    // on the same box, so there is no reason to leave it and come back
+    // through nginx and TLS.
+    baseUrl: process.env.MANAGER_URL || 'http://127.0.0.1:5000',
     adminUser: process.env.MANAGER_ADMIN_USER,
     adminPass: process.env.MANAGER_ADMIN_PASS,
-    screenshotDir: process.env.TXFORM_SHOT_DIR || path.join(__dirname, 'provision-shots'),
   });
   drainOnce(db, driver, { now: function () { return Date.now(); } })
-    .then(function (n) { console.log('[provisioner] processed', n, 'job(s)'); return driver.close && driver.close(); })
-    .then(function () { process.exit(0); })
-    .catch(function (e) { console.error('[provisioner] fatal', e); process.exit(1); });
+    .then(function (n) { console.log('[provisioner] processed', n, 'job(s)'); process.exit(0); })
+    .catch(function (e) { console.error('[provisioner] fatal', e.message); process.exit(1); });
 }

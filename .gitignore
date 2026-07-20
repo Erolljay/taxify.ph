@@ -1,0 +1,19 @@
+# Dependencies. The project has none — server code uses Node built-ins
+# only, deliberately, so the git-pull deploy needs no install step. This
+# entry exists because tooling still creates the directory.
+node_modules/
+package-lock.json
+
+# Local test spreadsheets and the lock files Excel leaves beside them.
+*.xlsx
+~$*
+
+# The subscriber database and anything the provisioner writes locally.
+server/*.db
+server/*.db-shm
+server/*.db-wal
+server/provision-shots/
+
+# Secrets never belong here — they live in /etc/txform/*.env on the
+# server, root-owned and 600.
+*.env
