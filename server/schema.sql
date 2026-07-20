@@ -30,6 +30,13 @@ CREATE TABLE IF NOT EXISTS account (
   status              TEXT    NOT NULL DEFAULT 'active',    -- pending|active|grace|suspended|cancelled
   seats_limit         INTEGER NOT NULL DEFAULT 1,
   businesses_limit    INTEGER NOT NULL DEFAULT 1,
+  -- Never invoice this account. Set for the founders' own firms, which use
+  -- the product but are not customers. Deliberately NOT expressed as a fake
+  -- 'free' plan or a permanently-active subscription: those look like paying
+  -- accounts to every future report and would quietly inflate revenue and,
+  -- worse, eventually generate a real invoice. Exemption is orthogonal to
+  -- plan and status, so it gets its own column and billableCount filters on it.
+  billing_exempt      INTEGER NOT NULL DEFAULT 0,           -- 0|1
   pm_subscription_id  TEXT,                                 -- PayMongo subscription id
   current_period_end  TEXT,                                 -- ISO8601, set by webhook
   grace_until         TEXT,                                 -- ISO8601, nullable

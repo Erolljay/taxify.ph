@@ -266,7 +266,14 @@ function recordBillingPeriod(db, businessId, now) {
 // How many businesses does this account owe for in `periodKey`? The
 // high-water mark: everything active at any point in the month, including
 // what has since been archived. This is the number an invoice multiplies.
+//
+// Billing-exempt accounts (the founders' own firms) always return 0, so an
+// exempt firm can never be invoiced and never inflates revenue reporting —
+// the exemption lives here, at the one place that decides what is owed,
+// rather than being remembered at each future call site.
 function billableCount(db, accountId, periodKey) {
+  const acct = db.prepare('SELECT billing_exempt FROM account WHERE id = ?').get(accountId);
+  if (!acct || acct.billing_exempt) return 0;
   return db.prepare(
     `SELECT COUNT(*) AS n FROM business_billing_period bp
        JOIN businesses b ON b.id = bp.business_id
