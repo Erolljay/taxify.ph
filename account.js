@@ -200,13 +200,22 @@ function renderClients(panel) {
   if (isOwner()) {
     const form = document.createElement('form');
     form.className = 'inline';
-    const name = input('text', 'biz-name', 'Business name, exactly as in Manager');
+    const name = input('text', 'biz-name', 'Business name');
     const btn = document.createElement('button');
     btn.type = 'submit';
-    btn.textContent = 'Add business';
+    btn.textContent = 'Register business';
     form.append(name, btn);
     form.addEventListener('submit', onAddBusiness);
     card.append(form);
+
+    // Be honest about what this does. Right now it only registers a
+    // business that ALREADY exists in Manager — nothing here creates one,
+    // and a name that doesn't match is an orphaned row whose access grants
+    // will queue against books Manager has never heard of.
+    const note = el('div', 'note');
+    note.textContent = 'Registers books that already exist in Manager — type the name exactly as it appears there. '
+      + 'Creating new businesses from the portal comes with the provisioner.';
+    card.append(note);
   }
   panel.append(card);
 }
