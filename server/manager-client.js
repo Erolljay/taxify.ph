@@ -37,6 +37,24 @@ function businessOptionValue(businessName) {
   return Buffer.from(String(businessName), 'utf8').toString('base64');
 }
 
+// Manager's URL query keys are NOT the same encoding as those option
+// values, which is an easy and expensive thing to get wrong. They are a
+// protobuf-style envelope — field tag 0x0a, then a length, then the utf8
+// bytes — in unpadded base64url:
+//
+//   /login-password?Cgtwcm92aXNpb25lcg   -> 0a 0b "provisioner"
+//   /api4/tabs?q=ogYNRGVtbyBCdXNpbmVzcw  -> a2 06 0d "Demo Business"
+//
+// Addressing /user-form with plain base64 does not error — it quietly
+// serves a BLANK new-user form, so a read-modify-write against it reads
+// an empty user and writes nonsense. Verified against Manager 26.7.10.
+function managerKeyParam(value, tag) {
+  const bytes = Buffer.from(String(value), 'utf8');
+  if (bytes.length > 127) throw new Error('managerKeyParam: value too long to length-prefix');
+  const envelope = Buffer.concat([Buffer.from([tag || 0x0a, bytes.length]), bytes]);
+  return envelope.toString('base64url').replace(/=+$/, '');
+}
+
 // application/x-www-form-urlencoded. Array values repeat the key, which
 // is how a multi-select submits — that's what carries Businesses.
 function encodeForm(fields) {
@@ -173,4 +191,4 @@ function createClient(opts) {
   };
 }
 
-module.exports = { createClient, encodeForm, mergeCookies, cookieHeader, businessOptionValue };
+module.exports = { createClient, encodeForm, mergeCookies, cookieHeader, businessOptionValue, managerKeyParam };

@@ -13,7 +13,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const D = require('../server/provisioner-driver-http.js');
-const { businessOptionValue, encodeForm } = require('../server/manager-client.js');
+const { businessOptionValue, encodeForm, managerKeyParam } = require('../server/manager-client.js');
 
 const b64 = (s) => Buffer.from(s, 'utf8').toString('base64');
 
@@ -35,13 +35,24 @@ function userFormHtml(selectedNames) {
     + '</form>';
 }
 
-// Fake client recording every call; serves the form html on GET.
-function fakeClient(html) {
+// Stateful fake: a post updates what the next GET returns. The driver
+// reads back after every write, so a fake that always replayed the
+// original page would make every test fail — and a fake that ignored
+// writes would hide the very bug read-back exists to catch.
+function fakeClient(html, opts = {}) {
   const calls = [];
+  let current = html;
+  const decode = (v) => Buffer.from(v, 'base64').toString('utf8');
   return {
     calls,
-    get: async (p) => { calls.push(['get', p]); return { status: 200, body: html }; },
-    postForm: async (p, f) => { calls.push(['postForm', p, f]); return { status: 200, body: '' }; },
+    get: async (p) => { calls.push(['get', p]); return { status: 200, body: current }; },
+    postForm: async (p, f) => {
+      calls.push(['postForm', p, f]);
+      if (opts.postStatus) return { status: opts.postStatus, body: '' };
+      // Reflect the submitted state, unless told to ignore writes.
+      if (!opts.ignoreWrites && f.Businesses) current = userFormHtml((f.Businesses || []).map(decode));
+      return { status: 200, body: '' };
+    },
     postJson: async (p, o) => { calls.push(['postJson', p, o]); return { status: 200, body: '{}' }; },
   };
 }
@@ -71,8 +82,38 @@ test('parseInputValue / parseSelectedOption: read the fields a re-post must pres
   assert.equal(D.parseSelectedOption(html, 'Type'), 'Restricted');
 });
 
-test('userFormPath: addresses an existing user by base64 username', () => {
-  assert.equal(D.userFormPath('maria@firm.ph'), '/user-form?' + b64('maria@firm.ph'));
+test('userFormPath: uses the protobuf-style param, NOT plain base64', () => {
+  // Verified against Manager 26.7.10: plain base64 does not 404, it serves
+  // a BLANK new-user form — so this being wrong looks like success.
+  const env = Buffer.concat([Buffer.from([0x0a, 'maria@firm.ph'.length]), Buffer.from('maria@firm.ph')]);
+  assert.equal(D.userFormPath('maria@firm.ph'), '/user-form?' + env.toString('base64url').replace(/=+$/, ''));
+  assert.notEqual(D.userFormPath('maria@firm.ph'), '/user-form?' + b64('maria@firm.ph'));
+});
+
+test('managerKeyParam: length-prefixed envelope, matching observed URLs', () => {
+  // /login-password?Cgtwcm92aXNpb25lcg  ->  0a 0b "provisioner"
+  assert.equal(managerKeyParam('provisioner'), 'Cgtwcm92aXNpb25lcg');
+});
+
+test('a blank form means the user was not found — never post it back', async () => {
+  // Posting a blank form would CREATE a stray account instead of editing
+  // the intended one. This is the bug that shipped and was caught live.
+  const client = fakeClient('<form><select name="Businesses"></select></form>');
+  await assert.rejects(
+    () => D.createDriver({ client }).grantAccess({ managerUserRef: 'ghost@firm.ph', businessName: 'X' }),
+    /no Manager user found/
+  );
+  assert.equal(client.calls.filter((c) => c[0] === 'postForm').length, 0, 'nothing was written');
+});
+
+test('a write Manager silently ignores is reported as a failure, not success', async () => {
+  // Manager returns 200 for a post that changed nothing. Without reading
+  // back, the portal would show a green tick over books nobody can open.
+  const client = fakeClient(userFormHtml([]), { ignoreWrites: true });
+  await assert.rejects(
+    () => D.createDriver({ client }).grantAccess({ managerUserRef: 'maria@firm.ph', businessName: 'TALLO-0001 Acme' }),
+    /did not apply the access change/
+  );
 });
 
 // ── grant / revoke ───────────────────────────────────────────────
@@ -140,7 +181,7 @@ test('createBusiness: posts the prefixed name as JSON to api4', () => {
 });
 
 test('createUser: makes a RESTRICTED user with no businesses yet', () => {
-  const client = fakeClient('');
+  const client = fakeClient(userFormHtml([]));
   return D.createDriver({ client }).createUser({ email: 'jun@firm.ph' }).then((r) => {
     const fields = lastPost(client)[2];
     assert.equal(fields.Type, 'Restricted', 'never an administrator');
@@ -151,14 +192,13 @@ test('createUser: makes a RESTRICTED user with no businesses yet', () => {
 });
 
 test('createBusiness / createUser reject empty input instead of creating junk', async () => {
-  const d = D.createDriver({ client: fakeClient('') });
+  const d = D.createDriver({ client: fakeClient(userFormHtml([])) });
   await assert.rejects(() => d.createBusiness({ businessName: '' }), /required/);
   await assert.rejects(() => d.createUser({ email: '' }), /required/);
 });
 
 test('a rejected form surfaces as an error so the job retries', async () => {
-  const client = fakeClient(userFormHtml([]));
-  client.postForm = async () => ({ status: 500, body: '' });
+  const client = fakeClient(userFormHtml([]), { postStatus: 500 });
   await assert.rejects(
     () => D.createDriver({ client }).grantAccess({ managerUserRef: 'm@f.ph', businessName: 'X' }),
     /rejected/

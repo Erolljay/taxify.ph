@@ -26,13 +26,16 @@
    ============================================================ */
 'use strict';
 
-const { createClient, businessOptionValue } = require('./manager-client.js');
+const { createClient, businessOptionValue, managerKeyParam } = require('./manager-client.js');
 
 const USER_FORM = '/user-form';
 
-// /user-form?<base64(username)> addresses an existing user.
+// Addresses an existing user. The param is Manager's protobuf-style
+// envelope, NOT plain base64 — plain base64 silently serves a blank
+// new-user form instead of erroring, which is how a grant can report
+// success while granting nothing.
 function userFormPath(managerUserRef) {
-  return USER_FORM + '?' + Buffer.from(String(managerUserRef), 'utf8').toString('base64');
+  return USER_FORM + '?' + managerKeyParam(managerUserRef);
 }
 
 // Which businesses are currently ticked on a user form. Option values are
@@ -92,10 +95,18 @@ function createDriver(opts) {
     const page = await client.get(path);
     if (page.status !== 200) throw new Error('could not open the user form for ' + managerUserRef + ' (http ' + page.status + ')');
 
+    // A blank Username means Manager served the NEW-user form rather than
+    // this user's — it does not 404 for an unknown key. Posting that back
+    // would create a stray account instead of editing the intended one.
+    const existingUsername = parseInputValue(page.body, 'Username');
+    if (!existingUsername) {
+      throw new Error('no Manager user found for "' + managerUserRef + '" (got a blank form, not their record)');
+    }
+
     const fields = {
       Name: parseInputValue(page.body, 'Name'),
       EmailAddress: parseInputValue(page.body, 'EmailAddress'),
-      Username: parseInputValue(page.body, 'Username') || String(managerUserRef),
+      Username: existingUsername,
       Type: parseSelectedOption(page.body, 'Type') || 'Restricted',
       Businesses: parseSelectedBusinesses(page.body),
     };
@@ -104,6 +115,18 @@ function createDriver(opts) {
 
     const res = await client.postForm(path, fields);
     if (res.status >= 400) throw new Error('user form rejected for ' + managerUserRef + ' (http ' + res.status + ')');
+
+    // Read back. Manager returns 200 for a post that changed nothing, so
+    // without this a grant can report success while the user still has no
+    // access — the failure mode that matters most here, because the portal
+    // would show a green tick over books nobody can open.
+    const after = await client.get(path);
+    const actual = parseSelectedBusinesses(after.body);
+    const expected = fields.Businesses.slice().sort();
+    if (actual.slice().sort().join('|') !== expected.join('|')) {
+      throw new Error('Manager did not apply the access change for ' + managerUserRef
+        + ' (wanted ' + expected.length + ' business(es), it has ' + actual.length + ')');
+    }
     return res;
   }
 
@@ -133,6 +156,14 @@ function createDriver(opts) {
         Businesses: [],
       });
       if (res.status >= 400) throw new Error('Manager refused to create user ' + email + ' (http ' + res.status + ')');
+
+      // Confirm the user is really addressable before the queue moves on
+      // to granting them access — a create that silently no-ops would turn
+      // every following grant into a stray-account bug.
+      const check = await client.get(userFormPath(email));
+      if (check.status !== 200 || !parseInputValue(check.body, 'Username')) {
+        throw new Error('Manager reported success but user ' + email + ' is not there');
+      }
       return { managerUserRef: email };
     },
 
