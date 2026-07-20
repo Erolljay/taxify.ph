@@ -30,13 +30,6 @@ CREATE TABLE IF NOT EXISTS account (
   status              TEXT    NOT NULL DEFAULT 'active',    -- pending|active|grace|suspended|cancelled
   seats_limit         INTEGER NOT NULL DEFAULT 1,
   businesses_limit    INTEGER NOT NULL DEFAULT 1,
-  -- Never invoice this account. Set for the founders' own firms, which use
-  -- the product but are not customers. Deliberately NOT expressed as a fake
-  -- 'free' plan or a permanently-active subscription: those look like paying
-  -- accounts to every future report and would quietly inflate revenue and,
-  -- worse, eventually generate a real invoice. Exemption is orthogonal to
-  -- plan and status, so it gets its own column and billableCount filters on it.
-  billing_exempt      INTEGER NOT NULL DEFAULT 0,           -- 0|1
   pm_subscription_id  TEXT,                                 -- PayMongo subscription id
   current_period_end  TEXT,                                 -- ISO8601, set by webhook
   grace_until         TEXT,                                 -- ISO8601, nullable
@@ -112,6 +105,34 @@ CREATE TABLE IF NOT EXISTS business_billing_period (
   UNIQUE(business_id, period_key)
 );
 CREATE INDEX IF NOT EXISTS idx_billing_period ON business_billing_period(period_key);
+
+-- A discount attached to an account. This is how an account pays nothing —
+-- NOT by exempting it from the rules. An account with a 100% voucher is
+-- still counted, still invoiced, and still audited; its invoice simply
+-- totals zero, for a stated reason.
+--
+-- The alternative (a billing_exempt flag, a fake 'free' plan, a
+-- never-expiring subscription) puts a branch in the billing path and makes
+-- comped accounts invisible to it. A voucher keeps one code path for
+-- everybody, and the same mechanism covers every case we might want:
+-- founders' own firms (100%, no end), a launch promo (20%, three months),
+-- a partner rate (50%, ongoing).
+--
+-- percent_off, not an amount: the price per business can change without
+-- silently turning a full comp into a partial one.
+-- Periods are 'YYYY-MM' and compare lexicographically; ends_period NULL
+-- means it never expires.
+CREATE TABLE IF NOT EXISTS account_discount (
+  id            INTEGER PRIMARY KEY,
+  account_id    INTEGER NOT NULL REFERENCES account(id),
+  code          TEXT,                                      -- voucher code, or NULL for a direct grant
+  percent_off   INTEGER NOT NULL,                          -- 1..100
+  reason        TEXT    NOT NULL,                          -- why it was granted — this is the audit
+  starts_period TEXT    NOT NULL,                          -- 'YYYY-MM', inclusive
+  ends_period   TEXT,                                      -- 'YYYY-MM', inclusive; NULL = no end
+  created_at    TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_account_discount ON account_discount(account_id);
 
 -- Source of truth for access: which user may open which client.
 CREATE TABLE IF NOT EXISTS user_business (

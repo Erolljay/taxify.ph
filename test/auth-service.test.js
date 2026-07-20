@@ -517,12 +517,14 @@ test('overview: a client sees only their own business, read-only', () => {
   assert.equal(r.json.me.capabilities.amendFiling, false);
 });
 
-test('overview: owner sees the billable count for this month', () => {
+test('overview: owner sees this month\'s invoice', () => {
   const db = freshDb(), deps = makeDeps();
   const owner = signIn(db, deps, 'owner@x.com');
   S.addBusiness(db, { cookie: owner, name: 'Second Co' }, deps);
   const r = S.overview(db, { cookie: owner }, deps);
   assert.equal(r.json.billing.periodKey, A.billingPeriodKey(deps.state.now));
   // Acme is seeded directly (no billing row); only the added one is billable.
-  assert.equal(r.json.billing.billableBusinesses, 1);
+  assert.equal(r.json.billing.businesses, 1);
+  assert.equal(r.json.billing.net, A.RATE_CENTAVOS, 'no voucher — full rate');
+  assert.equal(r.json.billing.reason, null);
 });

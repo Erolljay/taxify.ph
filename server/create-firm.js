@@ -18,8 +18,12 @@
    Options:
      --businesses N   paid/allowed client businesses   (default 100)
      --seats N        owner+staff seats                (default 10)
-     --billable       account IS invoiceable; omit for our own firms,
-                      which are billing-exempt by default here
+     --comp "reason"  attach a 100%-off voucher with no end date, for the
+                      reason given. The firm is still counted and still
+                      invoiced — the invoice just totals zero, and says why.
+                      There is no billing-exempt flag: the rules apply to
+                      every account, and paying nothing is a discount.
+     --percent-off N  use with --comp for a partial discount instead of 100
      --db PATH        override TXFORM_DB / the default location
 
    Exit codes: 0 created (or already existed), 1 bad usage / failure.
@@ -28,16 +32,19 @@
 
 const path = require('node:path');
 const { DatabaseSync } = require('node:sqlite');
+const S = require('./auth-service.js');
+const A = require('./auth-core.js');
 
 // ── args ──────────────────────────────────────────────────────────
 function parseArgs(argv) {
   const positional = [];
-  const opts = { businesses: 100, seats: 10, billingExempt: 1, db: null };
+  const opts = { businesses: 100, seats: 10, comp: null, percentOff: 100, db: null };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--businesses') opts.businesses = Number(argv[++i]);
     else if (a === '--seats') opts.seats = Number(argv[++i]);
-    else if (a === '--billable') opts.billingExempt = 0;
+    else if (a === '--comp') opts.comp = argv[++i];
+    else if (a === '--percent-off') opts.percentOff = Number(argv[++i]);
     else if (a === '--db') opts.db = argv[++i];
     else if (a.startsWith('--')) throw new Error('unknown option: ' + a);
     else positional.push(a);
@@ -52,6 +59,11 @@ function validate(opts) {
   if (!opts.email || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(opts.email)) return 'a valid owner email is required';
   if (!Number.isInteger(opts.businesses) || opts.businesses < 1) return '--businesses must be a positive integer';
   if (!Number.isInteger(opts.seats) || opts.seats < 1) return '--seats must be a positive integer';
+  if (opts.comp !== null && !String(opts.comp).trim()) return '--comp needs a reason ("founder firm", "beta partner", ...)';
+  if (opts.comp !== null && (!Number.isInteger(opts.percentOff) || opts.percentOff < 1 || opts.percentOff > 100)) {
+    return '--percent-off must be between 1 and 100';
+  }
+  if (opts.comp === null && opts.percentOff !== 100) return '--percent-off only means something with --comp';
   return null;
 }
 
@@ -63,9 +75,9 @@ function createFirm(db, opts) {
   if (existing) return { created: false, userId: existing.id, accountId: existing.account_id, role: existing.role };
 
   const acct = db.prepare(
-    `INSERT INTO account (firm_name, plan, status, seats_limit, businesses_limit, billing_exempt)
-     VALUES (?, 'firm', 'active', ?, ?, ?)`
-  ).run(opts.firmName, opts.seats, opts.businesses, opts.billingExempt);
+    `INSERT INTO account (firm_name, plan, status, seats_limit, businesses_limit)
+     VALUES (?, 'firm', 'active', ?, ?)`
+  ).run(opts.firmName, opts.seats, opts.businesses);
   const accountId = Number(acct.lastInsertRowid);
 
   const user = db.prepare("INSERT INTO users (account_id, email, role) VALUES (?, ?, 'owner')")
@@ -74,6 +86,17 @@ function createFirm(db, opts) {
 
   db.prepare('INSERT INTO audit_log (account_id, actor, action, target) VALUES (?,?,?,?)')
     .run(accountId, 'admin-cli', 'create_firm', 'account:' + accountId + ' owner:' + userId + ' ' + opts.email);
+
+  // A comped firm is discounted, never exempted — it stays inside the
+  // billing rules and its zero invoice carries the reason.
+  if (opts.comp) {
+    S.grantDiscount(db, accountId, {
+      percentOff: opts.percentOff,
+      reason: opts.comp,
+      startsPeriod: A.billingPeriodKey(opts.now || Date.now()),
+      actor: 'admin-cli',
+    });
+  }
 
   return { created: true, userId: userId, accountId: accountId, role: 'owner' };
 }
@@ -129,7 +152,9 @@ if (require.main === module) {
   console.log('  account id : ' + r.accountId);
   console.log('  owner      : ' + opts.email + '  (user ' + r.userId + ')');
   console.log('  limits     : ' + opts.seats + ' seats / ' + opts.businesses + ' businesses');
-  console.log('  billing    : ' + (opts.billingExempt ? 'EXEMPT — never invoiced' : 'billable'));
+  console.log('  billing    : ' + (opts.comp
+    ? opts.percentOff + '% voucher — "' + opts.comp + '" (still counted and invoiced; total ₱0)'
+    : 'standard — ₱' + (A.RATE_CENTAVOS / 100) + ' per business per month'));
   console.log('\nNext: the owner signs in at https://txform.ph/account with their email');
   console.log('(magic link — no password). From there they add businesses and invite staff.');
 }

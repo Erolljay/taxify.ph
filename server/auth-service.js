@@ -267,18 +267,42 @@ function recordBillingPeriod(db, businessId, now) {
 // high-water mark: everything active at any point in the month, including
 // what has since been archived. This is the number an invoice multiplies.
 //
-// Billing-exempt accounts (the founders' own firms) always return 0, so an
-// exempt firm can never be invoiced and never inflates revenue reporting —
-// the exemption lives here, at the one place that decides what is owed,
-// rather than being remembered at each future call site.
+// Strictly a count — no account is exempt from being counted. Paying
+// nothing is a DISCOUNT, applied in invoiceFor; it is not an escape from
+// the rules. That keeps one billing path for every account.
 function billableCount(db, accountId, periodKey) {
-  const acct = db.prepare('SELECT billing_exempt FROM account WHERE id = ?').get(accountId);
-  if (!acct || acct.billing_exempt) return 0;
   return db.prepare(
     `SELECT COUNT(*) AS n FROM business_billing_period bp
        JOIN businesses b ON b.id = bp.business_id
       WHERE b.account_id = ? AND bp.period_key = ?`
   ).get(accountId, periodKey).n;
+}
+
+// What this account owes for `periodKey`, in centavos, with any voucher
+// applied. A fully-comped firm gets a real invoice totalling zero — it is
+// counted, charged and recorded like everyone else.
+function invoiceFor(db, accountId, periodKey) {
+  const discounts = db.prepare(
+    'SELECT code, percent_off, reason, starts_period, ends_period FROM account_discount WHERE account_id = ?'
+  ).all(accountId);
+  const pct = A.discountPercentFor(discounts, periodKey);
+  const invoice = A.computeInvoice(billableCount(db, accountId, periodKey), pct);
+  // Name the reason on the invoice: a zero total should never be a mystery.
+  const applied = discounts.find(function (d) { return Number(d.percent_off) === pct && pct > 0; });
+  return Object.assign({ periodKey: periodKey, reason: applied ? applied.reason : null, code: applied ? applied.code : null }, invoice);
+}
+
+// Grant a discount. `reason` is required — an unexplained free account is
+// exactly what this design exists to prevent.
+function grantDiscount(db, accountId, opts) {
+  if (!opts || !opts.reason) throw new Error('a discount needs a reason');
+  const pct = Math.max(1, Math.min(100, Number(opts.percentOff) || 0));
+  db.prepare(
+    `INSERT INTO account_discount (account_id, code, percent_off, reason, starts_period, ends_period)
+     VALUES (?,?,?,?,?,?)`
+  ).run(accountId, opts.code || null, pct, opts.reason, opts.startsPeriod, opts.endsPeriod || null);
+  db.prepare('INSERT INTO audit_log (account_id, actor, action, target) VALUES (?,?,?,?)')
+    .run(accountId, opts.actor || 'admin-cli', 'grant_discount', pct + '% ' + opts.reason);
 }
 
 function managerNameFor(db, accountId, name) {
@@ -417,12 +441,11 @@ function overview(db, input, deps) {
     'SELECT ub.user_id, ub.business_id FROM user_business ub JOIN users u ON u.id = ub.user_id WHERE u.account_id = ?'
   ).all(s.account_id);
 
-  const periodKey = A.billingPeriodKey(now);
   return {
     status: 200,
     json: {
       account: account, me: me, users: users, businesses: businesses, grants: grants, jobs: jobs,
-      billing: { periodKey: periodKey, billableBusinesses: billableCount(db, s.account_id, periodKey) },
+      billing: invoiceFor(db, s.account_id, A.billingPeriodKey(now)),
     },
   };
 }
@@ -431,7 +454,7 @@ module.exports = {
   COOKIE_NAME, parseCookie, loadSession,
   requestLink, verifyLink, currentUser,
   setUserBusiness, inviteStaff, addBusiness, archiveBusiness, managerNameFor,
-  recordBillingPeriod, billableCount, overview,
+  recordBillingPeriod, billableCount, invoiceFor, grantDiscount, overview,
 };
 
 // ── HTTP wiring (thin; not unit-tested — handlers are) ────────────

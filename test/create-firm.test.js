@@ -31,9 +31,10 @@ test('parseArgs: firm name and email are positional; limits have defaults', () =
   assert.equal(o.seats, 10);
 });
 
-test('parseArgs: our own firms are billing-exempt unless --billable is passed', () => {
-  assert.equal(args('Firm a@b.ph').billingExempt, 1, 'exempt by default — these are our firms');
-  assert.equal(args('Firm a@b.ph --billable').billingExempt, 0);
+test('parseArgs: an account is billable by default — comping is explicit', () => {
+  assert.equal(args('Firm a@b.ph').comp, null, 'the rules apply unless someone says otherwise');
+  assert.equal(args('Firm a@b.ph --comp founder-firm').comp, 'founder-firm');
+  assert.equal(args('Firm a@b.ph --comp beta --percent-off 50').percentOff, 50);
 });
 
 test('parseArgs: email is lower-cased so sign-in matching cannot miss', () => {
@@ -52,6 +53,17 @@ test('validate: rejects a missing name, a bad email, and nonsense limits', () =>
   assert.equal(C.validate(args('Firm a@b.ph')), null);
 });
 
+test('validate: a free account must carry a reason', () => {
+  assert.match(C.validate(args('Firm a@b.ph --comp  ')), /reason/);
+  assert.equal(C.validate(args('Firm a@b.ph --comp founder-firm')), null);
+});
+
+test('validate: --percent-off is meaningless without --comp, and must be 1..100', () => {
+  assert.match(C.validate(args('Firm a@b.ph --percent-off 50')), /only means something/);
+  assert.match(C.validate(args('Firm a@b.ph --comp x --percent-off 0')), /between 1 and 100/);
+  assert.match(C.validate(args('Firm a@b.ph --comp x --percent-off 101')), /between 1 and 100/);
+});
+
 // ── creation ─────────────────────────────────────────────────────
 test('createFirm: creates an ACTIVE account with an owner and an audit row', () => {
   const db = freshDb();
@@ -61,7 +73,6 @@ test('createFirm: creates an ACTIVE account with an owner and an audit row', () 
   const acct = db.prepare('SELECT * FROM account WHERE id = ?').get(r.accountId);
   assert.equal(acct.firm_name, 'Tallo');
   assert.equal(acct.status, 'active', 'usable immediately — no payment step gates it');
-  assert.equal(acct.billing_exempt, 1);
 
   const user = db.prepare('SELECT email, role FROM users WHERE id = ?').get(r.userId);
   assert.equal(user.email, 'owner@tallo.ph');
@@ -86,31 +97,64 @@ test('createFirm: separate firms are fully isolated from each other', () => {
   assert.equal(db.prepare('SELECT COUNT(*) AS n FROM account').get().n, 2);
 });
 
-// ── billing exemption ────────────────────────────────────────────
-test('an exempt firm is never billable, however many businesses it adds', () => {
-  const db = freshDb();
-  const r = C.createFirm(db, args('Ours owner@ours.ph'));
-  const period = A.billingPeriodKey(Date.now());
-  db.prepare('INSERT INTO businesses (account_id, manager_business_name, name) VALUES (?,?,?)')
-    .run(r.accountId, 'Client One', 'Client One');
-  S.recordBillingPeriod(db, 1, Date.now());
+// ── comping via voucher, NOT exemption ───────────────────────────
+// The rule this whole section defends: a free firm still obeys every
+// billing rule. It is counted, it is invoiced, and its total is zero for
+// a stated reason — it does not sit outside the system.
+function withOneBusiness(db, accountId, bizId, name) {
+  db.prepare('INSERT INTO businesses (id, account_id, manager_business_name, name) VALUES (?,?,?,?)')
+    .run(bizId, accountId, name, name);
+  S.recordBillingPeriod(db, bizId, Date.now());
+}
 
-  assert.equal(S.billableCount(db, r.accountId, period), 0, 'our own firms are never invoiced');
+test('a comped firm is still COUNTED — it is not exempt from the rules', () => {
+  const db = freshDb();
+  const r = C.createFirm(db, args('Ours owner@ours.ph --comp founder-firm'));
+  withOneBusiness(db, r.accountId, 1, 'Client One');
+  assert.equal(S.billableCount(db, r.accountId, A.billingPeriodKey(Date.now())), 1,
+    'counted like everyone else');
 });
 
-test('a billable firm IS counted — exemption is per account, not global', () => {
+test('a comped firm gets a real invoice that totals zero, and says why', () => {
   const db = freshDb();
-  const ours = C.createFirm(db, args('Ours owner@ours.ph'));
-  const paying = C.createFirm(db, args('Paying owner@paying.ph --billable'));
+  const r = C.createFirm(db, args('Ours owner@ours.ph --comp founder-firm'));
+  withOneBusiness(db, r.accountId, 1, 'Client One');
+
+  const inv = S.invoiceFor(db, r.accountId, A.billingPeriodKey(Date.now()));
+  assert.equal(inv.businesses, 1);
+  assert.equal(inv.gross, A.RATE_CENTAVOS, 'the charge is real');
+  assert.equal(inv.percentOff, 100);
+  assert.equal(inv.net, 0, 'and fully discounted');
+  assert.equal(inv.reason, 'founder-firm', 'a zero total is never a mystery');
+});
+
+test('a partial voucher discounts rather than zeroes', () => {
+  const db = freshDb();
+  const r = C.createFirm(db, args('Partner owner@partner.ph --comp beta-partner --percent-off 50'));
+  withOneBusiness(db, r.accountId, 1, 'Client One');
+
+  const inv = S.invoiceFor(db, r.accountId, A.billingPeriodKey(Date.now()));
+  assert.equal(inv.discount, A.RATE_CENTAVOS / 2);
+  assert.equal(inv.net, A.RATE_CENTAVOS / 2);
+});
+
+test('an ordinary firm pays the full rate — comping is per account', () => {
+  const db = freshDb();
+  const ours = C.createFirm(db, args('Ours owner@ours.ph --comp founder-firm'));
+  const paying = C.createFirm(db, args('Paying owner@paying.ph'));
+  withOneBusiness(db, ours.accountId, 1, 'Ours Client');
+  withOneBusiness(db, paying.accountId, 2, 'Their Client');
+
   const period = A.billingPeriodKey(Date.now());
+  assert.equal(S.invoiceFor(db, ours.accountId, period).net, 0);
+  assert.equal(S.invoiceFor(db, paying.accountId, period).net, A.RATE_CENTAVOS);
+});
 
-  db.prepare('INSERT INTO businesses (id, account_id, manager_business_name, name) VALUES (1,?,?,?)')
-    .run(ours.accountId, 'Ours Client', 'Ours Client');
-  db.prepare('INSERT INTO businesses (id, account_id, manager_business_name, name) VALUES (2,?,?,?)')
-    .run(paying.accountId, 'Their Client', 'Their Client');
-  S.recordBillingPeriod(db, 1, Date.now());
-  S.recordBillingPeriod(db, 2, Date.now());
-
-  assert.equal(S.billableCount(db, ours.accountId, period), 0);
-  assert.equal(S.billableCount(db, paying.accountId, period), 1);
+test('grantDiscount refuses an unexplained free account', () => {
+  const db = freshDb();
+  const r = C.createFirm(db, args('Firm owner@firm.ph'));
+  assert.throws(
+    () => S.grantDiscount(db, r.accountId, { percentOff: 100, startsPeriod: '2026-07' }),
+    /needs a reason/
+  );
 });

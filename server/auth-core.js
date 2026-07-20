@@ -105,6 +105,43 @@ function can(role, capability) {
 // is already in their business's monthly rate.
 function consumesSeat(role) { return role === 'owner' || role === 'staff'; }
 
+// ── PRICING ──────────────────────────────────────────────────────
+// One flat rate per business per month, VAT-registered or not. The rate
+// deliberately does NOT vary by tax type: that is self-declared and
+// unaudited, so a cheaper non-VAT tier would just be the new price.
+//
+// Centavos, always. Money never touches a float, and PayMongo takes
+// minor units anyway.
+const RATE_CENTAVOS = 50000; // ₱500.00
+
+// Which discount applies in `periodKey`? Periods are 'YYYY-MM', so plain
+// string comparison orders them correctly. When several overlap we take
+// the single best one rather than stacking — stacked percentages are how
+// you accidentally hand someone 130% off.
+function discountPercentFor(discounts, periodKey) {
+  let best = 0;
+  (discounts || []).forEach(function (d) {
+    if (periodKey < d.starts_period) return;
+    if (d.ends_period && periodKey > d.ends_period) return;
+    const pct = Math.max(0, Math.min(100, Number(d.percent_off) || 0));
+    if (pct > best) best = pct;
+  });
+  return best;
+}
+
+// What does an account owe for a period? Returns minor units throughout.
+// A 100%-discounted account still gets a real invoice here — count, gross,
+// and a net of zero — rather than being skipped, so comped firms stay
+// visible to every report instead of silently vanishing from billing.
+function computeInvoice(businessCount, percentOff) {
+  const count = Math.max(0, Number(businessCount) || 0);
+  const pct = Math.max(0, Math.min(100, Number(percentOff) || 0));
+  const gross = count * RATE_CENTAVOS;
+  // Round the discount, not the net, so the two always sum back to gross.
+  const discount = Math.round(gross * pct / 100);
+  return { businesses: count, percentOff: pct, gross: gross, discount: discount, net: gross - discount };
+}
+
 // ── BILLING PERIODS ──────────────────────────────────────────────
 // 'YYYY-MM' for a timestamp, in UTC. Billing is monthly and coarse, so
 // a fixed zone beats guessing the server's — the only requirement is
@@ -119,9 +156,10 @@ function tokenExpiry(now) { return now + TOKEN_TTL_MS; }
 function sessionExpiry(now) { return now + SESSION_TTL_MS; }
 
 module.exports = {
-  TOKEN_TTL_MS, SESSION_TTL_MS, LINK_RATE, ROLE_CAPABILITIES,
+  TOKEN_TTL_MS, SESSION_TTL_MS, LINK_RATE, ROLE_CAPABILITIES, RATE_CENTAVOS,
   hashToken, generateToken,
   isLoginTokenUsable, withinRateLimit, canProvisionMore,
   isSessionValid, authorizeOwnerAction, can, consumesSeat, billingPeriodKey,
+  discountPercentFor, computeInvoice,
   tokenExpiry, sessionExpiry,
 };
