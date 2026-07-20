@@ -129,3 +129,108 @@ test('authorizeOwnerAction: expired session is denied before role/account checks
   const session = { role: 'owner', account_id: 7, expires_at: now - 1 };
   assert.equal(A.authorizeOwnerAction(session, { id: 7 }, now).reason, 'session_invalid');
 });
+
+// ── role capabilities ────────────────────────────────────────────
+test('can: only the owner may amend a filing that is already frozen', () => {
+  assert.equal(A.can('owner', 'amendFiling'), true);
+  assert.equal(A.can('staff', 'amendFiling'), false);
+  assert.equal(A.can('client', 'amendFiling'), false);
+});
+
+test('can: staff may file, clients may not', () => {
+  assert.equal(A.can('staff', 'file'), true);
+  assert.equal(A.can('client', 'file'), false);
+});
+
+test('can: only the owner sees every business without a grant', () => {
+  assert.equal(A.can('owner', 'allBusinesses'), true);
+  assert.equal(A.can('staff', 'allBusinesses'), false);
+  assert.equal(A.can('client', 'allBusinesses'), false);
+});
+
+test('can: an unknown role or capability fails CLOSED', () => {
+  assert.equal(A.can('superuser', 'manageFirm'), false);
+  assert.equal(A.can(undefined, 'file'), false);
+  assert.equal(A.can('owner', 'launchMissiles'), false);
+});
+
+test('consumesSeat: clients are free, owner and staff are not', () => {
+  assert.equal(A.consumesSeat('owner'), true);
+  assert.equal(A.consumesSeat('staff'), true);
+  assert.equal(A.consumesSeat('client'), false);
+});
+
+// ── billing period key ───────────────────────────────────────────
+test('billingPeriodKey: YYYY-MM, zero-padded', () => {
+  assert.equal(A.billingPeriodKey(Date.UTC(2026, 0, 15)), '2026-01');
+  assert.equal(A.billingPeriodKey(Date.UTC(2026, 11, 1)), '2026-12');
+});
+
+test('billingPeriodKey: every instant in a month maps to the same key', () => {
+  const first = A.billingPeriodKey(Date.UTC(2026, 6, 1, 0, 0, 0));
+  const last  = A.billingPeriodKey(Date.UTC(2026, 6, 31, 23, 59, 59));
+  assert.equal(first, last);
+  assert.equal(first, '2026-07');
+});
+
+test('billingPeriodKey: a month boundary starts a new billing period', () => {
+  assert.notEqual(
+    A.billingPeriodKey(Date.UTC(2026, 6, 31, 23, 59, 59)),
+    A.billingPeriodKey(Date.UTC(2026, 7, 1, 0, 0, 0))
+  );
+});
+
+// ── pricing + vouchers ───────────────────────────────────────────
+test('computeInvoice: flat rate per business, in centavos', () => {
+  const r = A.computeInvoice(3, 0);
+  assert.equal(r.gross, 3 * A.RATE_CENTAVOS);
+  assert.equal(r.net, 3 * A.RATE_CENTAVOS);
+  assert.equal(r.discount, 0);
+});
+
+test('computeInvoice: a 100% voucher zeroes the net but keeps the gross visible', () => {
+  const r = A.computeInvoice(4, 100);
+  assert.equal(r.gross, 4 * A.RATE_CENTAVOS, 'what it would have cost is still recorded');
+  assert.equal(r.net, 0);
+});
+
+test('computeInvoice: discount and net always sum back to gross', () => {
+  [0, 1, 7, 33, 50, 99, 100].forEach((pct) => {
+    [0, 1, 3, 17].forEach((n) => {
+      const r = A.computeInvoice(n, pct);
+      assert.equal(r.discount + r.net, r.gross, n + ' businesses at ' + pct + '%');
+    });
+  });
+});
+
+test('computeInvoice: nonsense input cannot produce a negative charge', () => {
+  assert.equal(A.computeInvoice(-5, 0).net, 0);
+  assert.equal(A.computeInvoice(2, 999).net, 0, 'over-100% is clamped, not inverted');
+  assert.equal(A.computeInvoice(2, -50).net, 2 * A.RATE_CENTAVOS);
+});
+
+test('discountPercentFor: applies only inside its own period window', () => {
+  const d = [{ percent_off: 100, starts_period: '2026-07', ends_period: '2026-09' }];
+  assert.equal(A.discountPercentFor(d, '2026-06'), 0, 'before it starts');
+  assert.equal(A.discountPercentFor(d, '2026-07'), 100, 'first month, inclusive');
+  assert.equal(A.discountPercentFor(d, '2026-09'), 100, 'last month, inclusive');
+  assert.equal(A.discountPercentFor(d, '2026-10'), 0, 'after it ends');
+});
+
+test('discountPercentFor: an open-ended voucher never expires', () => {
+  const d = [{ percent_off: 100, starts_period: '2026-01', ends_period: null }];
+  assert.equal(A.discountPercentFor(d, '2031-12'), 100);
+});
+
+test('discountPercentFor: overlapping vouchers take the best one, never stack', () => {
+  const d = [
+    { percent_off: 20, starts_period: '2026-01', ends_period: null },
+    { percent_off: 50, starts_period: '2026-01', ends_period: null },
+  ];
+  assert.equal(A.discountPercentFor(d, '2026-07'), 50, '50 — not 70');
+});
+
+test('discountPercentFor: no vouchers means full price', () => {
+  assert.equal(A.discountPercentFor([], '2026-07'), 0);
+  assert.equal(A.discountPercentFor(undefined, '2026-07'), 0);
+});
