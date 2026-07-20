@@ -129,3 +129,53 @@ test('authorizeOwnerAction: expired session is denied before role/account checks
   const session = { role: 'owner', account_id: 7, expires_at: now - 1 };
   assert.equal(A.authorizeOwnerAction(session, { id: 7 }, now).reason, 'session_invalid');
 });
+
+// ── role capabilities ────────────────────────────────────────────
+test('can: only the owner may amend a filing that is already frozen', () => {
+  assert.equal(A.can('owner', 'amendFiling'), true);
+  assert.equal(A.can('staff', 'amendFiling'), false);
+  assert.equal(A.can('client', 'amendFiling'), false);
+});
+
+test('can: staff may file, clients may not', () => {
+  assert.equal(A.can('staff', 'file'), true);
+  assert.equal(A.can('client', 'file'), false);
+});
+
+test('can: only the owner sees every business without a grant', () => {
+  assert.equal(A.can('owner', 'allBusinesses'), true);
+  assert.equal(A.can('staff', 'allBusinesses'), false);
+  assert.equal(A.can('client', 'allBusinesses'), false);
+});
+
+test('can: an unknown role or capability fails CLOSED', () => {
+  assert.equal(A.can('superuser', 'manageFirm'), false);
+  assert.equal(A.can(undefined, 'file'), false);
+  assert.equal(A.can('owner', 'launchMissiles'), false);
+});
+
+test('consumesSeat: clients are free, owner and staff are not', () => {
+  assert.equal(A.consumesSeat('owner'), true);
+  assert.equal(A.consumesSeat('staff'), true);
+  assert.equal(A.consumesSeat('client'), false);
+});
+
+// ── billing period key ───────────────────────────────────────────
+test('billingPeriodKey: YYYY-MM, zero-padded', () => {
+  assert.equal(A.billingPeriodKey(Date.UTC(2026, 0, 15)), '2026-01');
+  assert.equal(A.billingPeriodKey(Date.UTC(2026, 11, 1)), '2026-12');
+});
+
+test('billingPeriodKey: every instant in a month maps to the same key', () => {
+  const first = A.billingPeriodKey(Date.UTC(2026, 6, 1, 0, 0, 0));
+  const last  = A.billingPeriodKey(Date.UTC(2026, 6, 31, 23, 59, 59));
+  assert.equal(first, last);
+  assert.equal(first, '2026-07');
+});
+
+test('billingPeriodKey: a month boundary starts a new billing period', () => {
+  assert.notEqual(
+    A.billingPeriodKey(Date.UTC(2026, 6, 31, 23, 59, 59)),
+    A.billingPeriodKey(Date.UTC(2026, 7, 1, 0, 0, 0))
+  );
+});

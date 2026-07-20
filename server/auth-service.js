@@ -181,10 +181,15 @@ function setUserBusiness(db, input, deps) {
   return { status: 200, json: { ok: true } };
 }
 
-// POST /api/tenancy/invite-staff { email }
-// Owner-only. Adds a staff user against the seat limit and enqueues a
-// 'create' job so the provisioner makes their Manager restricted user.
-// Re-inviting an existing member is idempotent and consumes no seat.
+// POST /api/tenancy/invite-staff { email, role?, businessId? }
+// Owner-only. Adds a staff or client user and enqueues a 'create' job so
+// the provisioner makes their Manager restricted user. Re-inviting an
+// existing member is idempotent and consumes no seat.
+//
+// role defaults to 'staff'. A 'client' is the business owner we keep books
+// for: read-only, free, and scoped to exactly one business — so businessId
+// is REQUIRED for them and the grant is written here rather than left to a
+// separate trip through the access grid.
 function inviteStaff(db, input, deps) {
   const now = deps.now();
   const s = loadSession(db, input.cookie, now);
@@ -196,20 +201,51 @@ function inviteStaff(db, input, deps) {
   const email = (input && typeof input.email === 'string') ? input.email.trim().toLowerCase() : '';
   if (!email) return { status: 400, json: { error: 'email required' } };
 
+  // Only these two are invitable. 'owner' is deliberately absent: a second
+  // owner would be a billing-control change, not an invite.
+  const role = (input && input.role === 'client') ? 'client' : 'staff';
+
+  // A client with no business would see nothing at all, so require the grant
+  // up front and verify it's this firm's business before trusting it.
+  let clientBusiness = null;
+  if (role === 'client') {
+    // Coerce first: node:sqlite refuses to bind undefined, so an omitted
+    // businessId would throw here instead of returning the 400 it deserves.
+    const bizId = Number(input && input.businessId);
+    clientBusiness = Number.isInteger(bizId) && bizId > 0
+      ? db.prepare("SELECT id, account_id FROM businesses WHERE id = ? AND status = 'active'").get(bizId)
+      : null;
+    if (!clientBusiness || clientBusiness.account_id !== s.account_id) {
+      return { status: 400, json: { error: 'client_requires_own_business' } };
+    }
+  }
+
   const existing = db.prepare('SELECT id FROM users WHERE account_id = ? AND email = ?').get(s.account_id, email);
   if (existing) return { status: 200, json: { ok: true, userId: existing.id, alreadyMember: true } };
 
-  const seatCount = db.prepare('SELECT COUNT(*) AS n FROM users WHERE account_id = ?').get(s.account_id).n;
-  const room = A.canProvisionMore('seat', { limit: account.seats_limit, currentCount: seatCount });
-  if (!room.ok) return { status: 409, json: { error: room.reason } };
+  // Clients are free — only owner/staff count against seats.
+  if (A.consumesSeat(role)) {
+    const seatCount = db.prepare(
+      "SELECT COUNT(*) AS n FROM users WHERE account_id = ? AND role IN ('owner','staff')"
+    ).get(s.account_id).n;
+    const room = A.canProvisionMore('seat', { limit: account.seats_limit, currentCount: seatCount });
+    if (!room.ok) return { status: 409, json: { error: room.reason } };
+  }
 
   const userId = Number(db.prepare('INSERT INTO users (account_id, email, role) VALUES (?,?,?)')
-    .run(s.account_id, email, 'staff').lastInsertRowid);
+    .run(s.account_id, email, role).lastInsertRowid);
   db.prepare('INSERT INTO provision_job (type, user_id, created_at, updated_at) VALUES (?,?,?,?)')
     .run('create', userId, now, now);
+
+  if (clientBusiness) {
+    db.prepare('INSERT OR IGNORE INTO user_business (user_id, business_id) VALUES (?,?)').run(userId, clientBusiness.id);
+    db.prepare('INSERT INTO provision_job (type, user_id, business_id, created_at, updated_at) VALUES (?,?,?,?,?)')
+      .run('grant', userId, clientBusiness.id, now, now);
+  }
+
   db.prepare('INSERT INTO audit_log (account_id, actor, action, target) VALUES (?,?,?,?)')
-    .run(s.account_id, s.email, 'invite_staff', 'user:' + userId + ' ' + email);
-  return { status: 201, json: { ok: true, userId: userId } };
+    .run(s.account_id, s.email, 'invite_' + role, 'user:' + userId + ' ' + email);
+  return { status: 201, json: { ok: true, userId: userId, role: role } };
 }
 
 // Pick the name this business will carry on the Manager server. Manager
@@ -219,6 +255,25 @@ function inviteStaff(db, input, deps) {
 // account-scoped suffix: deterministic (same answer however many firms
 // collide, so the count leaks nothing) and invisible in the portal, which
 // always shows the firm's own `name`.
+// Mark this business as active for the current billing month. Idempotent —
+// the UNIQUE(business_id, period_key) makes a repeat a no-op, so it's safe
+// to call on every add and reactivate.
+function recordBillingPeriod(db, businessId, now) {
+  db.prepare('INSERT OR IGNORE INTO business_billing_period (business_id, period_key) VALUES (?,?)')
+    .run(businessId, A.billingPeriodKey(now));
+}
+
+// How many businesses does this account owe for in `periodKey`? The
+// high-water mark: everything active at any point in the month, including
+// what has since been archived. This is the number an invoice multiplies.
+function billableCount(db, accountId, periodKey) {
+  return db.prepare(
+    `SELECT COUNT(*) AS n FROM business_billing_period bp
+       JOIN businesses b ON b.id = bp.business_id
+      WHERE b.account_id = ? AND bp.period_key = ?`
+  ).get(accountId, periodKey).n;
+}
+
 function managerNameFor(db, accountId, name) {
   const taken = (n) => !!db.prepare('SELECT 1 FROM businesses WHERE manager_business_name = ?').get(n);
   if (!taken(name)) return name;
@@ -241,11 +296,25 @@ function addBusiness(db, input, deps) {
   const name = (input && typeof input.name === 'string') ? input.name.trim() : '';
   if (!name) return { status: 400, json: { error: 'name required' } };
 
-  // Re-adding a client the firm already has is idempotent and costs no slot.
-  const mine = db.prepare('SELECT id FROM businesses WHERE account_id = ? AND name = ?').get(s.account_id, name);
-  if (mine) return { status: 200, json: { ok: true, businessId: mine.id, alreadyAdded: true } };
+  const taxType = (input && input.taxType === 'nonvat') ? 'nonvat' : 'vat';
 
-  const count = db.prepare('SELECT COUNT(*) AS n FROM businesses WHERE account_id = ?').get(s.account_id).n;
+  // Re-adding a client the firm already has is idempotent and costs no slot.
+  // An ARCHIVED one is reactivated instead of duplicated — the Manager name
+  // is still taken by that row, and its filed snapshots should come back with it.
+  const mine = db.prepare('SELECT id, status FROM businesses WHERE account_id = ? AND name = ?').get(s.account_id, name);
+  if (mine && mine.status === 'active') return { status: 200, json: { ok: true, businessId: mine.id, alreadyAdded: true } };
+  if (mine) {
+    db.prepare("UPDATE businesses SET status = 'active', archived_at = NULL WHERE id = ?").run(mine.id);
+    recordBillingPeriod(db, mine.id, now);
+    db.prepare('INSERT INTO audit_log (account_id, actor, action, target) VALUES (?,?,?,?)')
+      .run(s.account_id, s.email, 'reactivate_business', 'business:' + mine.id);
+    return { status: 200, json: { ok: true, businessId: mine.id, reactivated: true } };
+  }
+
+  // Only ACTIVE businesses consume the paid quantity. Archiving frees the
+  // slot at once; it does not refund the period (business_billing_period
+  // keeps that row), so there's nothing to gain by cycling clients.
+  const count = db.prepare("SELECT COUNT(*) AS n FROM businesses WHERE account_id = ? AND status = 'active'").get(s.account_id).n;
   const room = A.canProvisionMore('business', { limit: account.businesses_limit, currentCount: count });
   if (!room.ok) return { status: 409, json: { error: room.reason } };
 
@@ -255,37 +324,107 @@ function addBusiness(db, input, deps) {
   const managerName = managerNameFor(db, s.account_id, name);
   if (!managerName) return { status: 409, json: { error: 'name_unavailable' } };
 
-  const businessId = Number(db.prepare('INSERT INTO businesses (account_id, manager_business_name, name) VALUES (?,?,?)')
-    .run(s.account_id, managerName, name).lastInsertRowid);
+  const businessId = Number(db.prepare('INSERT INTO businesses (account_id, manager_business_name, name, tax_type) VALUES (?,?,?,?)')
+    .run(s.account_id, managerName, name, taxType).lastInsertRowid);
+  recordBillingPeriod(db, businessId, now);
   db.prepare('INSERT INTO audit_log (account_id, actor, action, target) VALUES (?,?,?,?)')
     .run(s.account_id, s.email, 'add_business', 'business:' + businessId + ' ' + managerName);
   return { status: 201, json: { ok: true, businessId: businessId, managerBusinessName: managerName } };
 }
 
+// POST /api/tenancy/archive-business { businessId }
+// Owner-only. Archive — never delete: filed snapshots and the audit trail
+// must survive a client leaving. Revokes every user's Manager access to it
+// and frees the slot against businesses_limit, but leaves this month's
+// business_billing_period row standing, so the period is still billed.
+function archiveBusiness(db, input, deps) {
+  const now = deps.now();
+  const s = loadSession(db, input.cookie, now);
+  if (!s) return { status: 401, json: { error: 'not signed in' } };
+  const account = db.prepare('SELECT id FROM account WHERE id = ?').get(s.account_id);
+  const authz = A.authorizeOwnerAction({ role: s.role, account_id: s.account_id, expires_at: s.expires_at }, account, now);
+  if (!authz.ok) return { status: 403, json: { error: authz.reason } };
+
+  const biz = db.prepare('SELECT id, account_id, status FROM businesses WHERE id = ?').get(input.businessId);
+  if (!biz || biz.account_id !== s.account_id) return { status: 403, json: { error: 'wrong_account' } };
+  if (biz.status === 'archived') return { status: 200, json: { ok: true, alreadyArchived: true } };
+
+  // Revoke in Manager for everyone who had it, then drop the grants.
+  const holders = db.prepare('SELECT user_id FROM user_business WHERE business_id = ?').all(biz.id);
+  holders.forEach(function (h) {
+    db.prepare('INSERT INTO provision_job (type, user_id, business_id, created_at, updated_at) VALUES (?,?,?,?,?)')
+      .run('revoke', h.user_id, biz.id, now, now);
+  });
+  db.prepare('DELETE FROM user_business WHERE business_id = ?').run(biz.id);
+
+  db.prepare("UPDATE businesses SET status = 'archived', archived_at = ? WHERE id = ?")
+    .run(new Date(now).toISOString(), biz.id);
+  db.prepare('INSERT INTO audit_log (account_id, actor, action, target) VALUES (?,?,?,?)')
+    .run(s.account_id, s.email, 'archive_business', 'business:' + biz.id);
+  return { status: 200, json: { ok: true, revoked: holders.length } };
+}
+
 // GET /api/tenancy/overview
-// Owner-only snapshot the portal renders: account limits, staff,
-// businesses, and the grant matrix.
+// The one read the portal renders, shaped by role. EVERY signed-in user
+// gets a useful answer — previously this was owner-only, so staff and
+// clients could sign in and were then turned away at the dashboard.
+//
+//   owner  — the firm: all businesses (incl. archived), the team, the
+//            access grid, limits, and this month's billable count.
+//   staff  — only businesses granted via user_business.
+//   client — the single business they were invited for, read-only.
+//
+// Staff and clients get no `users` and no `grants`: who else works at the
+// firm, and who else can see what, is none of their business.
 function overview(db, input, deps) {
   const now = deps.now();
   const s = loadSession(db, input.cookie, now);
   if (!s) return { status: 401, json: { error: 'not signed in' } };
-  const authz = A.authorizeOwnerAction({ role: s.role, account_id: s.account_id, expires_at: s.expires_at }, { id: s.account_id }, now);
-  if (!authz.ok) return { status: 403, json: { error: authz.reason } };
+  if (!A.isSessionValid({ expires_at: s.expires_at }, now)) return { status: 401, json: { error: 'session_invalid' } };
 
-  const account = db.prepare('SELECT plan, status, seats_limit, businesses_limit FROM account WHERE id = ?').get(s.account_id);
+  const account = db.prepare('SELECT firm_name, plan, status, seats_limit, businesses_limit FROM account WHERE id = ?').get(s.account_id);
+  const me = { email: s.email, role: s.role, capabilities: A.ROLE_CAPABILITIES[s.role] || {} };
+
+  // Sync state per business, so the portal can show pending/failed rather
+  // than pretending an access change already reached Manager.
+  const jobs = db.prepare(
+    `SELECT user_id, business_id, type, status FROM provision_job
+      WHERE status IN ('pending','running','failed') AND business_id IS NOT NULL
+        AND user_id IN (SELECT id FROM users WHERE account_id = ?)`
+  ).all(s.account_id);
+
+  if (!A.can(s.role, 'allBusinesses')) {
+    const businesses = db.prepare(
+      `SELECT b.id, b.name, b.manager_business_name, b.tax_type, b.status
+         FROM businesses b JOIN user_business ub ON ub.business_id = b.id
+        WHERE ub.user_id = ? AND b.status = 'active' ORDER BY b.name`
+    ).all(s.user_id);
+    return { status: 200, json: { account: { firm_name: account.firm_name, status: account.status }, me: me, businesses: businesses, users: [], grants: [], jobs: [] } };
+  }
+
   const users = db.prepare('SELECT id, email, role FROM users WHERE account_id = ? ORDER BY role DESC, email').all(s.account_id);
-  const businesses = db.prepare('SELECT id, name, manager_business_name FROM businesses WHERE account_id = ? ORDER BY name').all(s.account_id);
+  const businesses = db.prepare(
+    'SELECT id, name, manager_business_name, tax_type, status FROM businesses WHERE account_id = ? ORDER BY status, name'
+  ).all(s.account_id);
   const grants = db.prepare(
     'SELECT ub.user_id, ub.business_id FROM user_business ub JOIN users u ON u.id = ub.user_id WHERE u.account_id = ?'
   ).all(s.account_id);
 
-  return { status: 200, json: { account: account, me: { email: s.email, role: s.role }, users: users, businesses: businesses, grants: grants } };
+  const periodKey = A.billingPeriodKey(now);
+  return {
+    status: 200,
+    json: {
+      account: account, me: me, users: users, businesses: businesses, grants: grants, jobs: jobs,
+      billing: { periodKey: periodKey, billableBusinesses: billableCount(db, s.account_id, periodKey) },
+    },
+  };
 }
 
 module.exports = {
   COOKIE_NAME, parseCookie, loadSession,
   requestLink, verifyLink, currentUser,
-  setUserBusiness, inviteStaff, addBusiness, managerNameFor, overview,
+  setUserBusiness, inviteStaff, addBusiness, archiveBusiness, managerNameFor,
+  recordBillingPeriod, billableCount, overview,
 };
 
 // ── HTTP wiring (thin; not unit-tested — handlers are) ────────────
@@ -357,8 +496,9 @@ if (require.main === module) {
         if (url.pathname === '/api/auth/verify') return send(res, verifyLink(db, { token: url.searchParams.get('token'), accept: req.headers.accept }, deps));
         if (url.pathname === '/api/auth/me') return send(res, currentUser(db, { cookie: cookie }, deps));
         if (req.method === 'POST' && url.pathname === '/api/tenancy/user-business') return send(res, setUserBusiness(db, { cookie: cookie, userId: json.userId, businessId: json.businessId, grant: json.grant }, deps));
-        if (req.method === 'POST' && url.pathname === '/api/tenancy/invite-staff') return send(res, inviteStaff(db, { cookie: cookie, email: json.email }, deps));
-        if (req.method === 'POST' && url.pathname === '/api/tenancy/add-business') return send(res, addBusiness(db, { cookie: cookie, name: json.name }, deps));
+        if (req.method === 'POST' && url.pathname === '/api/tenancy/invite-staff') return send(res, inviteStaff(db, { cookie: cookie, email: json.email, role: json.role, businessId: json.businessId }, deps));
+        if (req.method === 'POST' && url.pathname === '/api/tenancy/add-business') return send(res, addBusiness(db, { cookie: cookie, name: json.name, taxType: json.taxType }, deps));
+        if (req.method === 'POST' && url.pathname === '/api/tenancy/archive-business') return send(res, archiveBusiness(db, { cookie: cookie, businessId: json.businessId }, deps));
         if (req.method === 'GET' && url.pathname === '/api/tenancy/overview') return send(res, overview(db, { cookie: cookie }, deps));
         send(res, { status: 404, json: { error: 'not found' } });
       } catch (e) {

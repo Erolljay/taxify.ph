@@ -14,10 +14,20 @@ PRAGMA journal_mode = WAL;
 PRAGMA foreign_keys = ON;
 
 -- The firm — the unit of billing. A solo bookkeeper is just 1 user/1 biz.
+--
+-- Pricing is per BUSINESS, not per seat: businesses_limit is the quantity
+-- the firm has paid for, seats_limit is a generous anti-abuse ceiling only.
+-- `plan` is retained for reporting but no longer selects a price tier —
+-- every business bills at the same flat rate regardless of tax type,
+-- deliberately, so the price can never depend on something the customer
+-- declares about themselves.
 CREATE TABLE IF NOT EXISTS account (
   id                  INTEGER PRIMARY KEY,
+  firm_name           TEXT,                                 -- shown in the portal + on invoices
   plan                TEXT    NOT NULL DEFAULT 'starter',   -- starter|pro|firm
-  status              TEXT    NOT NULL DEFAULT 'active',    -- active|grace|suspended|cancelled
+  -- pending = signed up but not yet paid. NOTHING is provisioned in Manager
+  -- until this leaves 'pending' (pay-first, no trial).
+  status              TEXT    NOT NULL DEFAULT 'active',    -- pending|active|grace|suspended|cancelled
   seats_limit         INTEGER NOT NULL DEFAULT 1,
   businesses_limit    INTEGER NOT NULL DEFAULT 1,
   pm_subscription_id  TEXT,                                 -- PayMongo subscription id
@@ -26,11 +36,17 @@ CREATE TABLE IF NOT EXISTS account (
   created_at          TEXT    NOT NULL DEFAULT (datetime('now'))
 );
 
+-- owner  — the paying admin. Manages the firm; the only role that may
+--          amend a filing that has already been frozen.
+-- staff  — bookkeeper. Sees only businesses granted in user_business;
+--          prepares, files and freezes, but cannot amend or administer.
+-- client — the business owner. READ-ONLY, and scoped to the single
+--          business granted in user_business. Costs no seat.
 CREATE TABLE IF NOT EXISTS users (
   id                INTEGER PRIMARY KEY,
   account_id        INTEGER NOT NULL REFERENCES account(id),
   email             TEXT    NOT NULL,
-  role              TEXT    NOT NULL DEFAULT 'staff',        -- owner|staff
+  role              TEXT    NOT NULL DEFAULT 'staff',        -- owner|staff|client
   manager_user_ref  TEXT,                                   -- Manager restricted-user id, set by provisioner
   created_at        TEXT    NOT NULL DEFAULT (datetime('now')),
   UNIQUE(account_id, email)
@@ -48,14 +64,47 @@ CREATE TABLE IF NOT EXISTS users (
 -- register the same client name: the second gets an account-scoped suffix
 -- so the Manager-side key stays unique WITHOUT telling firm B that firm A
 -- exists (a plain "already taken" error would be a cross-tenant oracle).
+-- Removal is ARCHIVE, never DELETE: filed snapshots must survive a client
+-- leaving, and the audit trail has to stay intact. Archiving frees a slot
+-- against businesses_limit immediately, but does NOT refund the period —
+-- that's enforced by business_billing_period below.
+--
+-- tax_type does NOT affect price (every business bills at the same flat
+-- rate, deliberately — see the account comment). It drives which returns
+-- and deadlines the app surfaces.
 CREATE TABLE IF NOT EXISTS businesses (
   id                    INTEGER PRIMARY KEY,
   account_id            INTEGER NOT NULL REFERENCES account(id),
   manager_business_name TEXT    NOT NULL,
   name                  TEXT    NOT NULL,
+  tax_type              TEXT    NOT NULL DEFAULT 'vat',      -- vat|nonvat
+  status                TEXT    NOT NULL DEFAULT 'active',   -- active|archived
+  archived_at           TEXT,
   created_at            TEXT    NOT NULL DEFAULT (datetime('now')),
   UNIQUE(manager_business_name)
 );
+CREATE INDEX IF NOT EXISTS idx_businesses_active
+  ON businesses(account_id) WHERE status = 'active';
+
+-- One row per business per billing month it was active for ANY part of.
+-- This is what makes billing a high-water mark rather than a snapshot of
+-- whoever happens to be active on invoice day: a business added on the 3rd
+-- and archived on the 20th still has its row, so it is still billed.
+-- Without this table, archiving before the invoice would be free — and
+-- since VAT returns are filed quarterly while billing is monthly, a firm
+-- could add every client, file the whole quarter, and remove them before
+-- being charged.
+--
+-- period_key is 'YYYY-MM' (see auth-core.billingPeriodKey). A row is written
+-- when a business is added and by the monthly roll for every active business.
+CREATE TABLE IF NOT EXISTS business_billing_period (
+  id           INTEGER PRIMARY KEY,
+  business_id  INTEGER NOT NULL REFERENCES businesses(id),
+  period_key   TEXT    NOT NULL,                             -- 'YYYY-MM'
+  created_at   TEXT    NOT NULL DEFAULT (datetime('now')),
+  UNIQUE(business_id, period_key)
+);
+CREATE INDEX IF NOT EXISTS idx_billing_period ON business_billing_period(period_key);
 
 -- Source of truth for access: which user may open which client.
 CREATE TABLE IF NOT EXISTS user_business (

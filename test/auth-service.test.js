@@ -12,6 +12,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { DatabaseSync } = require('node:sqlite');
 const S = require('../server/auth-service.js');
+const A = require('../server/auth-core.js');
 
 const SCHEMA = fs.readFileSync(path.join(__dirname, '..', 'server', 'schema.sql'), 'utf8');
 
@@ -350,6 +351,107 @@ test('add-business: staff cannot add', () => {
   assert.equal(S.addBusiness(db, { cookie: cookie, name: 'n' }, deps).status, 403);
 });
 
+// ── archive + high-water-mark billing ────────────────────────────
+test('archive: revokes every grant and frees the slot, but still bills the month', () => {
+  const db = freshDb(), deps = makeDeps();
+  const cookie = signIn(db, deps, 'owner@x.com');
+  const add = S.addBusiness(db, { cookie: cookie, name: 'Leaving Co' }, deps);
+  S.setUserBusiness(db, { cookie: cookie, userId: 2, businessId: add.json.businessId, grant: true }, deps);
+
+  const r = S.archiveBusiness(db, { cookie: cookie, businessId: add.json.businessId }, deps);
+  assert.equal(r.status, 200);
+  assert.equal(r.json.revoked, 1, 'the staff grant was revoked');
+
+  const row = db.prepare('SELECT status, archived_at FROM businesses WHERE id = ?').get(add.json.businessId);
+  assert.equal(row.status, 'archived');
+  assert.ok(row.archived_at, 'archived_at stamped');
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM user_business WHERE business_id = ?').get(add.json.businessId).n, 0);
+  assert.ok(db.prepare("SELECT 1 FROM provision_job WHERE type='revoke' AND business_id = ?").get(add.json.businessId));
+
+  // The whole point: archiving does NOT erase the period.
+  const period = A.billingPeriodKey(deps.state.now);
+  assert.equal(S.billableCount(db, 1, period), 1, 'still billed for the month it was active in');
+});
+
+test('archive: add-then-archive-then-add inside one month cannot dodge the bill', () => {
+  const db = freshDb(), deps = makeDeps();
+  const cookie = signIn(db, deps, 'owner@x.com');
+  const period = A.billingPeriodKey(deps.state.now);
+
+  // The exploit shape: churn clients through a single billing month.
+  ['A Co', 'B Co', 'C Co'].forEach((name) => {
+    const a = S.addBusiness(db, { cookie: cookie, name: name }, deps);
+    S.archiveBusiness(db, { cookie: cookie, businessId: a.json.businessId }, deps);
+  });
+
+  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM businesses WHERE account_id=1 AND status='active'").get().n, 1,
+    'only the seeded Acme is left active');
+  assert.equal(S.billableCount(db, 1, period), 3, 'all three are still billed — high-water mark, not a snapshot');
+});
+
+test('archive: is idempotent and refuses another firm\'s business', () => {
+  const db = freshDb(), deps = makeDeps();
+  const cookie = signIn(db, deps, 'owner@x.com');
+  const a = S.addBusiness(db, { cookie: cookie, name: 'Once Co' }, deps);
+  assert.equal(S.archiveBusiness(db, { cookie: cookie, businessId: a.json.businessId }, deps).status, 200);
+  const again = S.archiveBusiness(db, { cookie: cookie, businessId: a.json.businessId }, deps);
+  assert.equal(again.json.alreadyArchived, true);
+  assert.equal(S.archiveBusiness(db, { cookie: cookie, businessId: 2 }, deps).status, 403, 'business 2 belongs to account 2');
+});
+
+test('archive: staff cannot archive', () => {
+  const db = freshDb(), deps = makeDeps();
+  assert.equal(S.archiveBusiness(db, { cookie: signIn(db, deps, 'staff@x.com'), businessId: 1 }, deps).status, 403);
+});
+
+test('add-business: re-adding an archived name reactivates it rather than duplicating', () => {
+  const db = freshDb(), deps = makeDeps();
+  const cookie = signIn(db, deps, 'owner@x.com');
+  const a = S.addBusiness(db, { cookie: cookie, name: 'Returning Co' }, deps);
+  S.archiveBusiness(db, { cookie: cookie, businessId: a.json.businessId }, deps);
+
+  const back = S.addBusiness(db, { cookie: cookie, name: 'Returning Co' }, deps);
+  assert.equal(back.json.reactivated, true);
+  assert.equal(back.json.businessId, a.json.businessId, 'same row — its filed snapshots come back with it');
+  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM businesses WHERE name='Returning Co'").get().n, 1);
+});
+
+test('add-business: an archived business does not consume the paid quantity', () => {
+  const db = freshDb(), deps = makeDeps();
+  const cookie = signIn(db, deps, 'other@x.com'); // account 2: businesses_limit 1, already at 1
+  assert.equal(S.addBusiness(db, { cookie: cookie, name: 'Blocked Co' }, deps).status, 409);
+  S.archiveBusiness(db, { cookie: cookie, businessId: 2 }, deps);
+  assert.equal(S.addBusiness(db, { cookie: cookie, name: 'Now Fits Co' }, deps).status, 201, 'slot freed by archiving');
+});
+
+// ── invite: roles ────────────────────────────────────────────────
+test('invite: a client must be scoped to one of the firm\'s own businesses', () => {
+  const db = freshDb(), deps = makeDeps();
+  const cookie = signIn(db, deps, 'owner@x.com');
+  assert.equal(S.inviteStaff(db, { cookie: cookie, email: 'c@x.com', role: 'client' }, deps).status, 400,
+    'no businessId');
+  assert.equal(S.inviteStaff(db, { cookie: cookie, email: 'c@x.com', role: 'client', businessId: 2 }, deps).status, 400,
+    'business 2 belongs to account 2');
+});
+
+test('invite: a client is granted their business immediately and consumes no seat', () => {
+  const db = freshDb(), deps = makeDeps();
+  const cookie = signIn(db, deps, 'owner@x.com');
+  const before = db.prepare("SELECT COUNT(*) AS n FROM users WHERE account_id=1 AND role IN ('owner','staff')").get().n;
+  const r = S.inviteStaff(db, { cookie: cookie, email: 'c@acme.ph', role: 'client', businessId: 1 }, deps);
+  assert.equal(r.status, 201);
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM user_business WHERE user_id = ?').get(r.json.userId).n, 1);
+  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM users WHERE account_id=1 AND role IN ('owner','staff')").get().n, before,
+    'clients are free — seat count unchanged');
+});
+
+test('invite: cannot smuggle in a second owner via the role field', () => {
+  const db = freshDb(), deps = makeDeps();
+  const cookie = signIn(db, deps, 'owner@x.com');
+  const r = S.inviteStaff(db, { cookie: cookie, email: 'sneaky@x.com', role: 'owner' }, deps);
+  assert.equal(r.json.role, 'staff', 'anything that is not "client" falls back to staff');
+});
+
 // ── overview (portal read) ───────────────────────────────────────
 test('overview: owner sees account, staff, businesses, and grants', () => {
   const db = freshDb(), deps = makeDeps();
@@ -374,8 +476,53 @@ test('overview: only the caller\'s account is visible (no cross-tenant leak)', (
   assert.ok(r.json.users.every((u) => u.email !== 'other@x.com'), 'account 2 user absent');
 });
 
-test('overview: staff and unauthenticated are denied', () => {
+test('overview: unauthenticated is denied', () => {
   const db = freshDb(), deps = makeDeps();
-  assert.equal(S.overview(db, { cookie: signIn(db, deps, 'staff@x.com') }, deps).status, 403);
   assert.equal(S.overview(db, { cookie: '' }, deps).status, 401);
+});
+
+test('overview: staff get in, but see ONLY their granted businesses', () => {
+  const db = freshDb(), deps = makeDeps();
+  const owner = signIn(db, deps, 'owner@x.com');
+  S.addBusiness(db, { cookie: owner, name: 'Ungranted Co' }, deps);
+  S.setUserBusiness(db, { cookie: owner, userId: 2, businessId: 1, grant: true }, deps); // staff -> Acme only
+
+  const r = S.overview(db, { cookie: signIn(db, deps, 'staff@x.com') }, deps);
+  assert.equal(r.status, 200, 'staff are no longer turned away at the dashboard');
+  assert.deepEqual(r.json.businesses.map((b) => b.name), ['Acme']);
+  assert.equal(r.json.me.capabilities.file, true);
+  assert.equal(r.json.me.capabilities.manageFirm, false);
+});
+
+test('overview: staff never learn who else works at the firm', () => {
+  const db = freshDb(), deps = makeDeps();
+  const r = S.overview(db, { cookie: signIn(db, deps, 'staff@x.com') }, deps);
+  assert.deepEqual(r.json.users, [], 'no team roster');
+  assert.deepEqual(r.json.grants, [], 'no access grid');
+  assert.equal(r.json.billing, undefined, 'no billing figures');
+  assert.equal(r.json.account.seats_limit, undefined, 'no plan limits');
+});
+
+test('overview: a client sees only their own business, read-only', () => {
+  const db = freshDb(), deps = makeDeps();
+  const owner = signIn(db, deps, 'owner@x.com');
+  const inv = S.inviteStaff(db, { cookie: owner, email: 'client@acme.ph', role: 'client', businessId: 1 }, deps);
+  assert.equal(inv.status, 201);
+  assert.equal(inv.json.role, 'client');
+
+  const r = S.overview(db, { cookie: signIn(db, deps, 'client@acme.ph') }, deps);
+  assert.equal(r.status, 200);
+  assert.deepEqual(r.json.businesses.map((b) => b.name), ['Acme']);
+  assert.equal(r.json.me.capabilities.file, false, 'clients cannot file');
+  assert.equal(r.json.me.capabilities.amendFiling, false);
+});
+
+test('overview: owner sees the billable count for this month', () => {
+  const db = freshDb(), deps = makeDeps();
+  const owner = signIn(db, deps, 'owner@x.com');
+  S.addBusiness(db, { cookie: owner, name: 'Second Co' }, deps);
+  const r = S.overview(db, { cookie: owner }, deps);
+  assert.equal(r.json.billing.periodKey, A.billingPeriodKey(deps.state.now));
+  // Acme is seeded directly (no billing row); only the added one is billable.
+  assert.equal(r.json.billing.billableBusinesses, 1);
 });
