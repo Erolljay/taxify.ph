@@ -4,16 +4,16 @@ Tracking doc referenced by [`docs/ECC-PLAYBOOK.md`](ECC-PLAYBOOK.md). Snapshot o
 where the app stands against the 6-phase SaaS plan, kept current from source
 changes rather than hand-waved.
 
-_Last updated: 2026-07-15_
+_Last updated: 2026-07-20_
 
 ## Phase status
 
 | Phase | Status | Notes |
 |-------|--------|-------|
 | **0 — Foundation hardening** | ✅ Largely done | Pull-based auto-deploy (`scripts/deploy.sh` via 2-min root cron), nginx web-root hardening, LF normalization. Hosting-license confirmed, Manager Server bought. **Backups live (2026-07-13):** AWS Backup EC2 snapshots + S3 Manager.io data backups, both 2 AM Manila, 7/56/400-day retention. **`save-tax-rates.php` hardened & LIVE (2026-07-14, PR #23):** shared-secret token + body cap + backup pruning on top of nginx basic-auth; token file created on the server. Still open: UFW, fail2ban, UptimeRobot, e2e BIR verification. |
-| **1 — Tenancy / entitlement / provisioning** | 🟡 Substantially built | `server/auth-*.js`, `smtp-mailer.js`, `entitlement.php`, `provisioner.js` + Playwright driver, `schema.sql`, systemd units. **95 passing tests.** **Email sender LIVE** — `txform-auth` service running, real magic-link email delivered via Google Workspace. **Magic-link now lands on the portal** — `verifyLink` 302-redirects a browser to `txform.ph/account` (cookie attached) instead of downloading `verify.json`; portal + `/api/*` share the apex origin. Open: live Playwright selectors. |
+| **1 — Tenancy / entitlement / provisioning** | 🟡 Substantially built | `server/auth-*.js`, `smtp-mailer.js`, `entitlement.php`, `provisioner.js` + Playwright driver, `schema.sql`, systemd units. **95 passing tests.** **Email sender LIVE** — `txform-auth` service running, real magic-link email delivered via Google Workspace. **Magic-link now lands on the portal** — `verifyLink` 302-redirects a browser to `txform.ph/account` (cookie attached) instead of downloading `verify.json`; portal + `/api/*` share the apex origin. **2026-07-20 (PR #40): businesses re-keyed from a phantom GUID to the Manager business NAME** — the old key was a field Manager never sends, which had left both the entitlement gate and freeze/save-report silently dead. **122 passing tests.** Open: live Playwright selectors; `firm_name` / `client` role / archive / billing-period columns; portal access for staff+clients; sign-up flow. |
 | **2 — Website rebuild & SEO** | ✅ Live | **Deployed 2026-07-14 (PR #21).** Full static multi-page site under `website/`: home + features/security/about/contact/faq/terms/privacy, shared `assets/css/site.css` + `assets/js/site.js`, real favicons, `robots.txt` + `sitemap.xml` + per-page meta & JSON-LD. **Positioned as a live product, not a waitlist** — CTAs are "Get started" → contact onboarding and "Sign in" → the owner portal at **`/account`**. Legal pages carry the firm's real details (TalloCPA, Iloilo City, DPO Erol Jay Tallo). Old JS bundle preserved as `index.legacy.html`. Open only: counsel review of legal pages, optional font self-hosting. |
-| **3 — Payments (PayMongo)** | 🔴 Not started | No PayMongo/webhook code yet. |
+| **3 — Payments (PayMongo)** | 🔴 Not started | No PayMongo/webhook code yet. **Model decided 2026-07-20:** flat ₱500/business/month (no tiers), no trial, one monthly invoice billed on the high-water mark of active businesses. PayMongo cannot prorate, but invoice line items can be adjusted before an invoice finalises — that's the mechanism. Annual prepay deferred. |
 | **4 — ToS / Data Privacy (RA 10173)** | 🟡 Draft pages | `website/terms.html` + `website/privacy.html` drafted (RA 10173-aligned, NPC/DPO sections) with bracketed firm placeholders; needs real firm details + counsel review before launch. |
 | **5 — Beta / launch** | 🔴 Not started | — |
 
@@ -29,6 +29,59 @@ rates, the graduated-tax engine and VAT 2550Q are verified; two income-tax bugs 
   workflow engine that replaced the old monolithic setup screen).
 
 ## Changelog
+
+### 2026-07-20 — Firm-account IA decided + businesses re-keyed to Manager name (PR #40)
+
+**The design.** Settled the firm/user/business model that Phase 1 half-built, and the pricing
+that Phase 3 will bill. Full IA (roles, sign-up, screens, session model, gap list) is published
+as an artifact: <https://claude.ai/code/artifact/11868cee-4b68-4643-bdb7-94df63b100c9>.
+
+- **Three roles.** `admin` (the paying firm owner — billing, adds/archives businesses, invites
+  staff, sets the grid, and the *only* role that can amend a filed return) · `staff` (granted
+  businesses only; prepares, files, freezes) · `client` (the business owner — read-only, own
+  business only). Staff seats are unlimited and free; client users are free too.
+- **Pricing: flat ₱500/business/month, VAT or not.** A ₱250 non-VAT tier was considered and
+  rejected — tax status is self-declared and unaudited, so a firm would register clients as
+  non-VAT and generate VAT returns anyway. **Price must never depend on a figure the customer
+  declares about themselves.** No free trial.
+- **Billing: one monthly invoice, high-water mark.** A business is billed for any month it was
+  active *at any point*; no proration, no refunds, access to period end. Rejected "free until the
+  next cycle" because VAT returns are filed *quarterly* while billing is *monthly* — a firm could
+  add every client after a billing date, file the whole quarter, and remove them before the next,
+  paying ₱0. **PayMongo does not support proration at all** (verified against their docs), but it
+  does allow invoice line items to be adjusted before the next invoice finalises, which is exactly
+  what a recalculated monthly invoice needs. Annual prepay deferred.
+- **Architecture rule made explicit.** txform.ph is the control plane (source of truth for firms,
+  users, roles, access, billing, frozen filings); Manager is a mirror. Sync is one-way and the
+  website wins. Nobody edits users inside Manager — the provisioner reconciles it away, and the
+  failure mode of two-master editing is cross-firm data exposure.
+- **Never authenticate by matching email addresses** between Manager and txform.ph. Even if
+  Manager hands the iframe a logged-in email, that's an unverifiable claim. Not needed anyway:
+  `txfsid` is issued with a configurable `Domain` (**`TXFORM_COOKIE_DOMAIN`**), and since
+  `txform.ph` / `extension.txform.ph` / `books.txform.ph` share one registrable domain they are
+  *same-site*, so `SameSite=Lax` does not strip the cookie inside the extension iframe.
+  **Unset, the cookie is host-only and every entitlement check fails for signed-in users.**
+
+**The fix (PR #40).** Manager Server has no business GUIDs — `api4/businesses` returns objects
+carrying only `name`, and the user form's Businesses multi-select uses `base64(name)`. The portal
+nonetheless asked owners to paste a "Manager business GUID" and stored it as the join key, so
+**two features were silently dead in production**:
+
+- `shared/entitlement.js` resolved name → GUID off `.key`, a field Manager never sends. It
+  returned `null` every time and `checkEntitlement(null)` fails open — the gate never engaged.
+- `app/filing-store.js` threw `FilingAuthError('Business not resolvable')` on the same `null`, so
+  **every freeze and every snapshot load failed**.
+
+Column renamed to `manager_business_name`; both resolvers deleted. Because Manager names must be
+unique across every hosted firm, a colliding firm silently gets an account-scoped Manager-side
+name (`OtherCo (1)`) while the portal keeps showing their chosen name — a plain "already taken"
+error would be a cross-tenant oracle. The suffix derives from the **account id**, not a collision
+count, so it never reveals how many other firms hold the name. The Playwright driver's TODOs were
+also corrected: they described an `/admin/users/<id>/permissions` page that does not exist —
+access is the Businesses multi-select on `/user-form`, making grant and revoke the same operation.
+
+`npm test` **119 → 122 green**. Not deployed: the schema change needs the live `txform.db`
+migrated or recreated first.
 
 ### 2026-07-15 — Hotfix: Annual Filing crashed the app at load (PR #35)
 PR #34 was merged with an `annual` step-engine workflow whose `annual-1604c` step read
