@@ -19,22 +19,35 @@
     body { margin:0; background:var(--page); color:var(--ink);
       font:15px/1.55 system-ui,-apple-system,"Segoe UI",sans-serif; -webkit-font-smoothing:antialiased; }
     a { color:var(--accent-deep); }
-    .wrap { max-width:920px; margin:0 auto; padding:0 20px; }
+    .wrap { max-width:960px; margin:0 auto; padding:0 20px; }
 
-    header.bar { background:var(--navy); color:#fff; padding:16px 0; }
-    header.bar .wrap { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; }
+    header.bar { background:var(--navy); color:#fff; padding:14px 0 0; }
+    header.bar .top { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; }
     header.bar .brand { font-weight:800; letter-spacing:-.01em; font-size:18px; }
+    header.bar .brand .firm { font-weight:500; color:#b9c8dc; margin-left:8px; font-size:14px; }
     header.bar .who { font-size:13px; color:#b9c8dc; display:flex; align-items:center; gap:10px; }
+
+    /* tabs */
+    nav.tabs { display:flex; gap:2px; margin-top:14px; overflow-x:auto; }
+    nav.tabs button { background:none; border:none; color:#b9c8dc; font:inherit; font-size:14px;
+      padding:10px 14px; cursor:pointer; border-bottom:2px solid transparent; white-space:nowrap;
+      /* reset the global button pill: a rounded focus ring here escapes the
+         navy header and lands on the page below it */
+      border-radius:0; outline-offset:-3px; }
+    nav.tabs button:hover { color:#fff; }
+    nav.tabs button[aria-selected="true"] { color:#fff; font-weight:600; border-bottom-color:var(--accent); }
+    nav.tabs[hidden] { display:none; }
 
     .badge { display:inline-block; font-size:11px; font-weight:700; letter-spacing:.04em; text-transform:uppercase;
       padding:2px 9px; border-radius:99px; }
     .badge.active { background:var(--accent-wash); color:var(--accent-deep); }
-    .badge.grace, .badge.suspended { background:var(--warn-bg); color:var(--warn-fg); }
+    .badge.pending, .badge.grace, .badge.suspended { background:var(--warn-bg); color:var(--warn-fg); }
     .badge.cancelled { background:var(--err-bg); color:var(--err-fg); }
+    .badge.role { background:#1c3d63; color:#cfe0f2; }
 
     main { padding:28px 0 60px; }
-    h1 { font-size:24px; letter-spacing:-.02em; margin:0 0 4px; }
-    .sub { color:var(--muted); font-size:13.5px; margin:0 0 24px; }
+    h1 { font-size:22px; letter-spacing:-.02em; margin:0 0 4px; }
+    .sub { color:var(--muted); font-size:13.5px; margin:0 0 22px; }
 
     .card { background:var(--card); border:1px solid var(--line); border-radius:var(--radius);
       box-shadow:var(--shadow); padding:20px 22px; margin-bottom:20px; }
@@ -43,20 +56,24 @@
     .card h2 .use.full { color:var(--warn-fg); }
 
     ul.rows { list-style:none; margin:14px 0 0; padding:0; }
-    ul.rows li { display:flex; align-items:center; gap:10px; padding:9px 0; border-top:1px solid var(--line); font-size:14px; }
+    ul.rows li { display:flex; align-items:center; gap:10px; padding:10px 0; border-top:1px solid var(--line); font-size:14px; }
     ul.rows li:first-child { border-top:none; }
     ul.rows .role { font-size:11px; color:var(--muted); font-family:ui-monospace,Menlo,monospace; }
+    ul.rows .spacer { margin-left:auto; }
     .empty { color:var(--muted); font-size:13.5px; padding:12px 0 2px; }
 
-    form.inline { display:flex; gap:8px; margin-top:16px; flex-wrap:wrap; }
-    input[type=text], input[type=email] { flex:1 1 160px; min-width:0; font:inherit; font-size:14px;
+    form.inline { display:flex; gap:8px; margin-top:16px; flex-wrap:wrap; align-items:center; }
+    input[type=text], input[type=email], select { flex:1 1 160px; min-width:0; font:inherit; font-size:14px;
       padding:8px 11px; border:1px solid var(--line); border-radius:8px; background:#fff; color:var(--ink); }
-    input:focus { outline:2px solid var(--accent); outline-offset:0; border-color:var(--accent); }
+    select { flex:0 1 auto; }
+    input:focus, select:focus, button:focus-visible { outline:2px solid var(--accent); outline-offset:1px; }
     button { font:inherit; font-size:14px; font-weight:600; padding:8px 16px; border:none; border-radius:8px;
       background:var(--accent); color:#fff; cursor:pointer; }
     button:hover { background:var(--accent-deep); }
     button.ghost { background:transparent; color:var(--accent-deep); border:1px solid var(--line); }
     button.ghost:hover { background:var(--accent-wash); }
+    button.danger { background:transparent; color:var(--err-fg); border:1px solid var(--line); font-size:13px; padding:5px 11px; }
+    button.danger:hover { background:var(--err-bg); }
 
     table.matrix { border-collapse:collapse; width:100%; margin-top:14px; font-size:13.5px; }
     table.matrix th, table.matrix td { padding:9px 10px; border-bottom:1px solid var(--line); text-align:center; }
@@ -65,12 +82,34 @@
     table.matrix input[type=checkbox] { width:17px; height:17px; accent-color:var(--accent); cursor:pointer; }
     .scroll { overflow-x:auto; }
 
+    /* provisioner sync state */
+    .sync { display:block; font-size:10px; font-family:ui-monospace,Menlo,monospace; margin-top:3px; }
+    .sync.pending { color:var(--warn-fg); }
+    .sync.failed { color:var(--err-fg); }
+    .legend { display:flex; flex-wrap:wrap; gap:14px; font-size:12px; color:var(--muted); margin-top:12px; }
+
+    /* billing */
+    .invoice { display:flex; flex-direction:column; gap:0; margin-top:12px; font-size:14px; }
+    .invoice div { display:flex; justify-content:space-between; gap:12px; padding:9px 0; border-top:1px solid var(--line); }
+    .invoice div:first-child { border-top:none; }
+    .invoice .amt { font-family:ui-monospace,Menlo,monospace; font-variant-numeric:tabular-nums; }
+    .invoice .total { font-weight:700; border-top:2px solid var(--ink); }
+    .voucher { background:var(--accent-wash); color:var(--accent-deep); border-radius:8px;
+      padding:10px 13px; font-size:13.5px; margin-top:12px; }
+
+    /* activity */
+    ul.log { list-style:none; margin:12px 0 0; padding:0; font-size:13px; }
+    ul.log li { display:flex; gap:12px; padding:8px 0; border-top:1px solid var(--line); }
+    ul.log li:first-child { border-top:none; }
+    ul.log .when { color:var(--muted); font-family:ui-monospace,Menlo,monospace; font-size:11.5px; white-space:nowrap; }
+    ul.log .what { font-weight:600; }
+    ul.log .target { color:var(--muted); word-break:break-word; }
+
     .alert { border-radius:8px; padding:10px 13px; font-size:13.5px; margin-top:12px; }
     .alert.ok { background:var(--accent-wash); color:var(--accent-deep); }
     .alert.warn { background:var(--warn-bg); color:var(--warn-fg); }
     .alert.err { background:var(--err-bg); color:var(--err-fg); }
 
-    /* sign-in */
     #signin-view { max-width:420px; margin:8vh auto 0; }
     #signin-view .card { padding:28px 26px; }
     #signin-view h1 { margin-bottom:6px; }
@@ -80,8 +119,11 @@
 
 <header class="bar">
   <div class="wrap">
-    <div class="brand">Txform</div>
-    <div class="who" id="who" hidden></div>
+    <div class="top">
+      <div class="brand">Txform<span class="firm" id="firm-name"></span></div>
+      <div class="who" id="who" hidden></div>
+    </div>
+    <nav class="tabs" id="tabs" hidden role="tablist"></nav>
   </div>
 </header>
 
@@ -102,32 +144,10 @@
 
   <!-- ── DASHBOARD ───────────────────────────────────────── -->
   <section id="dashboard-view" hidden>
-    <h1>Your firm</h1>
-    <p class="sub">Manage staff, client businesses, and who can open which books.</p>
+    <h1 id="panel-title"></h1>
+    <p class="sub" id="panel-sub"></p>
     <div id="dash-msg"></div>
-
-    <div class="card">
-      <h2>Client businesses <span class="use" id="biz-use"></span></h2>
-      <ul class="rows" id="biz-list"></ul>
-      <form class="inline" id="biz-form">
-        <input type="text" id="biz-name" placeholder="Business name" required>
-        <button type="submit">Add business</button>
-      </form>
-    </div>
-
-    <div class="card">
-      <h2>Staff <span class="use" id="seat-use"></span></h2>
-      <ul class="rows" id="staff-list"></ul>
-      <form class="inline" id="staff-form">
-        <input type="email" id="staff-email" placeholder="staff@firm.com" required autocomplete="off">
-        <button type="submit">Invite staff</button>
-      </form>
-    </div>
-
-    <div class="card">
-      <h2>Access — who can open which business</h2>
-      <div class="scroll"><div id="matrix"></div></div>
-    </div>
+    <div id="panel"></div>
   </section>
 
 </main>

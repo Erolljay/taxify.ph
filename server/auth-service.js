@@ -441,10 +441,17 @@ function overview(db, input, deps) {
     'SELECT ub.user_id, ub.business_id FROM user_business ub JOIN users u ON u.id = ub.user_id WHERE u.account_id = ?'
   ).all(s.account_id);
 
+  // Recent activity, owner-only. Capped: this is a "what happened lately"
+  // panel, not an archive — the audit_log table remains the full record.
+  const activity = db.prepare(
+    'SELECT actor, action, target, at FROM audit_log WHERE account_id = ? ORDER BY id DESC LIMIT 50'
+  ).all(s.account_id);
+
   return {
     status: 200,
     json: {
       account: account, me: me, users: users, businesses: businesses, grants: grants, jobs: jobs,
+      activity: activity,
       billing: invoiceFor(db, s.account_id, A.billingPeriodKey(now)),
     },
   };
