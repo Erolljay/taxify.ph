@@ -12,11 +12,16 @@
    Single-worker model: run on a systemd timer (see
    server/txform-provisioner.{service,timer}); one drainOnce per tick.
 
-   Driver interface (all async, may throw; may return { screenshot }):
-     createUser({ email })            -> { managerUserRef, screenshot? }
+   Driver interface (all async, may throw):
+     createBusiness({ businessName })
+     createUser({ email })            -> { managerUserRef }
      grantAccess({ managerUserRef, businessName })
      revokeAccess({ managerUserRef, businessName })
      disableUser({ managerUserRef })
+
+   Job ordering is by id and enforced by retry, not by a scheduler: a
+   grant whose business or user has not been created yet simply throws and
+   is picked up again on the next tick, once the job ahead of it has run.
    ============================================================ */
 'use strict';
 
@@ -29,8 +34,19 @@ function nextStatusOnFailure(attempts) {
 
 // Claim the oldest pending job: mark it 'running' and bump attempts so a
 // job that keeps throwing can't loop forever. Returns the job or null.
-function claimNext(db, now) {
-  const job = db.prepare("SELECT * FROM provision_job WHERE status = 'pending' ORDER BY id LIMIT 1").get();
+//
+// `excludeIds` holds the jobs already attempted in THIS drain. Without it a
+// job that fails back to 'pending' is immediately re-claimed by the same
+// loop and burns all MAX_ATTEMPTS within one tick — which breaks the whole
+// point of retrying. Jobs that wait on another job (a grant queued before
+// its business exists) are exactly this case, and would give up seconds
+// after being queued instead of succeeding on the next tick.
+function claimNext(db, now, excludeIds) {
+  const skip = excludeIds && excludeIds.length ? excludeIds : null;
+  const sql = "SELECT * FROM provision_job WHERE status = 'pending'"
+    + (skip ? ' AND id NOT IN (' + skip.map(function () { return '?'; }).join(',') + ')' : '')
+    + ' ORDER BY id LIMIT 1';
+  const job = skip ? db.prepare(sql).get.apply(db.prepare(sql), skip) : db.prepare(sql).get();
   if (!job) return null;
   db.prepare("UPDATE provision_job SET status = 'running', attempts = attempts + 1, updated_at = ? WHERE id = ?")
     .run(now, job.id);
@@ -43,6 +59,20 @@ function claimNext(db, now) {
 // any problem; retriable ones (e.g. a grant before the user's create has
 // run) simply throw and get retried by runJob.
 async function dispatch(db, job, driver) {
+  // Create the books themselves. No user involved — this is the one job
+  // type keyed on a business alone.
+  if (job.type === 'create_business') {
+    const biz = db.prepare('SELECT id, manager_business_name, manager_created_at FROM businesses WHERE id = ?').get(job.business_id);
+    if (!biz) throw new Error('business not found');
+    // Already created: a retry after a response we never saw must not make
+    // a second set of books.
+    if (biz.manager_created_at) return { alreadyCreated: true };
+    const r = await driver.createBusiness({ businessName: biz.manager_business_name });
+    db.prepare('UPDATE businesses SET manager_created_at = ? WHERE id = ?')
+      .run(new Date(Date.now()).toISOString(), biz.id);
+    return r || {};
+  }
+
   if (job.type === 'create') {
     const user = db.prepare('SELECT id, email FROM users WHERE id = ?').get(job.user_id);
     if (!user) throw new Error('user not found');
@@ -59,17 +89,27 @@ async function dispatch(db, job, driver) {
 
   if (job.type === 'disable') return driver.disableUser({ managerUserRef: user.manager_user_ref });
 
-  const biz = db.prepare('SELECT manager_business_name FROM businesses WHERE id = ?').get(job.business_id);
+  const biz = db.prepare('SELECT manager_business_name, manager_created_at FROM businesses WHERE id = ?').get(job.business_id);
   if (!biz) throw new Error('business not found');
+  // Granting access to books that do not exist yet would fail in Manager
+  // and look like a permissions bug. Throw so this retries after the
+  // create_business job ahead of it has run.
+  if (!biz.manager_created_at) throw new Error('business not created in Manager yet');
   if (job.type === 'grant') return driver.grantAccess({ managerUserRef: user.manager_user_ref, businessName: biz.manager_business_name });
   if (job.type === 'revoke') return driver.revokeAccess({ managerUserRef: user.manager_user_ref, businessName: biz.manager_business_name });
   throw new Error('unknown job type: ' + job.type);
 }
 
+// Attribute the entry to the right firm. Most jobs carry a user, but
+// create_business carries only a business — resolve through whichever is
+// present so a failed book-creation still lands in that firm's activity
+// log rather than nowhere.
 function audit(db, job, outcome) {
-  const u = job.user_id ? db.prepare('SELECT account_id FROM users WHERE id = ?').get(job.user_id) : null;
+  const owner = job.user_id
+    ? db.prepare('SELECT account_id FROM users WHERE id = ?').get(job.user_id)
+    : (job.business_id ? db.prepare('SELECT account_id FROM businesses WHERE id = ?').get(job.business_id) : null);
   db.prepare('INSERT INTO audit_log (account_id, actor, action, target) VALUES (?,?,?,?)')
-    .run(u ? u.account_id : null, 'provisioner', 'job_' + outcome, job.type + ' job:' + job.id);
+    .run(owner ? owner.account_id : null, 'provisioner', 'job_' + outcome, job.type + ' job:' + job.id);
 }
 
 // Execute one claimed job. Records done (with any screenshot) or, on
@@ -96,8 +136,10 @@ async function runJob(db, job, driver, deps) {
 async function drainOnce(db, driver, deps) {
   const cap = (deps && deps.cap) || 500;
   const now = (deps && deps.now) || function () { return Date.now(); };
+  const seen = [];
   let processed = 0, job;
-  while (processed < cap && (job = claimNext(db, now()))) {
+  while (processed < cap && (job = claimNext(db, now(), seen))) {
+    seen.push(job.id);   // one attempt per job per tick
     await runJob(db, job, driver, { now: now });
     processed++;
   }

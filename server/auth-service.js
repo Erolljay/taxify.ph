@@ -305,12 +305,6 @@ function grantDiscount(db, accountId, opts) {
     .run(accountId, opts.actor || 'admin-cli', 'grant_discount', pct + '% ' + opts.reason);
 }
 
-function managerNameFor(db, accountId, name) {
-  const taken = (n) => !!db.prepare('SELECT 1 FROM businesses WHERE manager_business_name = ?').get(n);
-  if (!taken(name)) return name;
-  const scoped = name + ' (' + accountId + ')';
-  return taken(scoped) ? null : scoped;
-}
 
 // POST /api/tenancy/add-business { name }
 // Owner-only. Registers one of the firm's client businesses against the
@@ -320,12 +314,16 @@ function addBusiness(db, input, deps) {
   const now = deps.now();
   const s = loadSession(db, input.cookie, now);
   if (!s) return { status: 401, json: { error: 'not signed in' } };
-  const account = db.prepare('SELECT id, businesses_limit FROM account WHERE id = ?').get(s.account_id);
+  const account = db.prepare('SELECT id, businesses_limit, firm_code FROM account WHERE id = ?').get(s.account_id);
   const authz = A.authorizeOwnerAction({ role: s.role, account_id: s.account_id, expires_at: s.expires_at }, account, now);
   if (!authz.ok) return { status: 403, json: { error: authz.reason } };
 
   const name = (input && typeof input.name === 'string') ? input.name.trim() : '';
   if (!name) return { status: 400, json: { error: 'name required' } };
+  // Without a firm code we cannot name the books in Manager, and an
+  // unprefixed business would be the one able to collide with another
+  // firm's. Refuse rather than guess.
+  if (!account.firm_code) return { status: 409, json: { error: 'firm_code_missing' } };
 
   // Re-adding a client the firm already has is idempotent and costs no slot.
   // An ARCHIVED one is reactivated instead of duplicated — the Manager name
@@ -350,15 +348,26 @@ function addBusiness(db, input, deps) {
   // Both the plain name and the account-scoped fallback are taken. Only
   // reachable if this firm already holds the suffixed variant as a
   // separate client, so naming it is safe — it's their own data.
-  const managerName = managerNameFor(db, s.account_id, name);
-  if (!managerName) return { status: 409, json: { error: 'name_unavailable' } };
+  // Prefixed with the firm's code, so this can never collide with another
+  // firm's client of the same name — and so no firm can discover that it
+  // would have.
+  const managerName = A.managerBusinessName(account.firm_code, name);
+  if (!managerName) return { status: 400, json: { error: 'name required' } };
+  if (db.prepare('SELECT 1 FROM businesses WHERE manager_business_name = ?').get(managerName)) {
+    // Only reachable within one firm — their own data, safe to name.
+    return { status: 409, json: { error: 'name_unavailable' } };
+  }
 
   const businessId = Number(db.prepare('INSERT INTO businesses (account_id, manager_business_name, name) VALUES (?,?,?)')
     .run(s.account_id, managerName, name).lastInsertRowid);
   recordBillingPeriod(db, businessId, now);
+  // The books do not exist in Manager yet — the provisioner creates them,
+  // and only then does manager_created_at get stamped.
+  db.prepare('INSERT INTO provision_job (type, business_id, created_at, updated_at) VALUES (?,?,?,?)')
+    .run('create_business', businessId, now, now);
   db.prepare('INSERT INTO audit_log (account_id, actor, action, target) VALUES (?,?,?,?)')
     .run(s.account_id, s.email, 'add_business', 'business:' + businessId + ' ' + managerName);
-  return { status: 201, json: { ok: true, businessId: businessId, managerBusinessName: managerName } };
+  return { status: 201, json: { ok: true, businessId: businessId } };
 }
 
 // POST /api/tenancy/archive-business { businessId }
@@ -458,7 +467,7 @@ function overview(db, input, deps) {
 module.exports = {
   COOKIE_NAME, parseCookie, loadSession,
   requestLink, verifyLink, currentUser,
-  setUserBusiness, inviteStaff, addBusiness, archiveBusiness, managerNameFor,
+  setUserBusiness, inviteStaff, addBusiness, archiveBusiness,
   recordBillingPeriod, billableCount, invoiceFor, grantDiscount, overview,
 };
 

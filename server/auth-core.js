@@ -105,6 +105,41 @@ function can(role, capability) {
 // is already in their business's monthly rate.
 function consumesSeat(role) { return role === 'owner' || role === 'staff'; }
 
+// ── MANAGER BUSINESS NAMING ──────────────────────────────────────
+// Every business a firm owns is prefixed with that firm's code in
+// Manager: "TALLO-0001 Acme Trading".
+//
+// This replaced an earlier scheme that appended a suffix only when two
+// firms collided on a name. That leaked: a firm that asked for "Acme" and
+// got "Acme (1)" back could infer another firm already had an Acme. A
+// prefix that is always present carries no such signal, and it doubles as
+// the administrator's view of who owns what in Manager's business list.
+const FIRM_CODE_SEPARATOR = '-';
+
+// Codes go into business names, so keep them boring: A-Z and digits only,
+// uppercased, and short enough to leave room for the real name.
+function normalizeFirmCode(code) {
+  const c = String(code || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  return c.slice(0, 12);
+}
+
+// Validate the RAW input, not the normalized form — comparing normalized
+// against normalized can never detect that normalizing changed anything,
+// so "TALLO CPA" would silently become TALLOCPA. Make the operator fix it.
+function isValidFirmCode(code) {
+  return /^[A-Za-z0-9]{2,12}$/.test(String(code || ''));
+}
+
+// The name these books carry in Manager. Pure: the same firm and the same
+// requested name always produce the same result, with no database lookup
+// and so no dependence on what any other firm happens to own.
+function managerBusinessName(firmCode, name) {
+  const code = normalizeFirmCode(firmCode);
+  const clean = String(name || '').trim();
+  if (!code || !clean) return null;
+  return code + FIRM_CODE_SEPARATOR + clean;
+}
+
 // ── PRICING ──────────────────────────────────────────────────────
 // One flat rate per business per month, VAT-registered or not. The rate
 // deliberately does NOT vary by tax type: that is self-declared and
@@ -161,5 +196,6 @@ module.exports = {
   isLoginTokenUsable, withinRateLimit, canProvisionMore,
   isSessionValid, authorizeOwnerAction, can, consumesSeat, billingPeriodKey,
   discountPercentFor, computeInvoice,
+  FIRM_CODE_SEPARATOR, normalizeFirmCode, isValidFirmCode, managerBusinessName,
   tokenExpiry, sessionExpiry,
 };

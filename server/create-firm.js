@@ -18,6 +18,10 @@
    Options:
      --businesses N   paid/allowed client businesses   (default 100)
      --seats N        owner+staff seats                (default 10)
+     --code CODE      REQUIRED. 2-12 letters/digits, e.g. TALLO. Prefixed onto
+                      every business name in Manager ("TALLO-0001 Acme") so
+                      names cannot collide across firms and the administrator
+                      can see who owns what. IMMUTABLE once set.
      --comp "reason"  attach a 100%-off voucher with no end date, for the
                       reason given. The firm is still counted and still
                       invoiced — the invoice just totals zero, and says why.
@@ -38,12 +42,13 @@ const A = require('./auth-core.js');
 // ── args ──────────────────────────────────────────────────────────
 function parseArgs(argv) {
   const positional = [];
-  const opts = { businesses: 100, seats: 10, comp: null, percentOff: 100, db: null };
+  const opts = { businesses: 100, seats: 10, comp: null, percentOff: 100, code: null, db: null };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--businesses') opts.businesses = Number(argv[++i]);
     else if (a === '--seats') opts.seats = Number(argv[++i]);
     else if (a === '--comp') opts.comp = argv[++i];
+    else if (a === '--code') opts.code = argv[++i];
     else if (a === '--percent-off') opts.percentOff = Number(argv[++i]);
     else if (a === '--db') opts.db = argv[++i];
     else if (a.startsWith('--')) throw new Error('unknown option: ' + a);
@@ -57,6 +62,8 @@ function parseArgs(argv) {
 function validate(opts) {
   if (!opts.firmName) return 'firm name is required';
   if (!opts.email || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(opts.email)) return 'a valid owner email is required';
+  if (!opts.code) return '--code is required (2-12 letters/digits, e.g. TALLO) — it prefixes every business name in Manager and cannot be changed later';
+  if (!A.isValidFirmCode(opts.code)) return '--code must be 2-12 letters or digits only, e.g. TALLO';
   if (!Number.isInteger(opts.businesses) || opts.businesses < 1) return '--businesses must be a positive integer';
   if (!Number.isInteger(opts.seats) || opts.seats < 1) return '--seats must be a positive integer';
   if (opts.comp !== null && !String(opts.comp).trim()) return '--comp needs a reason ("founder firm", "beta partner", ...)';
@@ -74,10 +81,14 @@ function createFirm(db, opts) {
   const existing = db.prepare('SELECT id, account_id, role FROM users WHERE email = ?').get(opts.email);
   if (existing) return { created: false, userId: existing.id, accountId: existing.account_id, role: existing.role };
 
+  const code = A.normalizeFirmCode(opts.code);
+  const clash = db.prepare('SELECT id, firm_name FROM account WHERE firm_code = ?').get(code);
+  if (clash) return { created: false, codeTaken: true, accountId: clash.id, firmName: clash.firm_name };
+
   const acct = db.prepare(
-    `INSERT INTO account (firm_name, plan, status, seats_limit, businesses_limit)
-     VALUES (?, 'firm', 'active', ?, ?)`
-  ).run(opts.firmName, opts.seats, opts.businesses);
+    `INSERT INTO account (firm_name, firm_code, plan, status, seats_limit, businesses_limit)
+     VALUES (?, ?, 'firm', 'active', ?, ?)`
+  ).run(opts.firmName, code, opts.seats, opts.businesses);
   const accountId = Number(acct.lastInsertRowid);
 
   const user = db.prepare("INSERT INTO users (account_id, email, role) VALUES (?, ?, 'owner')")
@@ -116,7 +127,7 @@ if (require.main === module) {
   const problem = validate(opts);
   if (problem) {
     console.error('Error: ' + problem + '\n');
-    console.error('Usage: node server/create-firm.js "Firm Name" owner@firm.ph [--businesses N] [--seats N] [--billable]');
+    console.error('Usage: node server/create-firm.js "Firm Name" owner@firm.ph --code TALLO [--businesses N] [--seats N] [--comp "reason"]');
     process.exit(1);
   }
 
@@ -140,6 +151,12 @@ if (require.main === module) {
 
   const r = createFirm(db, opts);
 
+  if (r.codeTaken) {
+    console.error('Error: firm code ' + A.normalizeFirmCode(opts.code) + ' is already used by "' + r.firmName + '" (account ' + r.accountId + ').');
+    console.error('Codes are permanent, so pick a different one.');
+    process.exit(1);
+  }
+
   if (!r.created) {
     console.log('That email already has an account — nothing to do.');
     console.log('  email      : ' + opts.email);
@@ -150,6 +167,7 @@ if (require.main === module) {
   console.log('Created firm:');
   console.log('  firm       : ' + opts.firmName);
   console.log('  account id : ' + r.accountId);
+  console.log('  firm code  : ' + A.normalizeFirmCode(opts.code) + '   (books appear in Manager as ' + A.managerBusinessName(opts.code, '<business name>') + ')');
   console.log('  owner      : ' + opts.email + '  (user ' + r.userId + ')');
   console.log('  limits     : ' + opts.seats + ' seats / ' + opts.businesses + ' businesses');
   console.log('  billing    : ' + (opts.comp

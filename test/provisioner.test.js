@@ -20,7 +20,7 @@ function seed() {
   db.exec(SCHEMA);
   db.prepare('INSERT INTO account (id, plan) VALUES (1, ?)').run('firm');
   db.prepare('INSERT INTO users (id, account_id, email) VALUES (1, 1, ?)').run('staff@x.com');
-  db.prepare('INSERT INTO businesses (id, account_id, manager_business_name, name) VALUES (1, 1, ?, ?)').run('Acme', 'Acme');
+  db.prepare('INSERT INTO businesses (id, account_id, manager_business_name, name, manager_created_at) VALUES (1, 1, ?, ?, ?)').run('Acme', 'Acme', '2026-01-01T00:00:00Z');
   return db;
 }
 function enqueue(db, type, userId, businessId) {
@@ -35,6 +35,7 @@ function fakeDriver(opts = {}) {
   const rec = (name, a) => { calls.push([name, a]); };
   return {
     calls,
+    createBusiness: async (a) => { rec('createBusiness', a); if (opts.failCreateBusiness) throw new Error('create-business boom'); return {}; },
     createUser: async (a) => { rec('createUser', a); if (opts.failCreate) throw new Error('create boom'); return { managerUserRef: 'mgr:' + a.email, screenshot: '/s/create.png' }; },
     grantAccess: async (a) => { rec('grantAccess', a); if (opts.failGrant) throw new Error('grant boom'); return { screenshot: '/s/grant.png' }; },
     revokeAccess: async (a) => { rec('revokeAccess', a); return { screenshot: '/s/revoke.png' }; },
@@ -97,8 +98,10 @@ test('revoke and disable dispatch to the right driver methods', async () => {
 test('failure: a job retries up to the cap then is marked failed with the error', async () => {
   const db = seed(), driver = fakeDriver({ failCreate: true });
   enqueue(db, 'create', 1);
-  await P.drainOnce(db, driver, deps);
-  assert.equal(only(driver.calls, 'createUser').length, P.MAX_ATTEMPTS, 'retried MAX_ATTEMPTS times');
+  // One attempt per tick: a failing job must NOT burn its whole retry
+  // budget inside a single drain, or a brief outage exhausts it in seconds.
+  for (let i = 0; i < P.MAX_ATTEMPTS; i++) await P.drainOnce(db, driver, deps);
+  assert.equal(only(driver.calls, 'createUser').length, P.MAX_ATTEMPTS, 'one attempt per tick');
   assert.equal(jobStatus(db, 1).status, 'failed');
   assert.match(jobStatus(db, 1).last_error, /create boom/);
   assert.ok(db.prepare("SELECT 1 FROM audit_log WHERE action='job_failed'").get());
@@ -107,7 +110,7 @@ test('failure: a job retries up to the cap then is marked failed with the error'
 test('grant with no created user (and no create job) retries to failed, never calls the driver', async () => {
   const db = seed(), driver = fakeDriver();
   enqueue(db, 'grant', 1, 1); // user has no manager_user_ref, no create queued
-  await P.drainOnce(db, driver, deps);
+  for (let i = 0; i < P.MAX_ATTEMPTS; i++) await P.drainOnce(db, driver, deps);
   assert.equal(only(driver.calls, 'grantAccess').length, 0);
   assert.equal(jobStatus(db, 1).status, 'failed');
   assert.match(jobStatus(db, 1).last_error, /not created/);
@@ -120,4 +123,68 @@ test('drainOnce leaves no pending jobs behind', async () => {
   enqueue(db, 'revoke', 1, 1);
   await P.drainOnce(db, driver, deps);
   assert.equal(db.prepare("SELECT COUNT(*) AS n FROM provision_job WHERE status='pending'").get().n, 0);
+});
+
+// ── create_business ──────────────────────────────────────────────
+test('create_business: creates the books and stamps manager_created_at', async () => {
+  const db = seed();
+  db.prepare("INSERT INTO businesses (id, account_id, manager_business_name, name) VALUES (2, 1, ?, ?)")
+    .run('FIRMA-New Co', 'New Co');
+  enqueue(db, 'create_business', null, 2);
+  const driver = fakeDriver();
+
+  await P.drainOnce(db, driver, { now: () => 1 });
+
+  assert.deepEqual(only(driver.calls, 'createBusiness')[0][1], { businessName: 'FIRMA-New Co' });
+  assert.ok(db.prepare('SELECT manager_created_at FROM businesses WHERE id=2').get().manager_created_at,
+    'stamped, so grants may now proceed');
+});
+
+test('create_business: a retry after an unseen response does not make a second set of books', async () => {
+  const db = seed();
+  db.prepare("INSERT INTO businesses (id, account_id, manager_business_name, name, manager_created_at) VALUES (2, 1, ?, ?, ?)")
+    .run('FIRMA-Already', 'Already', '2026-01-01T00:00:00Z');
+  enqueue(db, 'create_business', null, 2);
+  const driver = fakeDriver();
+
+  await P.drainOnce(db, driver, { now: () => 1 });
+
+  assert.equal(only(driver.calls, 'createBusiness').length, 0, 'already created — the driver is not called again');
+  assert.equal(jobStatus(db, 1).status, 'done');
+});
+
+test('grant: refuses until the books exist in Manager, then succeeds', async () => {
+  const db = seed();
+  db.prepare("INSERT INTO businesses (id, account_id, manager_business_name, name) VALUES (2, 1, ?, ?)")
+    .run('FIRMA-Pending', 'Pending');
+  enqueue(db, 'create', 1, null);
+  enqueue(db, 'grant', 1, 2);   // queued against books that do not exist yet
+  const driver = fakeDriver();
+
+  // First pass: the user is created; the grant finds no books and retries.
+  await P.drainOnce(db, driver, { now: () => 1 });
+  assert.equal(only(driver.calls, 'grantAccess').length, 0, 'no grant against books that do not exist');
+  assert.equal(jobStatus(db, 2).status, 'pending', 'retried rather than failed');
+  assert.match(jobStatus(db, 2).last_error, /not created in Manager/);
+
+  // Now the books exist — the same queued job goes through.
+  db.prepare("UPDATE businesses SET manager_created_at = ? WHERE id = 2").run('2026-01-02T00:00:00Z');
+  await P.drainOnce(db, driver, { now: () => 2 });
+  assert.deepEqual(only(driver.calls, 'grantAccess')[0][1],
+    { managerUserRef: 'mgr:staff@x.com', businessName: 'FIRMA-Pending' });
+  assert.equal(jobStatus(db, 2).status, 'done');
+});
+
+test('create_business: a failure is audited against the right firm', async () => {
+  const db = seed();
+  db.prepare("INSERT INTO businesses (id, account_id, manager_business_name, name) VALUES (2, 1, ?, ?)")
+    .run('FIRMA-Doomed', 'Doomed');
+  enqueue(db, 'create_business', null, 2);
+  const driver = fakeDriver({ failCreateBusiness: true });
+
+  for (let i = 0; i < P.MAX_ATTEMPTS; i++) await P.drainOnce(db, driver, { now: () => 1 });
+
+  assert.equal(jobStatus(db, 1).status, 'failed');
+  const entry = db.prepare("SELECT account_id FROM audit_log WHERE action='job_failed'").get();
+  assert.equal(entry.account_id, 1, 'resolved through the business, since there is no user on this job');
 });
