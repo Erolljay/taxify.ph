@@ -69,15 +69,15 @@ CREATE TABLE IF NOT EXISTS users (
 -- against businesses_limit immediately, but does NOT refund the period —
 -- that's enforced by business_billing_period below.
 --
--- tax_type does NOT affect price (every business bills at the same flat
--- rate, deliberately — see the account comment). It drives which returns
--- and deadlines the app surfaces.
+-- There is deliberately no tax_type column. We serve VAT-registered
+-- businesses only, so it would have exactly one value everywhere — and
+-- the price is flat regardless, so nothing would ever read it. Add it
+-- when a second kind of client actually exists.
 CREATE TABLE IF NOT EXISTS businesses (
   id                    INTEGER PRIMARY KEY,
   account_id            INTEGER NOT NULL REFERENCES account(id),
   manager_business_name TEXT    NOT NULL,
   name                  TEXT    NOT NULL,
-  tax_type              TEXT    NOT NULL DEFAULT 'vat',      -- vat|nonvat
   status                TEXT    NOT NULL DEFAULT 'active',   -- active|archived
   archived_at           TEXT,
   created_at            TEXT    NOT NULL DEFAULT (datetime('now')),

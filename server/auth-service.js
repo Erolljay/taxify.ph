@@ -327,8 +327,6 @@ function addBusiness(db, input, deps) {
   const name = (input && typeof input.name === 'string') ? input.name.trim() : '';
   if (!name) return { status: 400, json: { error: 'name required' } };
 
-  const taxType = (input && input.taxType === 'nonvat') ? 'nonvat' : 'vat';
-
   // Re-adding a client the firm already has is idempotent and costs no slot.
   // An ARCHIVED one is reactivated instead of duplicated — the Manager name
   // is still taken by that row, and its filed snapshots should come back with it.
@@ -355,8 +353,8 @@ function addBusiness(db, input, deps) {
   const managerName = managerNameFor(db, s.account_id, name);
   if (!managerName) return { status: 409, json: { error: 'name_unavailable' } };
 
-  const businessId = Number(db.prepare('INSERT INTO businesses (account_id, manager_business_name, name, tax_type) VALUES (?,?,?,?)')
-    .run(s.account_id, managerName, name, taxType).lastInsertRowid);
+  const businessId = Number(db.prepare('INSERT INTO businesses (account_id, manager_business_name, name) VALUES (?,?,?)')
+    .run(s.account_id, managerName, name).lastInsertRowid);
   recordBillingPeriod(db, businessId, now);
   db.prepare('INSERT INTO audit_log (account_id, actor, action, target) VALUES (?,?,?,?)')
     .run(s.account_id, s.email, 'add_business', 'business:' + businessId + ' ' + managerName);
@@ -426,7 +424,7 @@ function overview(db, input, deps) {
 
   if (!A.can(s.role, 'allBusinesses')) {
     const businesses = db.prepare(
-      `SELECT b.id, b.name, b.manager_business_name, b.tax_type, b.status
+      `SELECT b.id, b.name, b.manager_business_name, b.status
          FROM businesses b JOIN user_business ub ON ub.business_id = b.id
         WHERE ub.user_id = ? AND b.status = 'active' ORDER BY b.name`
     ).all(s.user_id);
@@ -435,7 +433,7 @@ function overview(db, input, deps) {
 
   const users = db.prepare('SELECT id, email, role FROM users WHERE account_id = ? ORDER BY role DESC, email').all(s.account_id);
   const businesses = db.prepare(
-    'SELECT id, name, manager_business_name, tax_type, status FROM businesses WHERE account_id = ? ORDER BY status, name'
+    'SELECT id, name, manager_business_name, status FROM businesses WHERE account_id = ? ORDER BY status, name'
   ).all(s.account_id);
   const grants = db.prepare(
     'SELECT ub.user_id, ub.business_id FROM user_business ub JOIN users u ON u.id = ub.user_id WHERE u.account_id = ?'
@@ -534,7 +532,7 @@ if (require.main === module) {
         if (url.pathname === '/api/auth/me') return send(res, currentUser(db, { cookie: cookie }, deps));
         if (req.method === 'POST' && url.pathname === '/api/tenancy/user-business') return send(res, setUserBusiness(db, { cookie: cookie, userId: json.userId, businessId: json.businessId, grant: json.grant }, deps));
         if (req.method === 'POST' && url.pathname === '/api/tenancy/invite-staff') return send(res, inviteStaff(db, { cookie: cookie, email: json.email, role: json.role, businessId: json.businessId }, deps));
-        if (req.method === 'POST' && url.pathname === '/api/tenancy/add-business') return send(res, addBusiness(db, { cookie: cookie, name: json.name, taxType: json.taxType }, deps));
+        if (req.method === 'POST' && url.pathname === '/api/tenancy/add-business') return send(res, addBusiness(db, { cookie: cookie, name: json.name }, deps));
         if (req.method === 'POST' && url.pathname === '/api/tenancy/archive-business') return send(res, archiveBusiness(db, { cookie: cookie, businessId: json.businessId }, deps));
         if (req.method === 'GET' && url.pathname === '/api/tenancy/overview') return send(res, overview(db, { cookie: cookie }, deps));
         send(res, { status: 404, json: { error: 'not found' } });

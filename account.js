@@ -201,17 +201,10 @@ function renderClients(panel) {
     const form = document.createElement('form');
     form.className = 'inline';
     const name = input('text', 'biz-name', 'Business name, exactly as in Manager');
-    const tax = document.createElement('select');
-    tax.id = 'biz-tax';
-    [['vat', 'VAT-registered'], ['nonvat', 'Non-VAT']].forEach(([v, t]) => {
-      const o = document.createElement('option');
-      o.value = v; o.textContent = t;
-      tax.append(o);
-    });
     const btn = document.createElement('button');
     btn.type = 'submit';
     btn.textContent = 'Add business';
-    form.append(name, tax, btn);
+    form.append(name, btn);
     form.addEventListener('submit', onAddBusiness);
     card.append(form);
   }
@@ -223,11 +216,6 @@ function businessRow(b) {
   const name = document.createElement('strong');
   name.textContent = b.name;
   li.append(name);
-
-  const tag = document.createElement('span');
-  tag.className = 'role';
-  tag.textContent = b.tax_type === 'nonvat' ? 'non-VAT' : 'VAT';
-  li.append(tag);
 
   // The Manager-side name normally matches, so showing it would be noise.
   // It differs only when another firm already registered this client name
@@ -264,7 +252,6 @@ async function onAddBusiness(e) {
   e.preventDefault();
   const r = await api('POST', '/api/tenancy/add-business', {
     name: $('biz-name').value.trim(),
-    taxType: $('biz-tax').value,
   });
   if (r.status === 201 || r.status === 200) {
     e.target.reset();
@@ -371,7 +358,7 @@ function renderAccess(panel) {
 
   const card = el('div', 'card');
   const h = document.createElement('h2');
-  h.textContent = 'Staff × clients';
+  h.textContent = 'Clients × staff';
   card.append(h);
 
   const staff = state.users.filter((u) => u.role === 'staff');
@@ -386,18 +373,21 @@ function renderAccess(panel) {
   const table = document.createElement('table');
   table.className = 'matrix';
 
+  // Businesses run DOWN the left, staff ACROSS the top. A firm accumulates
+  // far more clients than staff, so this is the axis that grows — and it
+  // grows vertically, which the page already scrolls.
   const thead = document.createElement('thead');
   const hr = document.createElement('tr');
-  hr.append(th('Staff', 'staff'));
-  businesses.forEach((b) => hr.append(th(b.name)));
+  hr.append(th('Client', 'rowhead'));
+  staff.forEach((u) => hr.append(th(u.email)));
   thead.append(hr);
   table.append(thead);
 
   const tbody = document.createElement('tbody');
-  staff.forEach((u) => {
+  businesses.forEach((b) => {
     const tr = document.createElement('tr');
-    tr.append(td(u.email, 'staff'));
-    businesses.forEach((b) => {
+    tr.append(td(b.name, 'rowhead'));
+    staff.forEach((u) => {
       const cell = document.createElement('td');
       const cb = document.createElement('input');
       cb.type = 'checkbox';
