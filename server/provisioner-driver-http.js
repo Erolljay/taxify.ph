@@ -65,6 +65,17 @@ function parseInputValue(html, name) {
   return val ? val[1] : '';
 }
 
+// A checkbox's value, but ONLY when it is ticked. Manager stores state in
+// the value itself (MultifactorAuthentication carries the user's TOTP
+// secret), so a re-post must send back exactly what it was given.
+function parseCheckedValue(html, name) {
+  const re = new RegExp('<input[^>]*name="' + name + '"[^>]*>', 'i');
+  const tag = re.exec(html || '');
+  if (!tag || !/\bchecked\b/i.test(tag[0])) return null;
+  const val = /value="([^"]*)"/i.exec(tag[0]);
+  return val ? val[1] : null;
+}
+
 function parseSelectedOption(html, selectName) {
   const block = new RegExp('<select[^>]*name="' + selectName + '"[\\s\\S]*?</select>', 'i').exec(html || '');
   if (!block) return '';
@@ -103,6 +114,13 @@ function createDriver(opts) {
       throw new Error('no Manager user found for "' + managerUserRef + '" (got a blank form, not their record)');
     }
 
+    // MultifactorAuthentication's value IS the user's stored TOTP secret,
+    // and an unchecked checkbox submits nothing. Omitting it would post
+    // "MFA off" and silently strip a staff member's second factor every
+    // time we changed their access — the robot undoing the protection it
+    // is supposed to preserve.
+    const mfa = parseCheckedValue(page.body, 'MultifactorAuthentication');
+
     const fields = {
       Name: parseInputValue(page.body, 'Name'),
       EmailAddress: parseInputValue(page.body, 'EmailAddress'),
@@ -110,6 +128,7 @@ function createDriver(opts) {
       Type: parseSelectedOption(page.body, 'Type') || 'Restricted',
       Businesses: parseSelectedBusinesses(page.body),
     };
+    if (mfa) fields.MultifactorAuthentication = mfa;
 
     mutate(fields);
 
@@ -126,6 +145,10 @@ function createDriver(opts) {
     if (actual.slice().sort().join('|') !== expected.join('|')) {
       throw new Error('Manager did not apply the access change for ' + managerUserRef
         + ' (wanted ' + expected.length + ' business(es), it has ' + actual.length + ')');
+    }
+    // Never let an access change cost someone their second factor.
+    if (mfa && !parseCheckedValue(after.body, 'MultifactorAuthentication')) {
+      throw new Error('access change disabled MFA for ' + managerUserRef + ' — refusing to leave it off');
     }
     return res;
   }
@@ -198,4 +221,5 @@ function createDriver(opts) {
 
 module.exports = {
   createDriver, userFormPath, parseSelectedBusinesses, parseInputValue, parseSelectedOption,
+  parseCheckedValue,
 };

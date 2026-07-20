@@ -18,7 +18,7 @@ const { businessOptionValue, encodeForm, managerKeyParam } = require('../server/
 const b64 = (s) => Buffer.from(s, 'utf8').toString('base64');
 
 // A user form with two of three businesses ticked.
-function userFormHtml(selectedNames) {
+function userFormHtml(selectedNames, mfaSecret) {
   const all = ['Demo Business', 'TALLO-0001 Acme', 'TALLO-0002 Bayview'];
   const options = all.map(function (n) {
     const sel = selectedNames.indexOf(n) !== -1 ? ' selected' : '';
@@ -32,6 +32,8 @@ function userFormHtml(selectedNames) {
     + '<select name="Type"><option value="Administrator">Administrator</option>'
     + '<option value="Restricted" selected>Restricted user</option></select>'
     + '<select name="Businesses" multiple="multiple">' + options + '</select>'
+    + '<input type="checkbox" name="MultifactorAuthentication" value="' + (mfaSecret || 'unset') + '"'
+      + (mfaSecret ? ' checked="checked"' : '') + ' />'
     + '</form>';
 }
 
@@ -50,7 +52,11 @@ function fakeClient(html, opts = {}) {
       calls.push(['postForm', p, f]);
       if (opts.postStatus) return { status: opts.postStatus, body: '' };
       // Reflect the submitted state, unless told to ignore writes.
-      if (!opts.ignoreWrites && f.Businesses) current = userFormHtml((f.Businesses || []).map(decode));
+      if (!opts.ignoreWrites && f.Businesses) {
+        // Mirrors Manager: the post is the user's whole new state, so an
+        // omitted MultifactorAuthentication means MFA off.
+        current = userFormHtml((f.Businesses || []).map(decode), f.MultifactorAuthentication);
+      }
       return { status: 200, body: '' };
     },
     postJson: async (p, o) => { calls.push(['postJson', p, o]); return { status: 200, body: '{}' }; },
@@ -168,6 +174,43 @@ test('disableUser: strips every business but keeps the account', () => {
     assert.deepEqual(fields.Businesses, [], 'opens nothing');
     assert.equal(fields.EmailAddress, 'maria@firm.ph', 'but is not deleted from the audit trail');
   });
+});
+
+// ── MFA must survive an access change ────────────────────────────
+test('grantAccess preserves an enabled second factor', async () => {
+  // MultifactorAuthentication's value IS the stored TOTP secret, and an
+  // unchecked box submits nothing — so omitting it would post "MFA off"
+  // and strip the staff member's second factor as a side effect of a
+  // routine access change.
+  const client = fakeClient(userFormHtml([], 'secret-abc'));
+  await D.createDriver({ client }).grantAccess({
+    managerUserRef: 'maria@firm.ph', businessName: 'TALLO-0001 Acme',
+  });
+  assert.equal(lastPost(client)[2].MultifactorAuthentication, 'secret-abc',
+    'the exact stored secret must be posted back, not just a truthy flag');
+});
+
+test('a user without MFA is not silently given one', async () => {
+  const client = fakeClient(userFormHtml([]));
+  await D.createDriver({ client }).grantAccess({
+    managerUserRef: 'maria@firm.ph', businessName: 'TALLO-0001 Acme',
+  });
+  assert.equal(lastPost(client)[2].MultifactorAuthentication, undefined);
+});
+
+test('if Manager drops MFA anyway, the job fails rather than leaving it off', async () => {
+  const client = fakeClient(userFormHtml([], 'secret-abc'));
+  const orig = client.postForm;
+  client.postForm = async (p, f) => orig(p, Object.assign({}, f, { MultifactorAuthentication: undefined }));
+  await assert.rejects(
+    () => D.createDriver({ client }).grantAccess({ managerUserRef: 'maria@firm.ph', businessName: 'TALLO-0001 Acme' }),
+    /disabled MFA/
+  );
+});
+
+test('parseCheckedValue: reads the value only when ticked', () => {
+  assert.equal(D.parseCheckedValue(userFormHtml([], 'sec-1'), 'MultifactorAuthentication'), 'sec-1');
+  assert.equal(D.parseCheckedValue(userFormHtml([]), 'MultifactorAuthentication'), null);
 });
 
 // ── create ───────────────────────────────────────────────────────
