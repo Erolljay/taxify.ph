@@ -11,13 +11,13 @@
    of the last successful read, because fail-open across a real outage
    must outlive a single page load.
 
-   Keyed by Manager business GUID, not name — names aren't unique across
-   tenants, so the endpoint only accepts the GUID. The wiring step must
-   resolve the selected business to its GUID (from Manager's business
-   list) before calling this.
+   Keyed by Manager business NAME — that is Manager's own identifier for a
+   business (api4 exposes no GUID, and the user form's Businesses options
+   are base64(name)). Uniqueness across tenants is enforced server-side by
+   the UNIQUE constraint on businesses.manager_business_name.
 
    Usage from a report's init:
-     const gate = await checkEntitlement(businessGuid);
+     const gate = await checkEntitlement(businessName);
      // UX-only gate — real enforcement is server-side (provisioner + Manager auth)
      if (!gate.canFileNew) { showEntitlementBanner(gate); return; }
    ============================================================ */
@@ -30,7 +30,7 @@ const ENTITLEMENT_ENDPOINT = 'entitlement.php';
 let _entPromises = {};
 
 // localStorage key holding { status, at } for the last successful read.
-function _entCacheKey(guid) { return 'txform.ent.' + guid; }
+function _entCacheKey(business) { return 'txform.ent.' + business; }
 
 function _readCache(business) {
   try {
@@ -45,27 +45,27 @@ function _writeCache(business, status, at) {
   } catch (e) { /* private mode / quota — fail-open still works within the session */ }
 }
 
-// Resolve the effective entitlement for a business GUID. forceFresh
+// Resolve the effective entitlement for a business NAME. forceFresh
 // bypasses the in-memory promise cache (e.g. after a known status change).
-function checkEntitlement(guid, forceFresh) {
-  if (!guid) {
+function checkEntitlement(business, forceFresh) {
+  if (!business) {
     return Promise.resolve(EntitlementCore.resolveEffective({ live: { ok: false }, cached: null, now: Date.now() }));
   }
-  if (_entPromises[guid] && !forceFresh) return _entPromises[guid];
+  if (_entPromises[business] && !forceFresh) return _entPromises[business];
 
-  const cached = _readCache(guid);
+  const cached = _readCache(business);
   const now = Date.now();
 
   // Honor the 24h client cache: if fresh, don't hit the server at all.
   if (!forceFresh && EntitlementCore.isCacheFresh(cached, now)) {
-    _entPromises[guid] = Promise.resolve(
+    _entPromises[business] = Promise.resolve(
       EntitlementCore.resolveEffective({ live: { ok: true, status: cached.status }, cached: cached, now: now })
     );
-    return _entPromises[guid];
+    return _entPromises[business];
   }
 
-  _entPromises[guid] = fetch(
-    ENTITLEMENT_ENDPOINT + '?business=' + encodeURIComponent(guid) + '&t=' + now,
+  _entPromises[business] = fetch(
+    ENTITLEMENT_ENDPOINT + '?business=' + encodeURIComponent(business) + '&t=' + now,
     // credentials: send the txfsid session cookie so the endpoint can
     // authorize per-tenant. A 401 (not signed in / cross-subdomain cookie
     // not present) is treated like any fetch failure below → fail open.
@@ -77,55 +77,38 @@ function checkEntitlement(guid, forceFresh) {
     })
     .then(function (data) {
       if (data && data.error) throw new Error(data.error);
-      _writeCache(guid, data.status, Date.now());
+      _writeCache(business, data.status, Date.now());
       return EntitlementCore.resolveEffective({
-        live: { ok: true, status: data.status }, cached: _readCache(guid), now: Date.now()
+        live: { ok: true, status: data.status }, cached: _readCache(business), now: Date.now()
       });
     })
     .catch(function () {
       // Server unreachable / 5xx / not-a-subscriber-yet: fall back to the
       // last good answer within the 72h window; beyond that, unverified.
       return EntitlementCore.resolveEffective({
-        live: { ok: false }, cached: _readCache(guid), now: Date.now()
+        live: { ok: false }, cached: _readCache(business), now: Date.now()
       });
     });
 
-  return _entPromises[guid];
+  return _entPromises[business];
 }
 
 // Reset caches when the selected business changes (call from app.js's
 // business `change` handler, next to setupTabLoaded = false).
-function resetEntitlement() { _entPromises = {}; _bizGuidCache = {}; }
-
-// ── BUSINESS NAME → GUID ─────────────────────────────────────────
-// The extension knows businesses by name, but the entitlement endpoint
-// keys on the Manager business GUID (names aren't a safe cross-tenant
-// key). Resolve name → GUID from Manager's own business list, matching
-// the `.key || .Key` shape Manager list objects use (see shared.js).
-let _bizGuidCache = {};
-async function resolveBusinessGuid(name) {
-  if (!name) return null;
-  if (_bizGuidCache[name]) return _bizGuidCache[name];
-  try {
-    const res = await apiRequest('GET', '/api4/businesses');
-    const list = (res && res.businesses) || [];
-    const b = list.find(function (x) { return x.name === name; });
-    const guid = b ? (b.key || b.Key || null) : null;
-    if (guid) _bizGuidCache[name] = guid;
-    return guid;
-  } catch (e) { return null; }
-}
+function resetEntitlement() { _entPromises = {}; }
 
 // ── ONE-CALL REPORT GATE (reference wiring) ──────────────────────
-// Resolve GUID → check entitlement → surface a banner when access is
-// degraded. Returns the gate so a caller can also disable generation.
-// The gate is UX-only: real enforcement is the provisioner revoking the
-// Manager user (Phase 1.4). If the GUID can't be resolved or the server
-// is unreachable, checkEntitlement fails open — filings are never
-// blocked by an entitlement-system hiccup.
+// Check entitlement → surface a banner when access is degraded. Returns
+// the gate so a caller can also disable generation. The gate is UX-only:
+// real enforcement is the provisioner revoking the Manager user (Phase
+// 1.4). If the server is unreachable, checkEntitlement fails open —
+// filings are never blocked by an entitlement-system hiccup.
+//
+// The business name IS the key. There used to be a name→GUID resolver
+// here reading `.key` off /api4/businesses; Manager exposes no such field,
+// so it returned null every time and the gate silently never engaged.
 async function gateReport(businessName, containerEl) {
-  const guid = await resolveBusinessGuid(businessName);
-  const gate = await checkEntitlement(guid);
+  const gate = await checkEntitlement(businessName);
   if (containerEl && gate.level !== 'full') renderEntitlementBanner(containerEl, gate);
   return gate;
 }

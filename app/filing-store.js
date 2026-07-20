@@ -3,9 +3,10 @@
 
    The fetch layer for frozen filings: talks to server/save-report.php and
    server/report-snapshots.php with the txfsid session cookie. Mirrors
-   entitlement.js — same credentials:'include', same GUID resolution — and,
-   like it, keys the endpoints on the Manager business GUID (names aren't a
-   safe cross-tenant key).
+   entitlement.js — same credentials:'include' — and, like it, keys the
+   endpoints on the Manager business NAME, which is Manager's own identifier
+   for a business. Cross-tenant uniqueness is enforced server-side by the
+   UNIQUE constraint on businesses.manager_business_name.
 
    Storage is SERVER-ONLY by decision, so this is the one place that turns a
    401 into a typed FilingAuthError. Callers use it to render an explicit
@@ -30,20 +31,14 @@
   FilingAuthError.prototype = Object.create(Error.prototype);
   FilingAuthError.prototype.constructor = FilingAuthError;
 
-  // ── business name → Manager GUID (cached) ──────────────────────────
-  var _guidCache = {};
-  function resolveBusinessGuid(name) {
-    if (!name) return Promise.resolve(null);
-    if (_guidCache[name]) return Promise.resolve(_guidCache[name]);
-    return apiRequest('GET', '/api4/businesses')
-      .then(function (res) {
-        var list = (res && res.businesses) || [];
-        var b = list.find(function (x) { return x.name === name; });
-        var guid = b ? (b.key || b.Key || null) : null;
-        if (guid) _guidCache[name] = guid;
-        return guid;
-      })
-      .catch(function () { return null; });
+  // ── business key ───────────────────────────────────────────────────
+  // Manager identifies a business by NAME — api4/businesses returns only
+  // `name`, and the user form's Businesses options are base64(name). This
+  // used to resolve a GUID off `.key`, which Manager never sends, so every
+  // call returned null and every freeze/load threw 'Business not
+  // resolvable'. The name goes straight through now.
+  function businessKey(name) {
+    return (typeof name === 'string' && name.trim()) ? name.trim() : null;
   }
 
   function _parse(res) {
@@ -59,71 +54,68 @@
   // Full version history for one filing (payload included). Empty array when
   // the filing has never been frozen.
   function loadFilingSnapshots(bizName, workflowKey, periodKey) {
-    return resolveBusinessGuid(bizName).then(function (guid) {
-      if (!guid) throw new FilingAuthError('Business not resolvable');
-      var url = SNAPSHOTS_ENDPOINT
-        + '?business=' + encodeURIComponent(guid)
-        + '&workflow=' + encodeURIComponent(workflowKey)
-        + '&period=' + encodeURIComponent(periodKey)
-        + '&t=' + Date.now();
-      return fetch(url, { cache: 'no-store', credentials: 'include' })
-        .then(_parse)
-        .then(function (data) { return (data && data.snapshots) || []; });
-    });
+    var key = businessKey(bizName);
+    if (!key) return Promise.reject(new FilingAuthError('No business selected'));
+    var url = SNAPSHOTS_ENDPOINT
+      + '?business=' + encodeURIComponent(key)
+      + '&workflow=' + encodeURIComponent(workflowKey)
+      + '&period=' + encodeURIComponent(periodKey)
+      + '&t=' + Date.now();
+    return fetch(url, { cache: 'no-store', credentials: 'include' })
+      .then(_parse)
+      .then(function (data) { return (data && data.snapshots) || []; });
   }
 
   // Current filed status per filing across the whole business (light — no
   // payload). Cached per business until a freeze invalidates it.
   var _batchCache = {};
   function loadBusinessFilings(bizName, forceFresh) {
-    return resolveBusinessGuid(bizName).then(function (guid) {
-      if (!guid) throw new FilingAuthError('Business not resolvable');
-      if (_batchCache[guid] && !forceFresh) return _batchCache[guid];
-      var url = SNAPSHOTS_ENDPOINT + '?business=' + encodeURIComponent(guid) + '&t=' + Date.now();
-      return fetch(url, { cache: 'no-store', credentials: 'include' })
-        .then(_parse)
-        .then(function (data) {
-          var filings = (data && data.filings) || [];
-          _batchCache[guid] = filings;
-          return filings;
-        });
-    });
+    var key = businessKey(bizName);
+    if (!key) return Promise.reject(new FilingAuthError('No business selected'));
+    if (_batchCache[key] && !forceFresh) return Promise.resolve(_batchCache[key]);
+    var url = SNAPSHOTS_ENDPOINT + '?business=' + encodeURIComponent(key) + '&t=' + Date.now();
+    return fetch(url, { cache: 'no-store', credentials: 'include' })
+      .then(_parse)
+      .then(function (data) {
+        var filings = (data && data.filings) || [];
+        _batchCache[key] = filings;
+        return filings;
+      });
   }
 
   // Freeze a filing. `snapshot` = { workflowKey, periodKey, form, headline,
   // payload }. Returns { version }. Throws FilingAuthError on 401 so the
   // caller can keep the period in Draft and prompt sign-in.
   function saveFilingSnapshot(bizName, snapshot) {
-    return resolveBusinessGuid(bizName).then(function (guid) {
-      if (!guid) throw new FilingAuthError('Business not resolvable');
-      var body = {
-        business: guid,
-        workflowKey: snapshot.workflowKey,
-        periodKey: snapshot.periodKey,
-        form: snapshot.form || null,
-        headline: snapshot.headline || null,
-        payload: snapshot.payload || {}
-      };
-      return fetch(SAVE_ENDPOINT, {
-        method: 'POST',
-        cache: 'no-store',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body)
-      })
-        .then(_parse)
-        .then(function (data) {
-          delete _batchCache[guid];   // status changed — drop the cache
-          return { version: data.version };
-        });
-    });
+    var key = businessKey(bizName);
+    if (!key) return Promise.reject(new FilingAuthError('No business selected'));
+    var body = {
+      business: key,
+      workflowKey: snapshot.workflowKey,
+      periodKey: snapshot.periodKey,
+      form: snapshot.form || null,
+      headline: snapshot.headline || null,
+      payload: snapshot.payload || {}
+    };
+    return fetch(SAVE_ENDPOINT, {
+      method: 'POST',
+      cache: 'no-store',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    })
+      .then(_parse)
+      .then(function (data) {
+        delete _batchCache[key];   // status changed — drop the cache
+        return { version: data.version };
+      });
   }
 
-  function resetFilingStore() { _guidCache = {}; _batchCache = {}; }
+  function resetFilingStore() { _batchCache = {}; }
 
   root.FilingStore = {
     FilingAuthError: FilingAuthError,
-    resolveBusinessGuid: resolveBusinessGuid,
+    businessKey: businessKey,
     loadFilingSnapshots: loadFilingSnapshots,
     loadBusinessFilings: loadBusinessFilings,
     saveFilingSnapshot: saveFilingSnapshot,

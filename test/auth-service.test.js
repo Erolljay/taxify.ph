@@ -26,8 +26,8 @@ function freshDb() {
   db.prepare('INSERT INTO users (id, account_id, email, role) VALUES (?,?,?,?)').run(1, 1, 'owner@x.com', 'owner');
   db.prepare('INSERT INTO users (id, account_id, email, role) VALUES (?,?,?,?)').run(2, 1, 'staff@x.com', 'staff');
   db.prepare('INSERT INTO users (id, account_id, email, role) VALUES (?,?,?,?)').run(3, 2, 'other@x.com', 'owner');
-  db.prepare('INSERT INTO businesses (id, account_id, manager_business_guid, name) VALUES (?,?,?,?)').run(1, 1, 'guid-1', 'Acme');
-  db.prepare('INSERT INTO businesses (id, account_id, manager_business_guid, name) VALUES (?,?,?,?)').run(2, 2, 'guid-2', 'OtherCo');
+  db.prepare('INSERT INTO businesses (id, account_id, manager_business_name, name) VALUES (?,?,?,?)').run(1, 1, 'Acme', 'Acme');
+  db.prepare('INSERT INTO businesses (id, account_id, manager_business_name, name) VALUES (?,?,?,?)').run(2, 2, 'OtherCo', 'OtherCo');
   return db;
 }
 
@@ -289,40 +289,65 @@ test('invite-staff: staff cannot invite', () => {
 test('add-business: owner registers a new client business', () => {
   const db = freshDb(), deps = makeDeps();
   const cookie = signIn(db, deps, 'owner@x.com');
-  const r = S.addBusiness(db, { cookie: cookie, managerBusinessGuid: 'guid-new', name: 'NewClient' }, deps);
+  const r = S.addBusiness(db, { cookie: cookie, name: 'NewClient' }, deps);
   assert.equal(r.status, 201);
   assert.equal(db.prepare('SELECT account_id FROM businesses WHERE id=?').get(r.json.businessId).account_id, 1);
+  assert.equal(r.json.managerBusinessName, 'NewClient');
   assert.ok(db.prepare("SELECT 1 FROM audit_log WHERE action='add_business'").get());
 });
 
-test('add-business: claiming a GUID owned by another account is refused', () => {
+test('add-business: a name another firm already uses is accepted with a scoped Manager name', () => {
   const db = freshDb(), deps = makeDeps();
-  const cookie = signIn(db, deps, 'owner@x.com'); // account 1
-  const r = S.addBusiness(db, { cookie: cookie, managerBusinessGuid: 'guid-2', name: 'Steal' }, deps); // guid-2 = account 2
-  assert.equal(r.status, 409);
-  assert.match(r.json.error, /another account/);
+  const cookie = signIn(db, deps, 'owner@x.com');        // account 1
+  const r = S.addBusiness(db, { cookie: cookie, name: 'OtherCo' }, deps); // account 2 holds 'OtherCo'
+  assert.equal(r.status, 201, 'must not leak that another account holds the name');
+  assert.equal(r.json.managerBusinessName, 'OtherCo (1)', 'Manager-side name is account-scoped');
+  const row = db.prepare('SELECT name, manager_business_name FROM businesses WHERE id=?').get(r.json.businessId);
+  assert.equal(row.name, 'OtherCo', 'the firm still sees its own chosen name');
 });
 
-test('add-business: re-adding own business is idempotent', () => {
+test('add-business: the scoped fallback is deterministic, not a collision counter', () => {
+  const db = freshDb(), deps = makeDeps();
+  // Two separate firms colliding on the same name must each derive their own
+  // suffix from their account id — never an incrementing count that would
+  // reveal how many other firms hold it.
+  assert.equal(S.managerNameFor(db, 1, 'OtherCo'), 'OtherCo (1)');
+  assert.equal(S.managerNameFor(db, 7, 'OtherCo'), 'OtherCo (7)');
+});
+
+test('add-business: an unused name is taken verbatim', () => {
+  const db = freshDb(), deps = makeDeps();
+  assert.equal(S.managerNameFor(db, 1, 'Brand New Co'), 'Brand New Co');
+});
+
+test('add-business: re-adding own business is idempotent and costs no slot', () => {
   const db = freshDb(), deps = makeDeps();
   const cookie = signIn(db, deps, 'owner@x.com');
-  const r = S.addBusiness(db, { cookie: cookie, managerBusinessGuid: 'guid-1', name: 'Acme' }, deps);
+  const before = db.prepare('SELECT COUNT(*) AS n FROM businesses WHERE account_id=1').get().n;
+  const r = S.addBusiness(db, { cookie: cookie, name: 'Acme' }, deps);
   assert.equal(r.status, 200);
   assert.equal(r.json.alreadyAdded, true);
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM businesses WHERE account_id=1').get().n, before);
 });
 
 test('add-business: business limit is enforced', () => {
   const db = freshDb(), deps = makeDeps();
   const cookie = signIn(db, deps, 'other@x.com'); // account 2, businesses_limit 1, already has 1
-  const r = S.addBusiness(db, { cookie: cookie, managerBusinessGuid: 'guid-extra', name: 'Extra' }, deps);
+  const r = S.addBusiness(db, { cookie: cookie, name: 'Extra' }, deps);
   assert.equal(r.status, 409);
   assert.match(r.json.error, /business_limit_reached/);
+});
+
+test('add-business: a blank name is rejected', () => {
+  const db = freshDb(), deps = makeDeps();
+  const cookie = signIn(db, deps, 'owner@x.com');
+  assert.equal(S.addBusiness(db, { cookie: cookie, name: '   ' }, deps).status, 400);
 });
 
 test('add-business: staff cannot add', () => {
   const db = freshDb(), deps = makeDeps();
   const cookie = signIn(db, deps, 'staff@x.com');
-  assert.equal(S.addBusiness(db, { cookie: cookie, managerBusinessGuid: 'g', name: 'n' }, deps).status, 403);
+  assert.equal(S.addBusiness(db, { cookie: cookie, name: 'n' }, deps).status, 403);
 });
 
 // ── overview (portal read) ───────────────────────────────────────
@@ -335,7 +360,7 @@ test('overview: owner sees account, staff, businesses, and grants', () => {
   assert.equal(r.json.account.businesses_limit, 10);
   assert.equal(r.json.me.email, 'owner@x.com');
   assert.equal(r.json.users.length, 2);          // owner + staff
-  assert.equal(r.json.businesses.length, 1);     // Acme (guid-1)
+  assert.equal(r.json.businesses.length, 1);     // Acme
   assert.equal(r.json.grants.length, 1);
   assert.equal(r.json.grants[0].user_id, 2);
   assert.equal(r.json.grants[0].business_id, 1);
@@ -345,7 +370,7 @@ test('overview: only the caller\'s account is visible (no cross-tenant leak)', (
   const db = freshDb(), deps = makeDeps();
   const cookie = signIn(db, deps, 'owner@x.com'); // account 1
   const r = S.overview(db, { cookie: cookie }, deps);
-  assert.ok(r.json.businesses.every((b) => b.manager_business_guid !== 'guid-2'), 'account 2 business absent');
+  assert.ok(r.json.businesses.every((b) => b.manager_business_name !== 'OtherCo'), 'account 2 business absent');
   assert.ok(r.json.users.every((u) => u.email !== 'other@x.com'), 'account 2 user absent');
 });
 

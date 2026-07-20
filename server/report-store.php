@@ -72,7 +72,7 @@ function txform_authorize_business(PDO $pdo, string $business, string $sid): arr
     $stmt = $pdo->prepare(
         'SELECT b.id AS business_id
            FROM businesses b
-          WHERE b.manager_business_guid = :guid
+          WHERE b.manager_business_name = :bizname
             AND b.account_id = :acct
             AND ( :role = \'owner\'
                   OR EXISTS (SELECT 1 FROM user_business ub
@@ -80,7 +80,7 @@ function txform_authorize_business(PDO $pdo, string $business, string $sid): arr
           LIMIT 1'
     );
     $stmt->execute([
-        ':guid' => $business,
+        ':bizname' => $business,
         ':acct' => $who['account_id'],
         ':role' => $who['role'],
         ':uid'  => $who['user_id'],

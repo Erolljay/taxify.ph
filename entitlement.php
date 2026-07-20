@@ -10,12 +10,12 @@ declare(strict_types=1);
    entitlement-core.js on the client — this endpoint only answers
    "what is this account's billing state, and are you allowed to ask?".
 
-   GET /entitlement.php?business=<manager_business_guid>
+   GET /entitlement.php?business=<manager_business_name>
    (served from the web root, not server/ — the nginx hardening 404s /server/)
      (cookie: txfsid=<session secret>)
      → 200 { status }             billing status of the caller's account
      → 401 { error }              no / expired session
-     → 404 { error }              GUID isn't a business this caller may see
+     → 404 { error }              not a business this caller may see
      → 400 { error }              missing/!invalid params
 
    SECURITY MODEL:
@@ -93,7 +93,7 @@ try {
         'SELECT a.status
            FROM businesses b
            JOIN account a ON a.id = b.account_id
-          WHERE b.manager_business_guid = :guid
+          WHERE b.manager_business_name = :bizname
             AND b.account_id = :acct
             AND ( :role = \'owner\'
                   OR EXISTS (SELECT 1 FROM user_business ub
@@ -101,7 +101,7 @@ try {
           LIMIT 1'
     );
     $stmt->execute([
-        ':guid' => $business,
+        ':bizname' => $business,
         ':acct' => $who['account_id'],
         ':role' => $who['role'],
         ':uid'  => $who['user_id'],

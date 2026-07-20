@@ -14,8 +14,8 @@
 
    Driver interface (all async, may throw; may return { screenshot }):
      createUser({ email })            -> { managerUserRef, screenshot? }
-     grantAccess({ managerUserRef, businessGuid })
-     revokeAccess({ managerUserRef, businessGuid })
+     grantAccess({ managerUserRef, businessName })
+     revokeAccess({ managerUserRef, businessName })
      disableUser({ managerUserRef })
    ============================================================ */
 'use strict';
@@ -59,10 +59,10 @@ async function dispatch(db, job, driver) {
 
   if (job.type === 'disable') return driver.disableUser({ managerUserRef: user.manager_user_ref });
 
-  const biz = db.prepare('SELECT manager_business_guid FROM businesses WHERE id = ?').get(job.business_id);
+  const biz = db.prepare('SELECT manager_business_name FROM businesses WHERE id = ?').get(job.business_id);
   if (!biz) throw new Error('business not found');
-  if (job.type === 'grant') return driver.grantAccess({ managerUserRef: user.manager_user_ref, businessGuid: biz.manager_business_guid });
-  if (job.type === 'revoke') return driver.revokeAccess({ managerUserRef: user.manager_user_ref, businessGuid: biz.manager_business_guid });
+  if (job.type === 'grant') return driver.grantAccess({ managerUserRef: user.manager_user_ref, businessName: biz.manager_business_name });
+  if (job.type === 'revoke') return driver.revokeAccess({ managerUserRef: user.manager_user_ref, businessName: biz.manager_business_name });
   throw new Error('unknown job type: ' + job.type);
 }
 

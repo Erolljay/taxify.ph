@@ -36,13 +36,25 @@ CREATE TABLE IF NOT EXISTS users (
   UNIQUE(account_id, email)
 );
 
+-- One client's books. Manager Server has no GUIDs — it keys businesses by
+-- NAME (the user-form's Businesses multi-select uses base64(name) as the
+-- option value, and api4/businesses returns only `name`). So the join key
+-- to Manager is the name itself.
+--
+-- Two columns, deliberately:
+--   name                  — what the firm calls this client, shown in the portal.
+--   manager_business_name — the key on the Manager server, globally unique.
+-- They're normally identical. They diverge only when two different firms
+-- register the same client name: the second gets an account-scoped suffix
+-- so the Manager-side key stays unique WITHOUT telling firm B that firm A
+-- exists (a plain "already taken" error would be a cross-tenant oracle).
 CREATE TABLE IF NOT EXISTS businesses (
   id                    INTEGER PRIMARY KEY,
   account_id            INTEGER NOT NULL REFERENCES account(id),
-  manager_business_guid TEXT    NOT NULL,
+  manager_business_name TEXT    NOT NULL,
   name                  TEXT    NOT NULL,
   created_at            TEXT    NOT NULL DEFAULT (datetime('now')),
-  UNIQUE(manager_business_guid)
+  UNIQUE(manager_business_name)
 );
 
 -- Source of truth for access: which user may open which client.

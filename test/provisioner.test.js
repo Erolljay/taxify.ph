@@ -20,7 +20,7 @@ function seed() {
   db.exec(SCHEMA);
   db.prepare('INSERT INTO account (id, plan) VALUES (1, ?)').run('firm');
   db.prepare('INSERT INTO users (id, account_id, email) VALUES (1, 1, ?)').run('staff@x.com');
-  db.prepare('INSERT INTO businesses (id, account_id, manager_business_guid, name) VALUES (1, 1, ?, ?)').run('guid-1', 'Acme');
+  db.prepare('INSERT INTO businesses (id, account_id, manager_business_name, name) VALUES (1, 1, ?, ?)').run('Acme', 'Acme');
   return db;
 }
 function enqueue(db, type, userId, businessId) {
@@ -61,12 +61,12 @@ test('create: makes a Manager user and stores the ref', async () => {
   assert.ok(db.prepare("SELECT 1 FROM audit_log WHERE action='job_done'").get());
 });
 
-test('grant: passes the Manager user ref and business GUID to the driver', async () => {
+test('grant: passes the Manager user ref and business name to the driver', async () => {
   const db = seed(), driver = fakeDriver();
   db.prepare("UPDATE users SET manager_user_ref='mgr:staff@x.com' WHERE id=1").run();
   enqueue(db, 'grant', 1, 1);
   await P.drainOnce(db, driver, deps);
-  assert.deepEqual(only(driver.calls, 'grantAccess')[0][1], { managerUserRef: 'mgr:staff@x.com', businessGuid: 'guid-1' });
+  assert.deepEqual(only(driver.calls, 'grantAccess')[0][1], { managerUserRef: 'mgr:staff@x.com', businessName: 'Acme' });
   assert.equal(jobStatus(db, 1).status, 'done');
 });
 
