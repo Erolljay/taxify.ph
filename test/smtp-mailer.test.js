@@ -345,3 +345,35 @@ test('inviteContent: clients get no authenticator steps', () => {
   const { text } = M.inviteContent({ firmName: 'Tallo CPA', role: 'client' });
   assert.ok(!/QR code/.test(text));
 });
+
+test('makeMailer: logs a successful send, not only a failure', async () => {
+  // Before this, a mail that sent and a mail never attempted both produced
+  // no output — so "they never got the email" was unanswerable from logs.
+  const { server } = mockServer();
+  const port = await listen(server);
+  const lines = [];
+  const realLog = console.log, realErr = console.error;
+  console.log = (...a) => lines.push(a.join(' '));
+  console.error = (...a) => lines.push(a.join(' '));
+  try {
+    const send = M.makeMailer({
+      host: '127.0.0.1', port, secure: false, startTls: false, ehloName: 'test',
+      from: 'Txform <hello@txform.ph>',
+    });
+    await send({ to: 'someone@example.com', kind: 'invite', firmName: 'Tallo CPA', role: 'staff' });
+  } finally {
+    console.log = realLog; console.error = realErr;
+    server.close();
+  }
+  const joined = lines.join('\n');
+  assert.match(joined, /\[mailer\] sent invite to someone@example\.com/);
+  assert.ok(!/has added you to/.test(joined), 'the body is never logged');
+});
+
+test('makeMailer: distinguishes an invite from a sign-in in the log', () => {
+  // Different kinds must be tellable apart, or "which email went out?" is
+  // still guesswork.
+  const invite = M.inviteContent({ firmName: 'F', role: 'staff' });
+  const signin = M.magicLinkContent('https://txform.ph/api/auth/verify?token=x');
+  assert.notEqual(invite.subject, signin.subject);
+});

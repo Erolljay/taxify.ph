@@ -292,7 +292,11 @@ async function sendMail(config, envelope, message) {
     auth: config.user ? { user: config.user, pass: config.pass } : null,
     envelope: envelope,
     message: message,
-    startTls: !secure,
+    // Defaults to "upgrade unless we are already on implicit TLS", which
+    // is what production wants. Overridable only so makeMailer can be
+    // exercised end-to-end against a plain mock socket — never set it
+    // false against a real server.
+    startTls: config.startTls !== undefined ? config.startTls : !secure,
     upgrade: (raw) => {
       const up = tls.connect({ socket: raw, servername: config.host, ...(config.tlsOptions || {}) });
       return onceConnected(up, 'secureConnect').then(() => up);
@@ -312,8 +316,15 @@ function makeMailer(config) {
     // sign-in link, keeping the original contract for existing callers.
     const { subject, text } = m.kind === 'invite' ? inviteContent(m) : magicLinkContent(m.link);
     const message = buildMessage({ from: from, to: to, subject: subject, text: text });
+    const kind = m.kind === 'invite' ? 'invite' : 'signin';
+    // Log the SUCCESS too, not only the failure. Until this was added, a
+    // mail that sent fine and a mail that was never attempted produced
+    // exactly the same output — nothing — so "they didn't get the email"
+    // could not be answered from the logs. It records who and what kind,
+    // never the body.
     return sendMail(config, { from: envelopeFrom, to: to }, message)
-      .catch((err) => { console.error('[mailer] send to', to, 'failed:', err.message); });
+      .then(() => { console.log('[mailer] sent ' + kind + ' to ' + to); })
+      .catch((err) => { console.error('[mailer] ' + kind + ' to ' + to + ' FAILED: ' + err.message); });
   };
 }
 
