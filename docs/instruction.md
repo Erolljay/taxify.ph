@@ -389,8 +389,15 @@ state file, and sends mail.
    file), alongside the SMTP settings the mailer already uses:
 
    ```
-   DEPLOY_ALERT_TO=someone@tallocpa.com
+   DEPLOY_ALERT_TO=erolljay@tallocpa.com
    ```
+
+   **Put it in `/etc/txform/auth.env`, not `provisioner.env`** — that is where
+   the `SMTP_*` settings live, and the watcher reads exactly the variables the
+   auth service'''s mailer reads (`SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`,
+   `SMTP_PASS`, `SMTP_FROM`, `SMTP_SECURE`, `SMTP_EHLO`). An alerting path
+   configured differently from the path known to deliver is a path nobody has
+   tested.
 
    Without it the watcher still runs and logs, but shouts
    `WOULD ALERT but DEPLOY_ALERT_TO is unset` rather than pretending to
@@ -403,22 +410,32 @@ state file, and sends mail.
    sudo mkdir -p /var/lib/txform
    ```
 
-3. **Root cron, every five minutes:**
+3. **systemd timer — NOT cron:**
 
    ```bash
-   sudo crontab -e
+   sudo cp server/txform-deploy-watch.{service,timer} /etc/systemd/system/
+   sudo systemctl daemon-reload
+   sudo systemctl enable --now txform-deploy-watch.timer
    ```
 
-   ```cron
-   */5 * * * * cd /var/www/taxify && set -a && . /etc/txform/provisioner.env && set +a && /usr/bin/node server/deploy-watch.js >> /var/log/txform-deploy-watch.log 2>&1
-   ```
+   **Why not cron:** `auth.env` is a systemd *EnvironmentFile*, not a shell
+   script. It contains `SMTP_FROM=Txform.ph <hello@txform.ph>`, and sourcing
+   that from bash reads the `<` as a redirect — the source aborts on that line
+   and every variable after it, including `DEPLOY_ALERT_TO`, is silently
+   unset. A cron install therefore ran, logged, and sent nothing. systemd
+   parses the file correctly.
 
 4. **Check it:**
 
    ```bash
-   sudo tail -5 /var/log/txform-deploy-watch.log
-   # healthy head=07ec5ff origin=07ec5ff dirty=0
+   systemctl list-timers txform-deploy-watch.timer
+   sudo journalctl -u txform-deploy-watch.service -n 5 --no-pager -o cat
+   # [deploy-watch] healthy head=24d77ae origin=24d77ae dirty=0
    ```
+
+   A **failed** unit means the watchdog itself is blind (it could not reach
+   origin) — deliberately non-zero, so it shows up in `systemctl --failed`
+   rather than looking healthy while seeing nothing.
 
 ### Testing it without waiting for a real outage
 

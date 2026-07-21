@@ -1,0 +1,27 @@
+# ============================================================
+# Txform.ph — systemd timer for the deploy watchdog
+#
+# Every five minutes. The deploy itself ticks every two, and the watchdog
+# only complains after ten minutes behind, so this is comfortably often
+# enough to notice while adding no meaningful load: one `git fetch` and
+# three `git rev-parse`s.
+#
+#   sudo systemctl enable --now txform-deploy-watch.timer
+#   systemctl list-timers txform-deploy-watch.timer   # confirm it ticks
+#   journalctl -u txform-deploy-watch.service -n 20   # what it saw
+# ============================================================
+[Unit]
+Description=Check periodically that deploys are still landing
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=5min
+AccuracySec=30s
+# Deliberately NOT Persistent. A missed window is not work to catch up on
+# — the next run re-reads the world from scratch, and firing a backlog of
+# checks after a reboot would only risk a burst of duplicate alerts.
+Persistent=false
+Unit=txform-deploy-watch.service
+
+[Install]
+WantedBy=timers.target
