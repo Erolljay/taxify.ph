@@ -12,7 +12,76 @@
 
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
 const S = require('../shared/portal-sync.js');
+
+const ACCOUNT_JS = fs.readFileSync(path.join(__dirname, '..', 'account.js'), 'utf8');
+const ACCOUNT_HTML = fs.readFileSync(path.join(__dirname, '..', 'account.html'), 'utf8');
+const NGINX_PORTAL = fs.readFileSync(path.join(__dirname, '..', 'nginx-portal-snippet.conf'), 'utf8');
+
+// ── the portal must survive this file failing to load ────────────────
+//
+// It did not. shared/portal-sync.js had no nginx rule, so it 404'd in
+// production, and account.js touched the global directly — render() threw
+// before drawing anything and the owner got a BLANK dashboard rather than
+// a dashboard missing one banner (2026-07-21).
+
+test('account.js never touches PortalSync outside the typeof guard', () => {
+  ACCOUNT_JS.split('\n').forEach(function (line, i) {
+    if (line.indexOf('PortalSync') === -1) return;
+    const trimmed = line.trim();
+    const isComment = trimmed.startsWith('//') || trimmed.startsWith('*');
+    const isGuard = /typeof PortalSync/.test(line);
+    assert.ok(isComment || isGuard,
+      'account.js:' + (i + 1) + ' uses PortalSync unguarded — a 404 on that '
+      + 'script would blank the dashboard again:\n  ' + trimmed);
+  });
+});
+
+test('the fallback supplies every member account.js actually calls', () => {
+  // A member used at a call site but missing from the fallback would
+  // throw only when the script fails to load — i.e. exactly when nobody
+  // is testing.
+  const used = new Set();
+  const re = /\bSync\.([A-Za-z_$][\w$]*)/g;
+  let m;
+  while ((m = re.exec(ACCOUNT_JS)) !== null) used.add(m[1]);
+
+  assert.ok(used.size > 0, 'expected account.js to call Sync.*');
+  const fallback = /const Sync = \(typeof PortalSync[\s\S]*?\n\};/.exec(ACCOUNT_JS);
+  assert.ok(fallback, 'the guarded Sync fallback is gone');
+
+  used.forEach(function (member) {
+    assert.ok(fallback[0].indexOf(member) !== -1,
+      'the fallback has no "' + member + '", so a missing portal-sync.js would throw on it');
+  });
+  // And the real module must provide them too.
+  used.forEach(function (member) {
+    assert.ok(member in S, 'shared/portal-sync.js does not export "' + member + '"');
+  });
+});
+
+// ── every script the page loads must be reachable in production ──────
+//
+// The apex root is /var/www/taxify/website, NOT the repo root, so a file
+// existing in the repo says nothing about it being served. Each script
+// needs its own exact-match nginx location.
+
+test('every <script src> in account.html has an nginx location', () => {
+  const srcs = [];
+  const re = /<script[^>]+src="([^"]+)"/g;
+  let m;
+  while ((m = re.exec(ACCOUNT_HTML)) !== null) srcs.push(m[1]);
+
+  assert.ok(srcs.length >= 2, 'expected account.html to load at least two scripts');
+  srcs.forEach(function (src) {
+    const url = src.startsWith('/') ? src : '/' + src;
+    assert.ok(NGINX_PORTAL.indexOf('location = ' + url + ' {') !== -1,
+      'account.html loads "' + src + '" but nginx-portal-snippet.conf has no '
+      + '`location = ' + url + '` — it would 404 in production');
+  });
+});
 
 // The shape /api/tenancy/overview actually returns.
 function overview(over) {

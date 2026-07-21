@@ -189,7 +189,7 @@ function render() {
 function renderFailures() {
   const host = $('failures');
   host.textContent = '';
-  const failures = PortalSync.sortFailures((state && state.failures) || []);
+  const failures = Sync.sortFailures((state && state.failures) || []);
   host.hidden = failures.length === 0;
   if (!failures.length) return;
 
@@ -880,6 +880,29 @@ function renderActivity(panel) {
   panel.append(card);
 }
 
+// The portal must survive an auxiliary script failing to load.
+//
+// shared/portal-sync.js is served by its own nginx rule, and when that
+// rule did not exist yet the 404 took the ENTIRE dashboard down: render()
+// threw on the first `PortalSync.` reference, before anything was drawn,
+// so the owner got a blank page rather than a page missing one feature
+// (2026-07-21). A missing enhancement must cost only the enhancement.
+//
+// The fallback degrades to exactly the behaviour that existed before the
+// banner and the auto-refresh: no failures shown, no polling.
+const Sync = (typeof PortalSync !== 'undefined') ? PortalSync : {
+  WATCH_EVERY_MS: 5000,
+  WATCH_MAX_MS: 6 * 60 * 1000,
+  outstandingWork: function () { return false; },
+  shouldDeferRender: function () { return false; },
+  sortFailures: function () { return []; },
+  hasCritical: function () { return false; },
+};
+if (typeof PortalSync === 'undefined') {
+  console.warn('[portal] shared/portal-sync.js did not load — the failed-job banner '
+    + 'and auto-refresh are disabled. Everything else still works.');
+}
+
 // ── keeping the page honest while the provisioner catches up ──────
 //
 // The provisioner runs on a two-minute timer, so an action taken here is
@@ -901,9 +924,9 @@ function stopWatching() {
 // Safe to call after any action, and after the first load. Idempotent:
 // calling it while already watching just extends the deadline.
 function watch() {
-  if (!PortalSync.outstandingWork(state)) return stopWatching();
-  watchDeadline = Date.now() + PortalSync.WATCH_MAX_MS;
-  if (!watchTimer) watchTimer = setInterval(watchTick, PortalSync.WATCH_EVERY_MS);
+  if (!Sync.outstandingWork(state)) return stopWatching();
+  watchDeadline = Date.now() + Sync.WATCH_MAX_MS;
+  if (!watchTimer) watchTimer = setInterval(watchTick, Sync.WATCH_EVERY_MS);
 }
 
 async function watchTick() {
@@ -916,10 +939,10 @@ async function watchTick() {
 
   // Never yank the caret out from under someone mid-word; try again next
   // tick. The data is already updated, only the repaint waits.
-  if (PortalSync.shouldDeferRender(document.activeElement)) return;
+  if (Sync.shouldDeferRender(document.activeElement)) return;
 
   render();
-  if (!PortalSync.outstandingWork(state)) stopWatching();
+  if (!Sync.outstandingWork(state)) stopWatching();
 }
 
 // ── shared ────────────────────────────────────────────────────────
