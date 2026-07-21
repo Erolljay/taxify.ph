@@ -1848,8 +1848,11 @@ const StepEngine = (function () {
       const fields = mi[iframeId] || {};
       Object.keys(fields).forEach(id => {
         const v = fields[id];
-        if (v === '' || v == null || v === '0' || v === 0 || v === false) return; // tidy: skip empties/zeros
-        rows += `<tr><td>${escHtml(id)}</td><td class="num">${escHtml(String(v))}</td></tr>`;
+        // Only true blanks are skipped. 0/'0'/false are answers on a filing
+        // record — January is a month, an unticked box is a deliberate No.
+        if (FilingCore.isEmptyManualInput(v)) return;
+        rows += `<tr><td>${escHtml(FilingCore.manualInputLabel(id))}</td>`
+          + `<td class="num">${escHtml(FilingCore.manualInputDisplay(id, v))}</td></tr>`;
       });
     });
     if (!rows) return '';

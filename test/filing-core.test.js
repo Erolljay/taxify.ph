@@ -219,3 +219,55 @@ test('documentFitsCap rejects a missing or absurd size', () => {
   assert.equal(FC.documentFitsCap(null, 262144, 0), false);
   assert.equal(FC.documentFitsCap(-1, 262144, 0), false);
 });
+
+/* ── Frozen manual-input presentation ─────────────────────────────────────
+   The frozen view was dumping raw DOM ids and raw values, so a February
+   filing displayed "c1601-month = 1". Month pickers are 0-based (see
+   shared.js), so the value was right and the presentation was wrong — but
+   on a filing record, something that READS wrong is a real defect: it
+   invites the preparer to distrust a correct return.
+
+   Worse, the old renderer skipped 0/false as "empties". On a filing record
+   those are answers, not blanks: January is a month and an unticked box is
+   a deliberate No. Dropping them hid what was actually filed. ---------- */
+
+test('manualInputDisplay renders 0-based months as names', () => {
+  assert.equal(FC.manualInputDisplay('c1601-month', 0), 'January');
+  assert.equal(FC.manualInputDisplay('c1601-month', 1), 'February');
+  assert.equal(FC.manualInputDisplay('c1601-month', '1'), 'February');
+  assert.equal(FC.manualInputDisplay('c1601-month', 11), 'December');
+});
+
+test('manualInputDisplay leaves an out-of-range month alone', () => {
+  // Better to show something odd than to invent a month that was not filed.
+  assert.equal(FC.manualInputDisplay('c1601-month', 12), '12');
+  assert.equal(FC.manualInputDisplay('c1601-month', 'x'), 'x');
+});
+
+test('manualInputDisplay renders quarters and booleans readably', () => {
+  assert.equal(FC.manualInputDisplay('vat-quarter', 2), 'Q2');
+  assert.equal(FC.manualInputDisplay('some-flag', true), 'Yes');
+  assert.equal(FC.manualInputDisplay('some-flag', false), 'No');
+});
+
+test('manualInputDisplay passes other values through unchanged', () => {
+  assert.equal(FC.manualInputDisplay('c1601-year', 2026), '2026');
+  assert.equal(FC.manualInputDisplay('anything', 'Manila'), 'Manila');
+});
+
+test('manualInputLabel humanises the DOM id', () => {
+  assert.equal(FC.manualInputLabel('c1601-month'), 'Month');
+  assert.equal(FC.manualInputLabel('c1601-year'), 'Year');
+  assert.equal(FC.manualInputLabel('me-tax-code'), 'Tax code');
+  assert.equal(FC.manualInputLabel('standalone'), 'standalone');
+});
+
+test('isEmptyManualInput treats only true blanks as empty', () => {
+  assert.equal(FC.isEmptyManualInput(''), true);
+  assert.equal(FC.isEmptyManualInput(null), true);
+  assert.equal(FC.isEmptyManualInput(undefined), true);
+  // Answers, not blanks — these were being dropped from filing records.
+  assert.equal(FC.isEmptyManualInput(0), false);
+  assert.equal(FC.isEmptyManualInput('0'), false);
+  assert.equal(FC.isEmptyManualInput(false), false);
+});
