@@ -68,6 +68,13 @@ CREATE TABLE IF NOT EXISTS users (
   -- owner presses Reset password and gets a new one.
   initial_password    TEXT,
   initial_password_at INTEGER,                              -- epoch ms
+  -- Offboarding is REMOVE, never DELETE — same reasoning as archiving a
+  -- business. audit_log and report_snapshot.filed_by record people by
+  -- email, so deleting the row would leave those entries pointing at
+  -- someone the system can no longer explain. A removed user keeps their
+  -- history, frees their seat, and loses every book in Books.
+  status            TEXT    NOT NULL DEFAULT 'active',      -- active|removed
+  removed_at        TEXT,
   created_at        TEXT    NOT NULL DEFAULT (datetime('now')),
   UNIQUE(account_id, email)
 );

@@ -366,7 +366,7 @@ function renderTeam(panel) {
   const card = el('div', 'card');
   const h = document.createElement('h2');
   h.textContent = 'People';
-  const seats = state.users.filter((u) => u.role === 'owner' || u.role === 'staff').length;
+  const seats = state.users.filter((u) => (u.role === 'owner' || u.role === 'staff') && u.status !== 'removed').length;
   const use = document.createElement('span');
   use.className = 'use' + (seats >= state.account.seats_limit ? ' full' : '');
   use.textContent = seats + ' / ' + state.account.seats_limit + ' seats';
@@ -390,6 +390,17 @@ function renderTeam(panel) {
     const spacer = el('span', 'spacer');
     li.append(spacer);
 
+    // A removed person stays listed rather than vanishing, so an offboard
+    // is something you can see rather than infer from an absence.
+    if (u.status === 'removed') {
+      const badge = document.createElement('span');
+      badge.className = 'badge cancelled';
+      badge.textContent = 'removed';
+      li.append(badge);
+      list.append(li);
+      return;
+    }
+
     if (u.provisioned && u.role !== 'owner') {
       const reset = document.createElement('button');
       reset.type = 'button';
@@ -397,6 +408,16 @@ function renderTeam(panel) {
       reset.textContent = 'Reset password';
       reset.addEventListener('click', () => onResetPassword(u));
       li.append(reset);
+    }
+    // The owner cannot remove themselves — it would leave the firm with
+    // nobody able to manage it, and no way back in from the portal.
+    if (u.role !== 'owner') {
+      const rm = document.createElement('button');
+      rm.type = 'button';
+      rm.className = 'danger';
+      rm.textContent = 'Remove';
+      rm.addEventListener('click', () => onRemoveUser(u));
+      li.append(rm);
     }
     list.append(li);
 
@@ -494,6 +515,23 @@ async function onClearPassword(u) {
   const r = await api('POST', '/api/tenancy/clear-password', { userId: u.id });
   if (r.status === 200) await reload('Password hidden.');
   else flash($('dash-msg'), 'err', errText(r, 'Could not hide it.'));
+}
+
+async function onRemoveUser(u) {
+  // Offboarding revokes a real person's access to real client books.
+  const ok = window.confirm(
+    'Remove ' + u.email + '?\n\n' +
+    'They lose every set of books in Books and can no longer sign in — any' +
+    ' open session ends immediately. Their history is kept.\n\n' +
+    'You can invite them again later; they come back with no client access.'
+  );
+  if (!ok) return;
+  const r = await api('POST', '/api/tenancy/remove-user', { userId: u.id });
+  if (r.status === 200) {
+    await reload('Removed ' + u.email + '. Revoking their access in Books…');
+  } else {
+    flash($('dash-msg'), 'err', errText(r, 'Could not remove.'));
+  }
 }
 
 async function onResetPassword(u) {
@@ -716,6 +754,8 @@ function errText(r, fallback) {
   if (e === 'name_unavailable') return 'You already have a client with that name — give this one a distinct name.';
   if (e === 'client_requires_own_business') return 'Pick which business this client should see.';
   if (e === 'wrong_account') return 'That does not belong to your firm.';
+  if (e === 'cannot_remove_self') return 'You cannot remove yourself — that would leave the firm with no one to manage it.';
+  if (e === 'cannot_remove_owner') return 'The firm owner cannot be removed.';
   if (e === 'not_owner') return 'Only the firm owner can do that.';
   return e ? String(e) : fallback;
 }

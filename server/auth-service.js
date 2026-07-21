@@ -48,7 +48,7 @@ function loadSession(db, cookieHeader, now) {
   const row = db.prepare(
     `SELECT s.expires_at, u.id AS user_id, u.email, u.role, u.account_id
        FROM session s JOIN users u ON u.id = s.user_id
-      WHERE s.session_hash = ?`
+      WHERE s.session_hash = ? AND u.status = 'active'`
   ).get(A.hashToken(raw));
   if (!A.isSessionValid(row, now)) return null;
   return row;
@@ -71,7 +71,9 @@ function requestLink(db, input, deps) {
     return { status: 429, json: { error: 'Too many sign-in requests. Try again shortly.' } };
   }
 
-  const user = db.prepare('SELECT id FROM users WHERE email = ?').get(email);
+  // Removed users are treated exactly like unknown ones: same generic
+  // 200, no link. Anything else would let an offboarded person back in.
+  const user = db.prepare("SELECT id FROM users WHERE email = ? AND status = 'active'").get(email);
   if (user) {
     const raw = A.generateToken();
     db.prepare('INSERT INTO login_token (email, token_hash, expires_at, created_at, request_ip) VALUES (?,?,?,?,?)')
@@ -121,7 +123,9 @@ function verifyLink(db, input, deps) {
     .run(now, row.id);
   if (consumed.changes !== 1) return fail(400, 'link consumed', 'link_used');
 
-  const user = db.prepare('SELECT id FROM users WHERE email = ?').get(row.email);
+  // Checked again here, not just at request time: a link minted minutes
+  // before someone was removed must not still open a session.
+  const user = db.prepare("SELECT id FROM users WHERE email = ? AND status = 'active'").get(row.email);
   if (!user) return fail(400, 'no such user', 'link_invalid');
 
   const raw = A.generateToken();
@@ -220,13 +224,37 @@ function inviteStaff(db, input, deps) {
     }
   }
 
-  const existing = db.prepare('SELECT id FROM users WHERE account_id = ? AND email = ?').get(s.account_id, email);
-  if (existing) return { status: 200, json: { ok: true, userId: existing.id, alreadyMember: true } };
+  const existing = db.prepare('SELECT id, status FROM users WHERE account_id = ? AND email = ?').get(s.account_id, email);
+  if (existing && existing.status === 'active') {
+    return { status: 200, json: { ok: true, userId: existing.id, alreadyMember: true } };
+  }
+  // Someone who left and came back: reactivate the same row rather than
+  // failing on UNIQUE(account_id, email). They return with NO books —
+  // access is re-granted deliberately through the grid, never restored
+  // silently by rehiring.
+  if (existing) {
+    db.prepare("UPDATE users SET status = 'active', removed_at = NULL, role = ? WHERE id = ?")
+      .run(role, existing.id);
+    db.prepare('INSERT INTO provision_job (type, user_id, created_at, updated_at) VALUES (?,?,?,?)')
+      .run('create', existing.id, now, now);
+    db.prepare('INSERT INTO audit_log (account_id, actor, action, target) VALUES (?,?,?,?)')
+      .run(s.account_id, s.email, 'reinstate_' + role, 'user:' + existing.id + ' ' + email);
+    if (deps.sendEmail) {
+      try {
+        deps.sendEmail({
+          to: email, kind: 'invite', role: role,
+          firmName: account.firm_name || null,
+          portalUrl: deps.portalUrl || ((deps.baseUrl || 'https://txform.ph') + '/account'),
+        });
+      } catch (e) { console.error('[invite] could not send to', email, '-', e.message); }
+    }
+    return { status: 200, json: { ok: true, userId: existing.id, reinstated: true, role: role } };
+  }
 
   // Clients are free — only owner/staff count against seats.
   if (A.consumesSeat(role)) {
     const seatCount = db.prepare(
-      "SELECT COUNT(*) AS n FROM users WHERE account_id = ? AND role IN ('owner','staff')"
+      "SELECT COUNT(*) AS n FROM users WHERE account_id = ? AND role IN ('owner','staff') AND status = 'active'"
     ).get(s.account_id).n;
     const room = A.canProvisionMore('seat', { limit: account.seats_limit, currentCount: seatCount });
     if (!room.ok) return { status: 409, json: { error: room.reason } };
@@ -397,6 +425,48 @@ function addBusiness(db, input, deps) {
 // must survive a client leaving. Revokes every user's Manager access to it
 // and frees the slot against businesses_limit, but leaves this month's
 // business_billing_period row standing, so the period is still billed.
+// POST /api/tenancy/remove-user { userId }
+// Owner-only. Offboards someone: they lose every set of books in Books,
+// their seat is freed, and their history stays intact.
+//
+// This is the security-critical direction of the access grid. A grant
+// that fails is a nuisance — someone cannot work. A revoke that fails
+// means a person who has left still has the books, which is why this
+// enqueues a 'disable' job (the provisioner strips every business from
+// them) rather than only deleting rows here. Until that job reports
+// done, the portal shows them as still being removed.
+function removeUser(db, input, deps) {
+  const now = deps.now();
+  const s = loadSession(db, input.cookie, now);
+  if (!s) return { status: 401, json: { error: 'not signed in' } };
+  const account = db.prepare('SELECT id FROM account WHERE id = ?').get(s.account_id);
+  const authz = A.authorizeOwnerAction({ role: s.role, account_id: s.account_id, expires_at: s.expires_at }, account, now);
+  if (!authz.ok) return { status: 403, json: { error: authz.reason } };
+
+  const target = db.prepare('SELECT id, account_id, email, role, status FROM users WHERE id = ?').get(input.userId);
+  if (!target || target.account_id !== s.account_id) return { status: 403, json: { error: 'wrong_account' } };
+
+  // Locking yourself out would leave the firm with no one who can manage
+  // it, and no way back in from the portal.
+  if (target.id === s.user_id) return { status: 409, json: { error: 'cannot_remove_self' } };
+  if (target.role === 'owner') return { status: 409, json: { error: 'cannot_remove_owner' } };
+  if (target.status === 'removed') return { status: 200, json: { ok: true, alreadyRemoved: true } };
+
+  const held = db.prepare('SELECT COUNT(*) AS n FROM user_business WHERE user_id = ?').get(target.id).n;
+  db.prepare('DELETE FROM user_business WHERE user_id = ?').run(target.id);
+  // One job, not one per business: disableUser strips them all at once,
+  // so a partially-applied offboard is not possible.
+  db.prepare('INSERT INTO provision_job (type, user_id, created_at, updated_at) VALUES (?,?,?,?)')
+    .run('disable', target.id, now, now);
+
+  db.prepare("UPDATE users SET status = 'removed', removed_at = ?, initial_password = NULL WHERE id = ?")
+    .run(new Date(now).toISOString(), target.id);
+  db.prepare('INSERT INTO audit_log (account_id, actor, action, target) VALUES (?,?,?,?)')
+    .run(s.account_id, s.email, 'remove_user', 'user:' + target.id + ' ' + target.email);
+
+  return { status: 200, json: { ok: true, revoked: held } };
+}
+
 function archiveBusiness(db, input, deps) {
   const now = deps.now();
   const s = loadSession(db, input.cookie, now);
@@ -505,11 +575,16 @@ function overview(db, input, deps) {
   // to the owner of that account, only while still visible, and cleared
   // as soon as they acknowledge it. Never emailed, never logged.
   const users = db.prepare(
-    'SELECT id, email, role, manager_user_ref, initial_password, initial_password_at FROM users WHERE account_id = ? ORDER BY role DESC, email'
+    // Removed people are still listed, sorted below the active ones, so
+    // an offboard is visible rather than a person silently vanishing.
+    `SELECT id, email, role, status, removed_at, manager_user_ref, initial_password, initial_password_at
+       FROM users WHERE account_id = ?
+      ORDER BY CASE status WHEN 'active' THEN 0 ELSE 1 END, role DESC, email`
   ).all(s.account_id).map(function (u) {
     const visible = u.initial_password && A.isInitialPasswordVisible(u.initial_password_at, now);
     return {
       id: u.id, email: u.email, role: u.role,
+      status: u.status, removedAt: u.removed_at,
       initialPassword: visible ? u.initial_password : null,
       provisioned: !!u.manager_user_ref,
     };
@@ -540,7 +615,7 @@ function overview(db, input, deps) {
 module.exports = {
   COOKIE_NAME, parseCookie, loadSession,
   requestLink, verifyLink, currentUser,
-  setUserBusiness, inviteStaff, addBusiness, archiveBusiness, clearInitialPassword, resetPassword,
+  setUserBusiness, inviteStaff, addBusiness, archiveBusiness, removeUser, clearInitialPassword, resetPassword,
   recordBillingPeriod, billableCount, invoiceFor, grantDiscount, overview,
 };
 
@@ -616,6 +691,7 @@ if (require.main === module) {
         if (req.method === 'POST' && url.pathname === '/api/tenancy/invite-staff') return send(res, inviteStaff(db, { cookie: cookie, email: json.email, role: json.role, businessId: json.businessId }, deps));
         if (req.method === 'POST' && url.pathname === '/api/tenancy/add-business') return send(res, addBusiness(db, { cookie: cookie, name: json.name }, deps));
         if (req.method === 'POST' && url.pathname === '/api/tenancy/archive-business') return send(res, archiveBusiness(db, { cookie: cookie, businessId: json.businessId }, deps));
+        if (req.method === 'POST' && url.pathname === '/api/tenancy/remove-user') return send(res, removeUser(db, { cookie: cookie, userId: json.userId }, deps));
         if (req.method === 'POST' && url.pathname === '/api/tenancy/clear-password') return send(res, clearInitialPassword(db, { cookie: cookie, userId: json.userId }, deps));
         if (req.method === 'POST' && url.pathname === '/api/tenancy/reset-password') return send(res, resetPassword(db, { cookie: cookie, userId: json.userId }, deps));
         if (req.method === 'GET' && url.pathname === '/api/tenancy/overview') return send(res, overview(db, { cookie: cookie }, deps));
