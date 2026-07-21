@@ -11,7 +11,7 @@ _Last updated: 2026-07-21_
 | Phase | Status | Notes |
 |-------|--------|-------|
 | **0 — Foundation hardening** | ✅ Largely done | Pull-based auto-deploy (`scripts/deploy.sh` via 2-min root cron), nginx web-root hardening, LF normalization. Hosting-license confirmed, Manager Server bought. **Backups live (2026-07-13):** AWS Backup EC2 snapshots + S3 Manager.io data backups, both 2 AM Manila, 7/56/400-day retention. **`save-tax-rates.php` hardened & LIVE (2026-07-14, PR #23):** shared-secret token + body cap + backup pruning on top of nginx basic-auth; token file created on the server. Still open: UFW, fail2ban, UptimeRobot, e2e BIR verification. |
-| **1 — Tenancy / entitlement / provisioning** | ✅ Live | `server/auth-*.js`, `smtp-mailer.js`, `migrate.js`, `manager-client.js`, `provisioner.js` + HTTP driver, `manager-vue-form.js` / `manager-permissions.js` / `manager-tabs.js`, `create-firm.js`, `entitlement.php`, systemd units. **422 passing tests, plus 13 read-only contract checks against live Manager (`npm run contract`, run after every Manager upgrade). Zero npm dependencies** — Playwright was deleted once it became clear Books needs no browser. **LIVE as of 2026-07-21:** Tallo CPA (code TALLO) with four users, provisioner timer reconciling every two minutes, deploys restarting the auth service automatically, and email reaching external addresses (SPF/DMARC added). Roles owner/staff/client, firm-code prefixes, archive-not-delete, removal that revokes in Books and kills the session, voucher-based comping, high-water-mark billing, one-time password handover with MFA, and portal sign-out (PR #54). **Provisioning is now complete end to end (PR #56):** a grant sets Full access inside the business as well as linking it, and new books get the firm's nine tabs — both verified live. Open: the two partner firms; failed jobs are visible only in Activity, not as a chip. |
+| **1 — Tenancy / entitlement / provisioning** | ✅ Live | `server/auth-*.js`, `smtp-mailer.js`, `migrate.js`, `manager-client.js`, `provisioner.js` + HTTP driver, `manager-vue-form.js` / `manager-permissions.js` / `manager-tabs.js`, `create-firm.js`, `entitlement.php`, `deploy-health.js` + its watchdog timer, systemd units. **422 passing tests, plus 13 read-only contract checks against live Manager (`npm run contract`, run after every Manager upgrade). Zero npm dependencies** — Playwright was deleted once it became clear Books needs no browser. **LIVE as of 2026-07-21:** Tallo CPA (code TALLO) with four users, provisioner timer reconciling every two minutes, deploys restarting the auth service automatically, and email reaching external addresses (SPF/DMARC added). Roles owner/staff/client, firm-code prefixes, archive-not-delete, removal that revokes in Books and kills the session, voucher-based comping, high-water-mark billing, one-time password handover with MFA, and portal sign-out (PR #54). **Provisioning is now complete end to end (PR #56):** a grant sets Full access inside the business as well as linking it, and new books get the firm's nine tabs — both verified live. **Failed jobs now surface as a banner** the owner cannot navigate past, with a Try again that re-queues (PR #62), and a watchdog alerts if deploys stop landing (PRs #64/#65). Open: the two partner firms. |
 | **2 — Website rebuild & SEO** | ✅ Live | **Deployed 2026-07-14 (PR #21).** Full static multi-page site under `website/`: home + features/security/about/contact/faq/terms/privacy, shared `assets/css/site.css` + `assets/js/site.js`, real favicons, `robots.txt` + `sitemap.xml` + per-page meta & JSON-LD. **Positioned as a live product, not a waitlist** — CTAs are "Get started" → contact onboarding and "Sign in" → the owner portal at **`/account`**. Legal pages carry the firm's real details (TalloCPA, Iloilo City, DPO Erol Jay Tallo). Old JS bundle preserved as `index.legacy.html`. Open only: counsel review of legal pages, optional font self-hosting. |
 | **3 — Payments (PayMongo)** | 🔴 Not started | No PayMongo/webhook code yet. **Model decided 2026-07-20:** flat ₱500/business/month (no tiers), no trial, one monthly invoice billed on the high-water mark of active businesses. PayMongo cannot prorate, but invoice line items can be adjusted before an invoice finalises — that's the mechanism. Annual prepay deferred. |
 | **4 — ToS / Data Privacy (RA 10173)** | 🟡 Draft pages | `website/terms.html` + `website/privacy.html` drafted (RA 10173-aligned, NPC/DPO sections) with bracketed firm placeholders; needs real firm details + counsel review before launch. |
@@ -29,6 +29,66 @@ rates, the graduated-tax engine and VAT 2550Q are verified; two income-tax bugs 
   workflow engine that replaced the old monolithic setup screen).
 
 ## Changelog
+
+### 2026-07-21 (finally) — The watchdog is watching, and installing it found three more
+
+`txform-deploy-watch.timer` is live, checking every five minutes and
+alerting **erolljay@tallocpa.com**. Delivery is confirmed, not assumed —
+a real alert arrived during install.
+
+It arrived because the working tree was genuinely dirty: a file had been
+copied onto the server by hand while iterating on the watchdog itself. It
+caught the exact condition it was built for, within seconds, before
+anyone had noticed. Then the tree was restored and the timer left
+disabled until the code reached the server the proper way.
+
+**Three faults, all found by installing rather than by testing.** Every
+one failed the way this project keeps failing — by looking like it
+worked:
+
+1. **Wrong env file, wrong SMTP config.** The settings live in
+   `/etc/txform/auth.env`, not `provisioner.env`, and the mailer uses
+   `SMTP_FROM` / `SMTP_SECURE` / `SMTP_EHLO` on port 465 implicit TLS.
+   The watcher had invented `MAIL_FROM` and defaulted to 587 with no
+   `secure` — a configuration nobody had ever delivered mail with. It now
+   reads exactly what the working mailer reads. *An alert path configured
+   differently from the path known to deliver is a path nobody has
+   tested.*
+
+2. **cron cannot source that file.** `auth.env` is a systemd
+   EnvironmentFile, and it contains
+   `SMTP_FROM=Txform.ph <hello@txform.ph>`. Sourced from bash, the `<`
+   reads as a redirect: the source aborts on that line and every variable
+   after it — including `DEPLOY_ALERT_TO` — is silently unset. The
+   watchdog ran, logged, and sent nothing. Replaced with
+   `txform-deploy-watch.{service,timer}`, mirroring the provisioner units.
+
+3. **`git fetch` needs write access**, and failed under
+   `ProtectSystem=strict` with `.git/FETCH_HEAD: Read-only file system`.
+   The fix was **not** to widen the permissions — a tool that watches the
+   deploy repo has no business being able to modify it. Switched to
+   `git ls-remote`, which answers the same question and writes nothing,
+   plus `-c safe.directory` on every call since `ProtectHome=true` hides
+   root's `.gitconfig`.
+
+An unreachable origin now exits non-zero, so a watchdog that cannot see
+shows up in `systemctl --failed` rather than reporting healthy while
+seeing nothing.
+
+**The pattern is worth naming.** Almost everything of value on 2026-07-21
+came from running things, not reasoning about them: the half-grant, the
+blank portal, the deploy trap, and these three. The 422 tests were
+necessary and caught real defects — including a falsy-zero that would
+have sorted the most dangerous failure to the bottom of the banner — but
+**every environment-shaped bug needed the environment.** Unit tests do
+not read `auth.env`, do not run under `ProtectSystem=strict`, and do not
+know that nginx serves `website/` rather than the repo root.
+
+Two process notes from the same session, recorded because they were
+mistakes rather than discoveries: a commit landed on `main` directly and
+had to be moved to a branch, and an early "test" of the deploy pre-flight
+proved nothing because the repo copy was already up to date — a pass
+reported on a check that never ran.
 
 ### 2026-07-21 (end) — The banner works; shipping it broke the portal
 
