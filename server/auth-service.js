@@ -628,7 +628,13 @@ if (require.main === module) {
 
   const dbPath = process.env.TXFORM_DB || path.join(__dirname, 'txform.db');
   const db = new DatabaseSync(dbPath);
-  db.exec(fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8'));
+  // CREATE TABLE IF NOT EXISTS creates missing tables but does nothing to
+  // one that already exists — so a new column in schema.sql never reached
+  // a live database, and the service came up healthy and then 500'd on
+  // the first query touching it. migrate() closes that gap.
+  const schemaSql = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8');
+  db.exec(schemaSql);
+  require('./migrate.js').migrate(db, schemaSql, console.log);
 
   // Real SMTP sender when configured (creds via /etc/txform/auth.env,
   // wired by the systemd unit); otherwise log the link — keeps local

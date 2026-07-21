@@ -436,6 +436,62 @@ and compared** before the job is marked done.
 
 ---
 
+## The subscriber database — schema changes and backups
+
+### Schema changes apply themselves
+
+`schema.sql` is all `CREATE TABLE IF NOT EXISTS`, which creates a missing table
+but does **nothing** to one that already exists. Adding a column therefore had no
+effect on a live database — and it failed at *query* time, not deploy time: the
+auth service started healthy and then returned 500 on the first request touching
+the new column. That is how `users.status` took sign-in down.
+
+`server/migrate.js` now runs at boot, right after `schema.sql`. It compares each
+table against the live database and `ALTER`s in whatever is missing. Additive
+only: it never drops, renames, retypes or reorders anything, never touches a row,
+and is a no-op once the database is current.
+
+Three things it will **not** do, because SQLite cannot, and it says so in the log
+rather than guessing:
+
+- `NOT NULL` with no `DEFAULT` — existing rows would have nowhere to go
+- a non-constant default such as `DEFAULT (datetime('now'))`
+- `PRIMARY KEY` on an existing table
+
+A `UNIQUE` column *is* handled: the column goes in plain and a unique index
+enforces it, which is what the inline constraint compiles to anyway.
+
+Anything it reports as skipped needs a hand-written migration. Check after a
+deploy that changed the schema:
+
+```
+journalctl -u txform-auth -n 30 --no-pager | grep migrate
+```
+
+### ⚠️ Backing it up: `cp` is NOT enough
+
+The database runs in **WAL mode**, so recent writes live in `txform.db-wal`, not
+in `txform.db`. Copying the `.db` file alone captures a stale — often empty —
+snapshot. Two `.bak` files taken that way during development turned out to be
+completely unreadable.
+
+Always use SQLite's own backup, which checkpoints the WAL first:
+
+```
+sudo sqlite3 /var/www/taxify/server/txform.db ".backup '/var/www/taxify/server/txform-$(date +%F).db'"
+```
+
+Verify it before trusting it:
+
+```
+sqlite3 /path/to/backup.db "SELECT COUNT(*) FROM users;"
+```
+
+(The AWS whole-instance snapshots are unaffected — they capture `-wal` along with
+everything else. This only bites hand-made copies.)
+
+---
+
 ## Caveats / notes
 - The `esmeres-managerio-backups` bucket + script your partner shared were only a
   **sample** — the live setup is the `txform-managerio-backups` one above. Don't
