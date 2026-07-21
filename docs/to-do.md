@@ -27,31 +27,48 @@ home IP per [`DEPLOY.md`](../DEPLOY.md)):**
       objects carry no `key`. Confirms entitlement + freeze were both dead before PR #40. *(Needs a
       logged-in Manager session; not reachable over SSH.)*
 
-**Then, in order:**
+**Shipped 2026-07-21 (PR #41)** — see
+[`progress.md`](progress.md#2026-07-21--firm-accounts-and-the-provisioner-actually-reaches-books-pr-41):
+roles (owner/staff/client), firm-code prefixes, archive, voucher comping,
+high-water-mark billing, the role-scoped portal (search + Open-in-Books), the
+back-office firm creator, the HTTP provisioner with its contract test, and one-time
+password handover with MFA. **249 tests. Playwright deleted — zero dependencies.**
 
-- [x] **Re-key businesses to the Manager name** — **DONE 2026-07-20 (PR #40).** `manager_business_guid`
-      → `manager_business_name` across schema, both PHP endpoints, provisioner, portal; both dead
-      name→GUID resolvers deleted; account-scoped fallback name on cross-firm collisions (no
-      cross-tenant oracle). Driver TODOs corrected to the real `/user-form` model. `npm test` 149 green.
-- [ ] **Schema additions** (one migration, cheap now, painful once firms are paying):
-      `account.firm_name` (nothing stores it — sign-up cannot be built without it) · `client` role
-      (schema has only `owner|staff`) · `businesses.status` for **archive, not delete** (filed
-      snapshots must survive; capacity frees at period end, else clients get cycled to dodge billing)
-      · **billing-period history per business** (high-water billing must know a business was active
-      in a month even after it's archived) · *(optional)* tax type per business — not billing-critical
-      since the rate is flat, but drives which reports and deadlines appear.
-- [ ] **Portal rework** — land on **Clients**, not admin (almost every session is "open a client and
-      file something"). **Let staff and clients in**: `overview()` is owner-gated today, so everyone
-      else signs in fine and then 403s at the dashboard. Staff get a filtered Clients screen; clients
-      get a read-only list of their filed returns; neither gets Team/Access/Billing/Activity. **Show
-      provisioner sync state** on the access grid — `provision_job.status` is already recorded but
-      never surfaced, and the queue runs on a timer, so an instantly-flipping checkbox misleads.
-- [ ] **Sign-up flow** (does not exist at all) — 6 steps: email → firm name → add businesses →
-      review & pay → provisioning progress → land on Clients. Businesses are collected **before** the
-      card because price depends on the count, and **nothing is provisioned until payment clears**
-      (no trial). Ends with one welcome email carrying *both* credentials: the magic link and the
-      Manager username/password.
-- [ ] **PayMongo** — last, and it's the security gate. See the Phase 3 note in `progress.md`.
+**Left to do, in order:**
+
+- [ ] **Merge PR #41, then recreate `txform.db`** — the schema changed again. It is
+      still effectively empty, so drop and recreate rather than migrate:
+      `sudo systemctl stop txform-auth` · `sudo mv server/txform.db server/txform.db.bak`
+      · `sudo rm -f server/txform.db-wal server/txform.db-shm` · `sudo systemctl start txform-auth`
+- [ ] **Install the provisioner timer** — the units exist but have never been installed,
+      so nothing reconciles automatically yet:
+      `sudo cp server/txform-provisioner.{service,timer} /etc/systemd/system/` ·
+      `sudo systemctl daemon-reload` · `sudo systemctl enable --now txform-provisioner.timer`
+      · confirm with `systemctl list-timers txform-provisioner.timer`
+- [ ] **Create the three real firms** — each needs a permanent code:
+      `node server/create-firm.js "Tallo CPA" owner@tallocpa.com --code TALLO --comp "founder firm"`
+- [ ] **Delete the leftover sandbox objects in Books** — `TEST-Sandbox Co`,
+      `TEST2-Sandbox Two`. Programmatic delete was not found and guessing at destructive
+      routes on live books was not worth it; do it from the Books UI.
+- [ ] *(later)* Move grant/revoke to api2's `user-permissions-form` if the session path
+      ever proves fragile. The api2 token is already in `provisioner.env` and works; its
+      request shape is just unknown, and learning it means writing to live books.
+
+**Superseded — do not build:**
+
+- [x] **Re-key businesses to the Books name** — DONE 2026-07-20 (PR #40).
+- [x] **Schema additions** — DONE (PR #41). `firm_name`, `firm_code`, `client` role,
+      `businesses.status` + `archived_at` + `manager_created_at`, `business_billing_period`,
+      `account_discount`, and the one-time password columns. **No tax-type column**: we serve
+      VAT businesses only and the rate is flat, so it would have held one value everywhere.
+- [x] **Portal rework** — DONE (PR #41), plus search and Open-in-Books links.
+- [ ] ~~**Sign-up flow**~~ — **not being built.** Every firm on the system is one we know
+      personally, so onboarding is a command (`create-firm.js`), not a funnel. Revisit only if
+      strangers ever need to self-serve.
+- [ ] ~~**PayMongo**~~ — **deferred indefinitely.** The three firms are comped via vouchers and
+      there is no PayMongo account. The billing model is decided and implemented (flat ₱500 per
+      business, high-water-mark monthly, `invoiceFor` computes the amount) — only the charging
+      integration is missing, and nothing depends on it.
 
 ## ⭐ Month-end Prep restructure + party Excel round-trip + readiness-gated workflows (2026-07-19)
 
