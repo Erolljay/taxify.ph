@@ -65,6 +65,21 @@ external addresses. 310 tests.
       failure in the system (someone who left still holds the client books) and
       currently it is the least visible one. Surface failed jobs somewhere the
       owner cannot walk past.
+
+      **This stopped being hypothetical on 2026-07-21.** Job 49 — a `disable`
+      for `erolljaytallo@gmail.com` — had burned all three attempts on the
+      session-expiry bug (`http 302`) and sat `failed` in the database. Nobody
+      noticed. It surfaced only because someone queried `provision_job` directly
+      while looking for something else. Had that offboard mattered, a person who
+      had left would have kept the client books, and the portal would have shown
+      nothing wrong. (Checked at the time: they held 0 businesses, so there was
+      no exposure — luck, not design. The job has since been re-queued and
+      completed.) The fix is worth prioritising above its current position.
+
+      Note the shape when building it: `create` and `disable` jobs have **no
+      `business_id`**, so they are absent from the `jobs` array the overview
+      returns — the same blind spot that hid the password panel in PR #60. A
+      failed-job banner must query jobs independently, not filter the grid's.
 - [x] **The whole loop, end to end** — DONE 2026-07-21. Owner signed in, invited
       `erolljaytallo@gmail.com`, granted `Test-Business-1`, the staff member signed
       into Books and worked in it, then was removed. Jobs 55/56/57 (`create`,
