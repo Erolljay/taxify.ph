@@ -17,7 +17,13 @@ declare(strict_types=1);
    file does nothing.
    ============================================================ */
 
-const TXFORM_MAX_BODY_BYTES = 262144; // 256 KB — a snapshot is a few KB
+// A snapshot carries the rendered return (gzip+base64) so a filed period
+// can be shown back as it stood, not just its headline figure. Compressed
+// returns run a few KB to low hundreds of KB; 1 MiB leaves headroom for a
+// long alphalist without letting a single freeze run away with the DB.
+// MUST stay in step with MAX_BODY_BYTES in app/filing-store.js — the client
+// sizes the document against that value before sending.
+const TXFORM_MAX_BODY_BYTES = 1048576; // 1 MiB
 
 function txform_db_path(): string
 {

@@ -176,9 +176,46 @@
         || Math.abs((v.i20 || 0) + (v.i25 || 0)) > LINE_EPSILON;
   }
 
+  // ── Snapshot document ───────────────────────────────────────────────────
+  // A freeze stores the rendered return itself, so a filed period can be
+  // shown back exactly as it stood — the figures alone can tell you THAT a
+  // number moved, but not what you actually filed.
+  //
+  // Where the return lives in each report page. Two conventions exist:
+  // most pages wrap in .report-wrap and render into #report-output, while
+  // 2550q (the oldest) uses .rw and #output. Capture is scoped to these on
+  // purpose — anything outside them isn't ours. Browser extensions inject
+  // at <body> level, so scoping is also what keeps foreign nodes out of the
+  // stored document and out of the captured manual inputs.
+  var RETURN_ROOT_SELECTORS = ['#report-output', '#output'];
+  var PAGE_ROOT_SELECTORS = ['.report-wrap', '.rw'];
+
+  // Encoded length of `n` bytes under base64: 4 chars per 3-byte group.
+  function base64Size(n) {
+    if (typeof n !== 'number' || !isFinite(n) || n < 0) return 0;
+    return 4 * Math.ceil(n / 3);
+  }
+
+  // Whether a gzipped document survives base64 into a body of `capBytes`,
+  // once `otherBytes` (figures, manual inputs, period) is accounted for.
+  // Compares ENCODED size: 200 KB of gzip is ~267 KB base64, which overruns
+  // a 262 KB cap even though the raw length looks like it fits.
+  //
+  // A document that doesn't fit is dropped, not fatal: the freeze still
+  // stores the figures. Losing the visual record is bad; failing the
+  // filing outright is worse.
+  function documentFitsCap(gzBytes, capBytes, otherBytes) {
+    if (typeof gzBytes !== 'number' || !isFinite(gzBytes) || gzBytes < 0) return false;
+    return base64Size(gzBytes) + (otherBytes || 0) <= capBytes;
+  }
+
   var api = {
     WORKFLOW_FORMS: WORKFLOW_FORMS,
     WORKFLOW_HEADLINE: WORKFLOW_HEADLINE,
+    RETURN_ROOT_SELECTORS: RETURN_ROOT_SELECTORS,
+    PAGE_ROOT_SELECTORS: PAGE_ROOT_SELECTORS,
+    base64Size: base64Size,
+    documentFitsCap: documentFitsCap,
     LINE_EPSILON: LINE_EPSILON,
     isRecordableLine: isRecordableLine,
     hasRecordableLines: hasRecordableLines,
