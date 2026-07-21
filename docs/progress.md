@@ -84,6 +84,31 @@ sign-out, on a background tab, and after three provisioner cycles.
 **380 tests** (14 new). Verified in a real DOM that the script loads and
 the wiring resolves.
 
+**Cleanup afterwards, and one thing it proved.** The run left three
+artefacts, handled deliberately rather than swept away:
+
+- **`Test-Business-1`'s portal row was archived, not deleted.** Job 56 and
+  an audit row reference it; deleting would have orphaned the record of
+  the test itself. Archive-never-delete applies to scaffolding too.
+- **Failed job 49 was re-queued, not marked done by hand.** It was a
+  `disable` that had burned all three attempts on the session-expiry bug
+  (`http 302`) back before `fe8c0e7` fixed it. Writing `done` over it
+  would have been fiction; re-running it let it finish honestly — and it
+  **succeeded on the first attempt**, which is a live confirmation that
+  the session-expiry fix works against the exact job it originally broke.
+  Zero failed jobs remain, out of 57.
+- **Two inert "Full access" permission records were left in place** on
+  Test-Business-1. They grant nothing — the `Businesses` select is the
+  gate and neither user is linked — and removing one means constructing a
+  URL with the delete flag set, the one thing this codebase refuses to
+  build. Tidiness is not a good enough reason to make an exception on
+  production books; Manager's own Delete button is the safe route.
+
+Job 49 also exposed something worth acting on: it had sat `failed` and
+**nobody knew**. It surfaced only because someone queried `provision_job`
+directly while looking for something else. See the failed-job item in
+[`to-do.md`](to-do.md) — now with that evidence attached.
+
 ### 2026-07-21 (night) — The smoke alarm now covers the new rooms (PR #58)
 
 PR #56 started driving two screens nobody was watching. The contract test
