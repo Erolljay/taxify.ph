@@ -93,7 +93,6 @@ function buildMessage(opts) {
   return headers.join(CRLF) + CRLF + CRLF + encodedBody;
 }
 
-// The sign-in email copy. Pure so the wording stays under test.
 // "Your firm added you" — sent once, when an owner invites someone.
 //
 // Deliberately carries NO sign-in link. Login tokens last 15 minutes, so
@@ -175,6 +174,7 @@ function inviteContent(opts) {
   return { subject, text };
 }
 
+// The sign-in email copy. Pure so the wording stays under test.
 function magicLinkContent(link) {
   const subject = 'Your Txform.ph sign-in link';
   const text = [
