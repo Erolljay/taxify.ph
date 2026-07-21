@@ -167,7 +167,7 @@ if (require.main === module) {
   console.log('Created firm:');
   console.log('  firm       : ' + opts.firmName);
   console.log('  account id : ' + r.accountId);
-  console.log('  firm code  : ' + A.normalizeFirmCode(opts.code) + '   (books appear in Manager as ' + A.managerBusinessName(opts.code, '<business name>') + ')');
+  console.log('  firm code  : ' + A.normalizeFirmCode(opts.code) + '   (books appear in Books as ' + A.managerBusinessName(opts.code, '<business name>') + ')');
   console.log('  owner      : ' + opts.email + '  (user ' + r.userId + ')');
   console.log('  limits     : ' + opts.seats + ' seats / ' + opts.businesses + ' businesses');
   console.log('  billing    : ' + (opts.comp
