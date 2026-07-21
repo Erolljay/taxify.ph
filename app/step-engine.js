@@ -736,6 +736,37 @@ const StepEngine = (function () {
     };
   }
 
+  // The posting guard: a ledger line only reaches Manager if it moves at
+  // least a centavo. Delegates to filing-core so this filter and the
+  // voucher's "is there anything to post?" check share one rule — if the
+  // two ever drift, a zero-activity period becomes unfileable again.
+  function isRecordableLine(row) {
+    return FilingCore.isRecordableLine(row);
+  }
+
+  // ── "Nothing to record" panel. ──────────────────────────────────────────
+  // Shown when a period had no activity at all, so the computed voucher has
+  // no line worth posting (e.g. a 0619E month where nothing was withheld).
+  // The return is still a mandatory BIR filing, so the step closes without
+  // posting anything: a ₱0.00 entry would be meaningless in the books and
+  // would be rejected by Manager. Marking it done unlocks the freeze step —
+  // without this the filing could never be filed at all.
+  function renderNothingToRecord(body, root, state, step, cfg, onDone) {
+    body.innerHTML = `
+      <div class="alert alert-info" style="margin-bottom:12px;">
+        <strong>Nothing to record for this period.</strong> ${escHtml(cfg.zeroExplain)}
+        There's no entry to post to your books, so you can go straight to filing —
+        a nil return is still due with the BIR.
+      </div>
+      <div class="tfy-step-footer">
+        <button class="btn btn-primary" id="tfy-continue">Continue →</button>
+      </div>`;
+    body.querySelector('#tfy-continue').onclick = () => {
+      if (typeof onDone === 'function') onDone();
+      setStepDone(root, state, step.key, true);
+    };
+  }
+
   function mountPaymentStepContent(body, panel, state, step, onPosted) {
     const root = panel.closest('.tfy-step-wrap').parentElement;
     body.innerHTML = `<div class="spinner-wrap"><div class="spinner"></div><span>Reading VAT return totals…</span></div>`;
@@ -754,7 +785,10 @@ const StepEngine = (function () {
     // credit (this quarter + carried-over). i20/i25 = CWT and other credits
     // applied against VAT due (Schedule 3 / SAWT). Any unused input tax
     // simply stays in the Input Tax asset account as next quarter's
-    // carryover — no entry is needed for it.
+    // carryover — the engine posts no line for it. Preparers who instead
+    // close the excess to a separate Input Tax Carry Over account add that
+    // line themselves via "+ Add line"; deliberately not automated, since
+    // which treatment applies is a per-client bookkeeping choice.
     const outputTax = v.i37;
     const inputUsed = Math.min(v.i60, outputTax);
     const remainingAfterInput = Math.max(outputTax - inputUsed, 0);
@@ -762,6 +796,30 @@ const StepEngine = (function () {
     const cwtUsed = Math.min(cwtPool, remainingAfterInput);
     const netCash = outputTax - inputUsed - cwtUsed;
     const isPayable = netCash > 0.005;
+
+    // Pre-filled line rows: the same clearing entries the engine would
+    // compute on its own. The preparer can edit, retitle, add or remove
+    // rows before posting — accounts aren't pre-selected since we don't
+    // know which ones map to "Output VAT" / "Input Tax" / "Creditable WV"
+    // for this business. Built before the account fetch so a quarter with
+    // nothing to record can short-circuit without three wasted API calls.
+    const initialRows = [
+      { desc: 'Clear Output VAT', debit: outputTax, credit: 0 },
+    ];
+    if (inputUsed > 0.005) initialRows.push({ desc: 'Apply Input Tax', debit: 0, credit: inputUsed });
+    if (cwtUsed > 0.005) initialRows.push({ desc: 'Apply Creditable WV', debit: 0, credit: cwtUsed });
+
+    // Only a dormant quarter has nothing to post. This deliberately asks
+    // whether the books moved rather than whether the rows above came out
+    // at zero: with purchases but no sales every row reads ₱0.00 (inputUsed
+    // is capped at outputTax) while the quarter's input tax still has to be
+    // closed out. See FilingCore.vatHasRecordableActivity.
+    if (!FilingCore.vatHasRecordableActivity(v)) {
+      renderNothingToRecord(body, root, state, step, {
+        zeroExplain: 'This quarter has no sales, no purchases and no credits to report.',
+      }, onPosted);
+      return;
+    }
 
     Promise.all([
       fetchAllBatch('/api4/bank-or-cash-account-batch', state.biz).catch(() => []),
@@ -787,20 +845,6 @@ const StepEngine = (function () {
       // preparer can change it; it becomes the payment description / journal
       // narration on posting.
       const defaultDesc = reference.replace(/^VAT /, 'VAT - ');
-
-      // Pre-fill the editable line rows with the same clearing entries the
-      // engine would compute on its own; the user can edit, retitle, add,
-      // or remove rows before posting — accounts aren't pre-selected since
-      // we don't know which ones map to "Output VAT" / "Input Tax" /
-      // "Creditable WV" for this business.
-      const initialRows = [
-        { desc: 'Clear Output VAT', debit: outputTax, credit: 0 },
-      ];
-      if (inputUsed > 0.005) initialRows.push({ desc: 'Apply Input Tax', debit: 0, credit: inputUsed });
-      if (cwtUsed > 0.005) initialRows.push({ desc: 'Apply Creditable WV', debit: 0, credit: cwtUsed });
-      if (!isPayable) {
-        // No cash leg — debits must equal credits within the entry itself.
-      }
 
       const acctOpts = sel => allAccts.map(a => `<option value="${a.key}"${a.key === sel ? ' selected' : ''}>${escHtml(a.name)}</option>`).join('');
       const bankOpts = bankAccts.map(a => `<option value="${a.key}">${escHtml(a.name)}</option>`).join('');
@@ -878,7 +922,7 @@ const StepEngine = (function () {
           desc: tr.querySelector('.tfy-je-desc').value.trim(),
           debit: parseFloat(tr.querySelector('.tfy-je-debit').value) || 0,
           credit: parseFloat(tr.querySelector('.tfy-je-credit').value) || 0,
-        })).filter(r => r.debit > 0.005 || r.credit > 0.005);
+        })).filter(isRecordableLine);
       }
 
       function recalcTotals() {
@@ -977,6 +1021,7 @@ const StepEngine = (function () {
       dueLabel: 'EWT due',
       payBtn: 'Record EWT remittance',
       closeBtn: 'Record EWT closing entry',
+      zeroExplain: 'No expanded withholding tax was withheld for this period.',
     });
   }
 
@@ -997,6 +1042,7 @@ const StepEngine = (function () {
       dueLabel: 'Tax to remit',
       payBtn: 'Record 1601-C remittance',
       closeBtn: 'Record 1601-C closing entry',
+      zeroExplain: 'No tax was withheld on compensation for this period.',
     });
   }
 
@@ -1027,6 +1073,20 @@ const StepEngine = (function () {
     const amt = Math.abs(total);           // row/strip amount (ITR can be an overpayment)
     const isPayable = total > 0.005;
 
+    // The single clearing line this voucher posts. Built before the account
+    // fetch so a period with nothing to record short-circuits without three
+    // wasted API calls.
+    const initialRows = [
+      { desc: cfg.debitDesc, debit: amt, credit: 0 },
+    ];
+
+    // Nothing was withheld or owed this period, so there's no liability to
+    // clear — close the step without inventing a ₱0.00 entry.
+    if (!FilingCore.hasRecordableLines(initialRows)) {
+      renderNothingToRecord(body, root, state, step, { zeroExplain: cfg.zeroExplain }, onPosted);
+      return;
+    }
+
     Promise.all([
       fetchAllBatch('/api4/bank-or-cash-account-batch', state.biz).catch(() => []),
       fetchAllBatch('/api4/balance-sheet-account-batch', state.biz).catch(() => []),
@@ -1051,10 +1111,6 @@ const StepEngine = (function () {
       // "1601-C - March 2026"; becomes the payment description / journal
       // narration on posting.
       const defaultDesc = `${cfg.taxLabel} - ${pLabel}`.trim();
-
-      const initialRows = [
-        { desc: cfg.debitDesc, debit: amt, credit: 0 },
-      ];
 
       const acctOpts = sel => allAccts.map(a => `<option value="${a.key}"${a.key === sel ? ' selected' : ''}>${escHtml(a.name)}</option>`).join('');
       const bankOpts = bankAccts.map(a => `<option value="${a.key}">${escHtml(a.name)}</option>`).join('');
@@ -1125,7 +1181,7 @@ const StepEngine = (function () {
           desc: tr.querySelector('.tfy-je-desc').value.trim(),
           debit: parseFloat(tr.querySelector('.tfy-je-debit').value) || 0,
           credit: parseFloat(tr.querySelector('.tfy-je-credit').value) || 0,
-        })).filter(r => r.debit > 0.005 || r.credit > 0.005);
+        })).filter(isRecordableLine);
       }
 
       function recalcTotals() {
@@ -1227,7 +1283,8 @@ const StepEngine = (function () {
       dueLabel: 'Total amount payable',
       payBtn: 'Record income tax payment',
       closeBtn: 'Record income tax closing entry',
-      extraNote: 'Pick which account this payment clears (e.g. a <strong>Deferred Tax Asset — ITR Payments</strong> role) — that choice is yours, not automated. An overpayment or zero balance posts as a balanced Journal Entry instead.',
+      zeroExplain: 'This return has no income tax payable and no penalties for the period.',
+      extraNote: 'Pick which account this payment clears (e.g. a <strong>Deferred Tax Asset — ITR Payments</strong> role) — that choice is yours, not automated. An overpayment posts as a balanced Journal Entry instead; a nil return has nothing to post at all.',
     });
   }
 
