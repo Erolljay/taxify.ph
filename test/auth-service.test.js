@@ -88,6 +88,38 @@ test('full flow: sign in, then /me reflects the owner', () => {
   assert.deepEqual(me.json, { email: 'owner@x.com', role: 'owner', account_id: 1 });
 });
 
+test('sign-out: ends the session — /me is 401 afterwards, and a cleared cookie is returned', () => {
+  const db = freshDb(), deps = makeDeps();
+  const cookie = signIn(db, deps, 'owner@x.com');
+  assert.equal(S.currentUser(db, { cookie: cookie }, deps).status, 200, 'signed in before');
+
+  const out = S.signOut(db, { cookie: cookie });
+  assert.equal(out.status, 200);
+  assert.deepEqual(out.json, { ok: true });
+  assert.ok(out.setCookie.startsWith('txfsid=;'), 'cookie is blanked');
+  assert.match(out.setCookie, /Max-Age=0/, 'cookie is expired so the browser drops it');
+
+  // The session row is gone, so even replaying the exact cookie fails.
+  assert.equal(S.currentUser(db, { cookie: cookie }, deps).status, 401, 'session no longer valid');
+});
+
+test('sign-out: no cookie is still a 200 with a cleared cookie (idempotent)', () => {
+  const db = freshDb();
+  const out = S.signOut(db, { cookie: '' });
+  assert.equal(out.status, 200);
+  assert.match(out.setCookie, /Max-Age=0/);
+});
+
+test('sign-out: ends only THIS session — the user\'s other devices stay signed in', () => {
+  const db = freshDb(), deps = makeDeps();
+  const cookieA = signIn(db, deps, 'owner@x.com'); // device A
+  const cookieB = signIn(db, deps, 'owner@x.com'); // device B (a second session)
+
+  S.signOut(db, { cookie: cookieA });
+  assert.equal(S.currentUser(db, { cookie: cookieA }, deps).status, 401, 'device A signed out');
+  assert.equal(S.currentUser(db, { cookie: cookieB }, deps).status, 200, 'device B untouched');
+});
+
 test('verify: a token is single-use — replay is rejected', () => {
   const db = freshDb(), deps = makeDeps();
   S.requestLink(db, { email: 'owner@x.com' }, deps);
