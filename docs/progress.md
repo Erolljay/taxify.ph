@@ -1,4 +1,4 @@
-**2026-07-21 (PR #41): firm accounts complete and the provisioner reaches Books over plain HTTP** â roles (owner/staff/client), firm-code prefixes, archive, voucher-based comping, high-water-mark billing, role-scoped portal with search and Open-in-Books links, one-time password handover with MFA. Playwright deleted; **zero npm dependencies**. Verified end to end against live Books. **249 passing tests.** Open: deploy (schema changed, recreate `txform.db`), install the systemd timer, create the three real firms. |_?# Txform.ph — Progress
+# Txform.ph — Progress
 
 Tracking doc referenced by [`docs/ECC-PLAYBOOK.md`](ECC-PLAYBOOK.md). Snapshot of
 where the app stands against the 6-phase SaaS plan, kept current from source

@@ -4,9 +4,9 @@ Open work, newest concerns first. Part of the ECC tracking triad
 (`instruction.md / progress.md / to-do.md`, see
 [`docs/ECC-PLAYBOOK.md`](ECC-PLAYBOOK.md)). Phase labels map to the 6-phase SaaS plan.
 
-_Last updated: 2026-07-20_
+_Last updated: 2026-07-21_
 
-## ⭐ Firm-account IA — build-out (decided 2026-07-20)
+## ⭐ Firm-account IA — build-out (decided 2026-07-20, shipped 2026-07-21)
 
 The firm/user/business model and its pricing are settled. Full IA — roles, permission matrix,
 sign-up flow, screen map, session model, gap list — is published as an artifact:
@@ -23,9 +23,7 @@ home IP per [`DEPLOY.md`](../DEPLOY.md)):**
 - [x] **Live `txform.db` is effectively empty** — `businesses=0, report_snapshot=0, users=1,
       account=1` (just the seeded owner). **PR #40's column rename therefore needs no migration** —
       drop and recreate from `schema.sql` at deploy time.
-- [ ] **Confirm the GUID finding** — on a live business, `fetch('/api4/businesses')` and check the
-      objects carry no `key`. Confirms entitlement + freeze were both dead before PR #40. *(Needs a
-      logged-in Manager session; not reachable over SSH.)*
+- [x] **Confirmed 2026-07-20** — `api4/businesses` objects carry only `name` and a tabs link, no `key`. Entitlement and freeze were both dead before PR #40.
 
 **Shipped 2026-07-21 (PR #41)** — see
 [`progress.md`](progress.md#2026-07-21--firm-accounts-and-the-provisioner-actually-reaches-books-pr-41):
