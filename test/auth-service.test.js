@@ -515,6 +515,108 @@ test('invite: cannot smuggle in a second owner via the role field', () => {
   assert.equal(r.json.role, 'staff', 'anything that is not "client" falls back to staff');
 });
 
+// ── removing people ──────────────────────────────────────────────
+// This is the direction that matters. A grant that fails is a nuisance;
+// a revoke that fails means someone who has left still has the books.
+test('remove: strips access, queues the disable, keeps the history', () => {
+  const db = freshDb(), deps = makeDeps();
+  const cookie = signIn(db, deps, 'owner@x.com');
+  S.setUserBusiness(db, { cookie: cookie, userId: 2, businessId: 1, grant: true }, deps);
+
+  const r = S.removeUser(db, { cookie: cookie, userId: 2 }, deps);
+  assert.equal(r.status, 200);
+  assert.equal(r.json.revoked, 1);
+
+  const row = db.prepare('SELECT status, removed_at, email FROM users WHERE id = 2').get();
+  assert.equal(row.status, 'removed');
+  assert.ok(row.removed_at);
+  assert.equal(row.email, 'staff@x.com', 'the row survives so audit entries still resolve');
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM user_business WHERE user_id = 2').get().n, 0);
+  assert.ok(db.prepare("SELECT 1 FROM provision_job WHERE type='disable' AND user_id=2").get(),
+    'Books must actually be told, not just our own rows');
+});
+
+test('remove: a removed person can no longer request a sign-in link', () => {
+  const db = freshDb(), deps = makeDeps();
+  S.removeUser(db, { cookie: signIn(db, deps, 'owner@x.com'), userId: 2 }, deps);
+  deps.state.sent.length = 0;
+
+  const r = S.requestLink(db, { email: 'staff@x.com' }, deps);
+  assert.equal(r.status, 200, 'same generic reply as an unknown email — no enumeration');
+  assert.equal(deps.state.sent.length, 0, 'but nothing is sent');
+});
+
+test('remove: a link minted BEFORE removal stops working', () => {
+  const db = freshDb(), deps = makeDeps();
+  S.requestLink(db, { email: 'staff@x.com' }, deps);
+  const token = tokenFromLink(deps.state.sent.at(-1).link);
+  S.removeUser(db, { cookie: signIn(db, deps, 'owner@x.com'), userId: 2 }, deps);
+
+  const r = S.verifyLink(db, { token: token }, deps);
+  assert.equal(r.status, 400, 'a link in their inbox must not still open a session');
+});
+
+test('remove: an already-open session dies immediately', () => {
+  const db = freshDb(), deps = makeDeps();
+  const staffCookie = signIn(db, deps, 'staff@x.com');
+  assert.equal(S.overview(db, { cookie: staffCookie }, deps).status, 200, 'works before');
+
+  S.removeUser(db, { cookie: signIn(db, deps, 'owner@x.com'), userId: 2 }, deps);
+  assert.equal(S.overview(db, { cookie: staffCookie }, deps).status, 401,
+    'offboarding must not wait for their session to expire');
+});
+
+test('remove: frees the seat', () => {
+  const db = freshDb(), deps = makeDeps();
+  const cookie = signIn(db, deps, 'owner@x.com');
+  const before = S.overview(db, { cookie: cookie }, deps).json.users.filter(
+    (u) => u.status !== 'removed' && (u.role === 'owner' || u.role === 'staff')).length;
+  S.removeUser(db, { cookie: cookie, userId: 2 }, deps);
+  const after = S.overview(db, { cookie: cookie }, deps).json.users.filter(
+    (u) => u.status !== 'removed' && (u.role === 'owner' || u.role === 'staff')).length;
+  assert.equal(after, before - 1);
+});
+
+test('remove: you cannot remove yourself or an owner', () => {
+  const db = freshDb(), deps = makeDeps();
+  const cookie = signIn(db, deps, 'owner@x.com');
+  assert.match(S.removeUser(db, { cookie: cookie, userId: 1 }, deps).json.error, /cannot_remove_self/);
+  db.prepare("INSERT INTO users (id, account_id, email, role) VALUES (9, 1, 'co@x.com', 'owner')").run();
+  assert.match(S.removeUser(db, { cookie: cookie, userId: 9 }, deps).json.error, /cannot_remove_owner/);
+});
+
+test('remove: cannot reach into another firm', () => {
+  const db = freshDb(), deps = makeDeps();
+  const cookie = signIn(db, deps, 'owner@x.com');           // account 1
+  assert.equal(S.removeUser(db, { cookie: cookie, userId: 3 }, deps).status, 403); // account 2
+});
+
+test('remove: staff cannot remove anyone', () => {
+  const db = freshDb(), deps = makeDeps();
+  assert.equal(S.removeUser(db, { cookie: signIn(db, deps, 'staff@x.com'), userId: 2 }, deps).status, 403);
+});
+
+test('remove: is idempotent', () => {
+  const db = freshDb(), deps = makeDeps();
+  const cookie = signIn(db, deps, 'owner@x.com');
+  S.removeUser(db, { cookie: cookie, userId: 2 }, deps);
+  assert.equal(S.removeUser(db, { cookie: cookie, userId: 2 }, deps).json.alreadyRemoved, true);
+});
+
+test('re-inviting someone who left reinstates them with NO client access', () => {
+  const db = freshDb(), deps = makeDeps();
+  const cookie = signIn(db, deps, 'owner@x.com');
+  S.setUserBusiness(db, { cookie: cookie, userId: 2, businessId: 1, grant: true }, deps);
+  S.removeUser(db, { cookie: cookie, userId: 2 }, deps);
+
+  const back = S.inviteStaff(db, { cookie: cookie, email: 'staff@x.com' }, deps);
+  assert.equal(back.json.reinstated, true);
+  assert.equal(back.json.userId, 2, 'same row — UNIQUE(account_id,email) would reject a second');
+  assert.equal(db.prepare('SELECT status FROM users WHERE id=2').get().status, 'active');
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM user_business WHERE user_id=2').get().n, 0,
+    'rehiring must not silently restore the books they used to hold');
+});
+
 // ── overview (portal read) ───────────────────────────────────────
 test('overview: owner sees account, staff, businesses, and grants', () => {
   const db = freshDb(), deps = makeDeps();
