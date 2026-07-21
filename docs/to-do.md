@@ -49,6 +49,16 @@ external addresses. 310 tests.
       PERMANENT code (it prefixes every business name in Books and cannot be
       changed):
       `node server/create-firm.js "Firm Name" owner@firm.ph --code CODE --comp "founder firm"`
+- [ ] **Extend the contract test to the new Manager surfaces.** `npm run contract`
+      covers login, `/user-form` and `api4` — but **not** the two screens PR #56
+      added: the User Permissions list/form and the Tabs form. Those are exactly
+      the kind of thing that breaks silently on a Manager upgrade (the whole reason
+      the contract test exists), and right now nothing would notice. All checkable
+      read-only, so it stays safe to run on live books: both sidebar links present
+      on `/settings`, both Vue models parse, the Tabs model still has the nine keys,
+      `AccessType` still offers Full/Custom, and `form.js` still contains
+      `febb4049-…`. Until this lands, `instruction.md`'s promise about that test is
+      narrower than it reads.
 - [ ] **Make a failed job impossible to miss.** A failed `disable` carries no
       business, so it never appears as a red chip in the Access grid — only as
       `job_failed` in Activity. A failed offboarding is the highest-consequence

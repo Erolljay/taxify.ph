@@ -11,7 +11,7 @@ _Last updated: 2026-07-21_
 | Phase | Status | Notes |
 |-------|--------|-------|
 | **0 — Foundation hardening** | ✅ Largely done | Pull-based auto-deploy (`scripts/deploy.sh` via 2-min root cron), nginx web-root hardening, LF normalization. Hosting-license confirmed, Manager Server bought. **Backups live (2026-07-13):** AWS Backup EC2 snapshots + S3 Manager.io data backups, both 2 AM Manila, 7/56/400-day retention. **`save-tax-rates.php` hardened & LIVE (2026-07-14, PR #23):** shared-secret token + body cap + backup pruning on top of nginx basic-auth; token file created on the server. Still open: UFW, fail2ban, UptimeRobot, e2e BIR verification. |
-| **1 — Tenancy / entitlement / provisioning** | ✅ Live | `server/auth-*.js`, `smtp-mailer.js`, `migrate.js`, `manager-client.js`, `provisioner.js` + HTTP driver, `create-firm.js`, `entitlement.php`, systemd units. **313 passing tests. Zero npm dependencies** — Playwright was deleted once it became clear Books needs no browser. **LIVE as of 2026-07-21:** Tallo CPA (code TALLO) with four users, provisioner timer reconciling every two minutes, deploys restarting the auth service automatically, and email reaching external addresses (SPF/DMARC added). Roles owner/staff/client, firm-code prefixes, archive-not-delete, removal that revokes in Books and kills the session, voucher-based comping, high-water-mark billing, one-time password handover with MFA, and portal sign-out (PR #54). Open: the two partner firms; failed jobs are visible only in Activity, not as a chip. |
+| **1 — Tenancy / entitlement / provisioning** | ✅ Live | `server/auth-*.js`, `smtp-mailer.js`, `migrate.js`, `manager-client.js`, `provisioner.js` + HTTP driver, `manager-vue-form.js` / `manager-permissions.js` / `manager-tabs.js`, `create-firm.js`, `entitlement.php`, systemd units. **363 passing tests. Zero npm dependencies** — Playwright was deleted once it became clear Books needs no browser. **LIVE as of 2026-07-21:** Tallo CPA (code TALLO) with four users, provisioner timer reconciling every two minutes, deploys restarting the auth service automatically, and email reaching external addresses (SPF/DMARC added). Roles owner/staff/client, firm-code prefixes, archive-not-delete, removal that revokes in Books and kills the session, voucher-based comping, high-water-mark billing, one-time password handover with MFA, and portal sign-out (PR #54). **Provisioning is now complete end to end (PR #56):** a grant sets Full access inside the business as well as linking it, and new books get the firm's nine tabs — both verified live. Open: the two partner firms; failed jobs are visible only in Activity, not as a chip. |
 | **2 — Website rebuild & SEO** | ✅ Live | **Deployed 2026-07-14 (PR #21).** Full static multi-page site under `website/`: home + features/security/about/contact/faq/terms/privacy, shared `assets/css/site.css` + `assets/js/site.js`, real favicons, `robots.txt` + `sitemap.xml` + per-page meta & JSON-LD. **Positioned as a live product, not a waitlist** — CTAs are "Get started" → contact onboarding and "Sign in" → the owner portal at **`/account`**. Legal pages carry the firm's real details (TalloCPA, Iloilo City, DPO Erol Jay Tallo). Old JS bundle preserved as `index.legacy.html`. Open only: counsel review of legal pages, optional font self-hosting. |
 | **3 — Payments (PayMongo)** | 🔴 Not started | No PayMongo/webhook code yet. **Model decided 2026-07-20:** flat ₱500/business/month (no tiers), no trial, one monthly invoice billed on the high-water mark of active businesses. PayMongo cannot prorate, but invoice line items can be adjusted before an invoice finalises — that's the mechanism. Annual prepay deferred. |
 | **4 — ToS / Data Privacy (RA 10173)** | 🟡 Draft pages | `website/terms.html` + `website/privacy.html` drafted (RA 10173-aligned, NPC/DPO sections) with bracketed firm placeholders; needs real firm details + counsel review before launch. |
@@ -29,6 +29,93 @@ rates, the graduated-tax engine and VAT 2550Q are verified; two income-tax bugs 
   workflow engine that replaced the old monolithic setup screen).
 
 ## Changelog
+
+### 2026-07-21 (evening) — A grant was only ever half a grant (PR #56)
+
+Found by the owner looking at the screen, not by any test: after the
+provisioner linked a business to a staff member, there was still a manual
+step nobody had automated — setting that user's **Access type** to Full
+inside the business.
+
+Ticking the business on `/user-form` decides **which** books a user can
+open. What they may **do** once inside is a separate per-business **User
+Permissions** record, and nothing created it. So a provisioned staff
+member signed in, saw the client listed, opened the books, and could not
+work in them — while the portal showed a green tick the whole time.
+
+The codebase asserted the opposite as fact, in two file headers and in
+`to-do.md`:
+
+> "Manager has no per-user permissions page."
+
+Wrong, and load-bearing: it was the stated reason nobody had looked for
+the step. Verified false on the live server — a freshly created business
+has **no** permission record at all. Corrected everywhere it appeared.
+
+`grantAccess` now does both halves and verifies both. **Half a grant is
+worse than a failed one**: a failure retries and is visible in Activity,
+whereas a half-grant looks like success until someone tries to work.
+
+**Also shipped: `configure_tabs`.** New books arrive with Manager's
+default sidebar, so every client needed nine boxes ticked by hand. Queued
+beside `create_business`, it turns on Bank and Cash Accounts, Receipts,
+Payments, Customers, Sales Invoices, Suppliers, Purchase Invoices,
+Employees and Payslips. It is **additive — it never unticks**, so a retry
+cannot undo a tab enabled deliberately for a client. Journal Entries has
+no checkbox; Manager always shows it.
+
+**Two protocol facts learned, neither documented anywhere before:**
+
+*These screens are Vue apps, not HTML forms.* Inputs are `v-model`-bound
+with **no `name` attributes**, so there is nothing to scrape into a
+urlencoded post. The state is a JS literal at the foot of the page, and
+`htmx-extensions/form.js` posts `JSON.stringify(app.$data)` into a single
+multipart field named `febb4049-dcdb-4c7a-a395-4b71da72a85b` — a constant
+hardcoded in Manager's own JS, not a per-render nonce. Shared handling
+lives in [`server/manager-vue-form.js`](../server/manager-vue-form.js).
+The model parser is brace-counted and string-aware rather than
+regex-matched: these models contain `{}`, and a non-greedy regex returns a
+**truncated object**, which Manager would then accept as the record's
+complete new state.
+
+*Field 250 of the URL envelope is destructive* — Delete on the
+permissions form, Reset on the tabs form — and the safe URL differs from
+the destructive one **by a single bit**:
+
+```
+Update  …EfLQDwA     (250 = 0)
+Reset   …EfLQDwE     (250 = 1)
+```
+
+So nothing constructs that field. The driver builds only the simplest key
+it can (the business name, which the sidebar links prove valid) and then
+**follows Manager's own hrefs**, which already carry a correct flag-zero
+envelope. A bug in envelope construction therefore cannot produce a
+delete, and a test asserts it of every key the driver builds.
+`revokeAccess` leaves the permission record in place for the same reason:
+the `Businesses` select is the gate, so an orphaned record grants nothing,
+and removing it would mean building exactly that URL.
+
+**Verified live** against `Test-Business-1` with `idetayson@tallocpa.com`,
+run from the server with `provisioner.env` — a read-only probe first, then
+the writes:
+
+- a fresh business had **no** permission record, confirming the bug
+- tabs went 0 → the nine, 27 left untouched
+- the record was **created**, access read back as Full
+- the user went 16 → 17 businesses with **MFA intact**
+- **re-run was clean**: tabs skipped the write entirely, the grant edited
+  rather than duplicating, count held at 17 — which matters, because
+  provisioner jobs retry up to three times
+- **additive confirmed live**: a hand-enabled Fixed Assets survived a
+  subsequent run
+
+**363 tests.** Fixtures captured from Manager 26.7.10.3654, including its
+`href ="..."` spacing quirk.
+
+The pattern from the going-live entry holds again: this was a failure that
+**read as success** from every angle the software could see, and only
+using it exposed it.
 
 ### 2026-07-21 (later still) — Sign out of the owner portal
 
