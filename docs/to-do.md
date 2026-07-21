@@ -32,25 +32,32 @@ high-water-mark billing, the role-scoped portal (search + Open-in-Books), the
 back-office firm creator, the HTTP provisioner with its contract test, and one-time
 password handover with MFA. **249 tests. Playwright deleted — zero dependencies.**
 
-**Left to do, in order:**
+**All shipped and LIVE as of 2026-07-21.** Tallo CPA (code TALLO) is running with
+four users, the provisioner reconciling every two minutes, and email reaching
+external addresses. 310 tests.
 
-- [ ] **Merge PR #41, then recreate `txform.db`** — the schema changed again. It is
-      still effectively empty, so drop and recreate rather than migrate:
-      `sudo systemctl stop txform-auth` · `sudo mv server/txform.db server/txform.db.bak`
-      · `sudo rm -f server/txform.db-wal server/txform.db-shm` · `sudo systemctl start txform-auth`
-- [ ] **Install the provisioner timer** — the units exist but have never been installed,
-      so nothing reconciles automatically yet:
-      `sudo cp server/txform-provisioner.{service,timer} /etc/systemd/system/` ·
-      `sudo systemctl daemon-reload` · `sudo systemctl enable --now txform-provisioner.timer`
-      · confirm with `systemctl list-timers txform-provisioner.timer`
-- [ ] **Create the three real firms** — each needs a permanent code:
-      `node server/create-firm.js "Tallo CPA" owner@tallocpa.com --code TALLO --comp "founder firm"`
-- [ ] **Delete the leftover sandbox objects in Books** — `TEST-Sandbox Co`,
-      `TEST2-Sandbox Two`. Programmatic delete was not found and guessing at destructive
-      routes on live books was not worth it; do it from the Books UI.
-- [ ] *(later)* Move grant/revoke to api2's `user-permissions-form` if the session path
-      ever proves fragile. The api2 token is already in `provisioner.env` and works; its
-      request shape is just unknown, and learning it means writing to live books.
+**Left to do:**
+
+- [ ] **The two partner firms** — each needs a name, an owner email, and a
+      PERMANENT code (it prefixes every business name in Books and cannot be
+      changed):
+      `node server/create-firm.js "Firm Name" owner@firm.ph --code CODE --comp "founder firm"`
+- [ ] **Make a failed job impossible to miss.** A failed `disable` carries no
+      business, so it never appears as a red chip in the Access grid — only as
+      `job_failed` in Activity. A failed offboarding is the highest-consequence
+      failure in the system (someone who left still holds the client books) and
+      currently it is the least visible one. Surface failed jobs somewhere the
+      owner cannot walk past.
+- [ ] **Run the whole loop once, end to end, with everything working** — invite →
+      email arrives → password + pairing handed over → sign in → grant → chip goes
+      live → remove → access stripped in Books. Every piece has now been seen
+      working individually; the full sequence has not.
+- [ ] *(later)* Move grant/revoke to api2's `user-permissions-form` if the session
+      path proves fragile. The token is already in `provisioner.env` and works; its
+      request shape is unknown, and learning it means writing to live books.
+- [ ] *(later)* Two `.bak` files on the server are **unreadable** (copied from a
+      WAL-mode database with `cp`). Worth deleting so nobody restores from one
+      believing it is real — see the backup note in `instruction.md`.
 
 **Superseded — do not build:**
 

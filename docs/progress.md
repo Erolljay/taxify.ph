@@ -11,7 +11,7 @@ _Last updated: 2026-07-21_
 | Phase | Status | Notes |
 |-------|--------|-------|
 | **0 — Foundation hardening** | ✅ Largely done | Pull-based auto-deploy (`scripts/deploy.sh` via 2-min root cron), nginx web-root hardening, LF normalization. Hosting-license confirmed, Manager Server bought. **Backups live (2026-07-13):** AWS Backup EC2 snapshots + S3 Manager.io data backups, both 2 AM Manila, 7/56/400-day retention. **`save-tax-rates.php` hardened & LIVE (2026-07-14, PR #23):** shared-secret token + body cap + backup pruning on top of nginx basic-auth; token file created on the server. Still open: UFW, fail2ban, UptimeRobot, e2e BIR verification. |
-| **1 — Tenancy / entitlement / provisioning** | 🟢 Built, undeployed | `server/auth-*.js`, `smtp-mailer.js`, `entitlement.php`, `provisioner.js` + Playwright driver, `schema.sql`, systemd units. **95 passing tests.** **Email sender LIVE** — `txform-auth` service running, real magic-link email delivered via Google Workspace. **Magic-link now lands on the portal** — `verifyLink` 302-redirects a browser to `txform.ph/account` (cookie attached) instead of downloading `verify.json`; portal + `/api/*` share the apex origin. **2026-07-20 (PR #40): businesses re-keyed from a phantom GUID to the Books business NAME** — the old key was a field Books never sends, which had left both the entitlement gate and freeze/save-report silently dead. **2026-07-21 (PR #41): firm accounts complete, and the provisioner reaches Books over plain HTTP** — roles (owner/staff/client), firm-code prefixes, archive, voucher-based comping, high-water-mark billing, a role-scoped portal with search and Open-in-Books links, and one-time password handover with MFA. Playwright deleted; **zero npm dependencies**. Verified end to end against live Books. **249 passing tests.** Open: deploy (schema changed — recreate `txform.db`), install the systemd timer, create the three real firms. |
+| **1 — Tenancy / entitlement / provisioning** | ✅ Live | `server/auth-*.js`, `smtp-mailer.js`, `migrate.js`, `manager-client.js`, `provisioner.js` + HTTP driver, `create-firm.js`, `entitlement.php`, systemd units. **310 passing tests. Zero npm dependencies** — Playwright was deleted once it became clear Books needs no browser. **LIVE as of 2026-07-21:** Tallo CPA (code TALLO) with four users, provisioner timer reconciling every two minutes, deploys restarting the auth service automatically, and email reaching external addresses (SPF/DMARC added). Roles owner/staff/client, firm-code prefixes, archive-not-delete, removal that revokes in Books and kills the session, voucher-based comping, high-water-mark billing, one-time password handover with MFA. Open: the two partner firms; failed jobs are visible only in Activity, not as a chip. |
 | **2 — Website rebuild & SEO** | ✅ Live | **Deployed 2026-07-14 (PR #21).** Full static multi-page site under `website/`: home + features/security/about/contact/faq/terms/privacy, shared `assets/css/site.css` + `assets/js/site.js`, real favicons, `robots.txt` + `sitemap.xml` + per-page meta & JSON-LD. **Positioned as a live product, not a waitlist** — CTAs are "Get started" → contact onboarding and "Sign in" → the owner portal at **`/account`**. Legal pages carry the firm's real details (TalloCPA, Iloilo City, DPO Erol Jay Tallo). Old JS bundle preserved as `index.legacy.html`. Open only: counsel review of legal pages, optional font self-hosting. |
 | **3 — Payments (PayMongo)** | 🔴 Not started | No PayMongo/webhook code yet. **Model decided 2026-07-20:** flat ₱500/business/month (no tiers), no trial, one monthly invoice billed on the high-water mark of active businesses. PayMongo cannot prorate, but invoice line items can be adjusted before an invoice finalises — that's the mechanism. Annual prepay deferred. |
 | **4 — ToS / Data Privacy (RA 10173)** | 🟡 Draft pages | `website/terms.html` + `website/privacy.html` drafted (RA 10173-aligned, NPC/DPO sections) with bracketed firm placeholders; needs real firm details + counsel review before launch. |
@@ -29,6 +29,61 @@ rates, the graduated-tax engine and VAT 2550Q are verified; two income-tax bugs 
   workflow engine that replaced the old monolithic setup screen).
 
 ## Changelog
+
+### 2026-07-21 (later) — Going live: five bugs the real system found
+
+Everything below was found by *running* it, not by reasoning about it. Recorded
+because each failure mode is one that reads as success.
+
+**Email to anyone outside the firm was silently dropped.** The From domain
+`txform.ph` had **no SPF record** — `tallocpa.com` did, which is why mail inside
+the firm always worked and nothing else ever arrived. Neither the send nor the
+log showed a problem: Google accepted every message, and it appeared in Sent.
+Fixed with one DNS record (`v=spf1 include:_spf.google.com ~all`), plus DMARC
+(`p=none`, reports to `hello@txform.ph`).
+
+*The diagnosis took two wrong turns worth remembering.* SPF was found early and
+then abandoned on a misread — "the magic link is received" was assumed to mean
+*at Gmail* when it meant *at the Workspace address*. That produced a whole theory
+about the invite email looking like phishing. **The question that settles it is
+"which inbox received it?"** — ask before building.
+
+**A live offboarding failed silently.** A `disable` job burned its retries on
+`could not open the user form (http 302)`. That 302 was Books saying "not signed
+in" — it redirects unauthenticated requests to the **site root**, not to
+`/login`, which is all the client checked for. So it never re-authenticated. A
+failed grant is a nuisance; a failed revoke is someone who has left still holding
+the client books. `manager-client.js` had no test file at all; it does now.
+
+**Schema changes never reached the live database.** `schema.sql` is all
+`CREATE TABLE IF NOT EXISTS`, which does nothing to a table that already exists —
+so `users.status` shipped, the service started healthy, and then 500'd on the
+first query touching it. `server/migrate.js` now ALTERs in missing columns at
+boot, additively, refusing loudly what SQLite genuinely cannot do.
+
+**Deploys never restarted the auth service.** A long-running Node process keeps
+its old modules; the staff-invite email was merged, deployed, and still sent
+nothing. `deploy.sh` now restarts `txform-auth` when `server/*.js` or
+`server/*.sql` move, and fails loudly if it does not come back.
+
+**MFA was never actually enabled.** `createUser` posted
+`MultifactorAuthentication='on'`, but that field's value is a TOTP secret Books
+mints per render — so it was ignored and users were created without a second
+factor. It now fetches the form and posts back the minted secret.
+
+**Also shipped:** staff/client removal (the missing half of the access grid —
+grants deleted, `disable` queued, session killed, sign-in blocked at all three
+paths, seat freed, history kept); the invite email; one-time password handover
+with the authenticator steps beside it; per-tab search; Open-in-Books links; and
+mailer logging of successes, without which "did we send it?" was unanswerable.
+
+**Two operational traps recorded in [`instruction.md`](instruction.md):** `cp` is
+not a backup of a WAL-mode SQLite database (two `.bak` files taken that way were
+unreadable — use `sqlite3 .backup`), and MFA must never be enabled on the
+`provisioner` account or the robot is locked out permanently.
+
+`npm test` **310 green**. Live: Tallo CPA (code TALLO), four users, provisioner
+timer ticking every two minutes.
 
 ### 2026-07-21 — Firm accounts, and the provisioner actually reaches Books (PR #41)
 

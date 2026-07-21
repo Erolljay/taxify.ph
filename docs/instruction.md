@@ -5,7 +5,7 @@ triad (`instruction.md / progress.md / to-do.md`, see
 [`docs/ECC-PLAYBOOK.md`](ECC-PLAYBOOK.md)). Keep current from real changes, not
 hand-waved.
 
-_Last updated: 2026-07-15_
+_Last updated: 2026-07-21_
 
 ---
 
