@@ -11,7 +11,7 @@ _Last updated: 2026-07-21_
 | Phase | Status | Notes |
 |-------|--------|-------|
 | **0 — Foundation hardening** | ✅ Largely done | Pull-based auto-deploy (`scripts/deploy.sh` via 2-min root cron), nginx web-root hardening, LF normalization. Hosting-license confirmed, Manager Server bought. **Backups live (2026-07-13):** AWS Backup EC2 snapshots + S3 Manager.io data backups, both 2 AM Manila, 7/56/400-day retention. **`save-tax-rates.php` hardened & LIVE (2026-07-14, PR #23):** shared-secret token + body cap + backup pruning on top of nginx basic-auth; token file created on the server. Still open: UFW, fail2ban, UptimeRobot, e2e BIR verification. |
-| **1 — Tenancy / entitlement / provisioning** | ✅ Live | `server/auth-*.js`, `smtp-mailer.js`, `migrate.js`, `manager-client.js`, `provisioner.js` + HTTP driver, `manager-vue-form.js` / `manager-permissions.js` / `manager-tabs.js`, `create-firm.js`, `entitlement.php`, systemd units. **363 passing tests. Zero npm dependencies** — Playwright was deleted once it became clear Books needs no browser. **LIVE as of 2026-07-21:** Tallo CPA (code TALLO) with four users, provisioner timer reconciling every two minutes, deploys restarting the auth service automatically, and email reaching external addresses (SPF/DMARC added). Roles owner/staff/client, firm-code prefixes, archive-not-delete, removal that revokes in Books and kills the session, voucher-based comping, high-water-mark billing, one-time password handover with MFA, and portal sign-out (PR #54). **Provisioning is now complete end to end (PR #56):** a grant sets Full access inside the business as well as linking it, and new books get the firm's nine tabs — both verified live. Open: the two partner firms; failed jobs are visible only in Activity, not as a chip. |
+| **1 — Tenancy / entitlement / provisioning** | ✅ Live | `server/auth-*.js`, `smtp-mailer.js`, `migrate.js`, `manager-client.js`, `provisioner.js` + HTTP driver, `manager-vue-form.js` / `manager-permissions.js` / `manager-tabs.js`, `create-firm.js`, `entitlement.php`, systemd units. **366 passing tests, plus 13 read-only contract checks against live Manager (`npm run contract`, run after every Manager upgrade). Zero npm dependencies** — Playwright was deleted once it became clear Books needs no browser. **LIVE as of 2026-07-21:** Tallo CPA (code TALLO) with four users, provisioner timer reconciling every two minutes, deploys restarting the auth service automatically, and email reaching external addresses (SPF/DMARC added). Roles owner/staff/client, firm-code prefixes, archive-not-delete, removal that revokes in Books and kills the session, voucher-based comping, high-water-mark billing, one-time password handover with MFA, and portal sign-out (PR #54). **Provisioning is now complete end to end (PR #56):** a grant sets Full access inside the business as well as linking it, and new books get the firm's nine tabs — both verified live. Open: the two partner firms; failed jobs are visible only in Activity, not as a chip. |
 | **2 — Website rebuild & SEO** | ✅ Live | **Deployed 2026-07-14 (PR #21).** Full static multi-page site under `website/`: home + features/security/about/contact/faq/terms/privacy, shared `assets/css/site.css` + `assets/js/site.js`, real favicons, `robots.txt` + `sitemap.xml` + per-page meta & JSON-LD. **Positioned as a live product, not a waitlist** — CTAs are "Get started" → contact onboarding and "Sign in" → the owner portal at **`/account`**. Legal pages carry the firm's real details (TalloCPA, Iloilo City, DPO Erol Jay Tallo). Old JS bundle preserved as `index.legacy.html`. Open only: counsel review of legal pages, optional font self-hosting. |
 | **3 — Payments (PayMongo)** | 🔴 Not started | No PayMongo/webhook code yet. **Model decided 2026-07-20:** flat ₱500/business/month (no tiers), no trial, one monthly invoice billed on the high-water mark of active businesses. PayMongo cannot prorate, but invoice line items can be adjusted before an invoice finalises — that's the mechanism. Annual prepay deferred. |
 | **4 — ToS / Data Privacy (RA 10173)** | 🟡 Draft pages | `website/terms.html` + `website/privacy.html` drafted (RA 10173-aligned, NPC/DPO sections) with bracketed firm placeholders; needs real firm details + counsel review before launch. |
@@ -29,6 +29,61 @@ rates, the graduated-tax engine and VAT 2550Q are verified; two income-tax bugs 
   workflow engine that replaced the old monolithic setup screen).
 
 ## Changelog
+
+### 2026-07-21 (night) — The smoke alarm now covers the new rooms (PR #58)
+
+PR #56 started driving two screens nobody was watching. The contract test
+exists precisely because Manager's pages are **not an API with a
+stability promise** — when an upgrade moves one, nothing errors, access
+changes just quietly stop applying — and it did not cover either of them.
+
+`instruction.md` was therefore promising more than it delivered. That gap
+was written down rather than hidden when #57 landed, and this closes it.
+**Seven checks → thirteen**, still under a second, still read-only.
+
+The six new ones each guard a failure that would otherwise be silent:
+
+- **both sidebar links still present.** The driver *reaches* these records
+  by following Manager's own hrefs rather than building URLs (field 250 of
+  a record key is destructive), so a missing link is not cosmetic — it is
+  the entire path.
+- **all nine tab keys still exist, still boolean.** A rename would
+  otherwise surface only once a business was created.
+- **Manager still gates child tabs behind their parents** the way
+  `PARENTS` assumes. If that changed, ticking a child would save a setting
+  that never appears in the sidebar.
+- **the New User Permissions link still exists**, without which a user
+  holding no record could never be granted one.
+- **`Access type` still offers Full access as `1`.** The label is what a
+  human reads; `1` is what we post. A renumbering would set every staff
+  member to Custom access — the #56 bug, silently reintroduced.
+- **`form.js` still carries the `febb4049-…` field** these Vue forms
+  submit through. If Manager regenerated it, every post would arrive with
+  a field Manager ignores: a `200` that changes nothing.
+
+**A test that only ever passes proves nothing.** So both failure modes
+were deliberately triggered — a renamed tab and a changed hidden field —
+to confirm the *right* check fails, with a message that says what to do:
+
+```
+✖ the Tabs form still names every tab the firm turns on
+  AssertionError: the Tabs model no longer has "Payslipz"
+
+✖ the hidden field these Vue forms submit through is unchanged
+  AssertionError: form.js no longer contains deadbeef-… — MODEL_FIELD must be updated
+```
+
+Read-only was verified rather than asserted: after a live run the
+permissions list on `Test-Business-1` still held exactly its one row and
+nine tabs. Opening the blank "New User Permissions" form creates no more
+than `GET /user-form` creates a user.
+
+The business-scoped checks need a business to look at — the first Manager
+lists, or pin one with `MANAGER_CONTRACT_BUSINESS`.
+
+**13/13 against live Manager 26.7.10.3654 in ~0.9s.** The manual
+workaround #57 had to offer in the meantime ("grant by hand and check it
+really says Full access") is gone.
 
 ### 2026-07-21 (evening) — A grant was only ever half a grant (PR #56)
 
