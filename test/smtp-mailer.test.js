@@ -319,3 +319,25 @@ test('makeMailer: routes on kind, defaulting to the sign-in email', () => {
   assert.match(signin.text, /expires in 15 minutes/);
   assert.ok(!/expires in 15 minutes/.test(invite.text));
 });
+
+test('inviteContent: staff get the authenticator pairing steps', () => {
+  const { text } = M.inviteContent({ firmName: 'Tallo CPA', role: 'staff' });
+  assert.match(text, /QR code/);
+  assert.match(text, /DO NOT press Update/, 'the step that silently breaks pairing');
+  assert.match(text, /Log out, then log back in/);
+  assert.match(text, /6-digit code/);
+});
+
+test('inviteContent: the pairing steps are in the order they must be done', () => {
+  const { text } = M.inviteContent({ role: 'staff' });
+  const scan = text.indexOf('Scan it with an authenticator');
+  const dont = text.indexOf('DO NOT press Update');
+  const out = text.indexOf('Log out, then log back in');
+  assert.ok(scan < dont && dont < out, 'scan -> do not update -> log out');
+});
+
+test('inviteContent: clients get no authenticator steps', () => {
+  // Clients never sign in to the books, so pairing does not apply to them.
+  const { text } = M.inviteContent({ firmName: 'Tallo CPA', role: 'client' });
+  assert.ok(!/QR code/.test(text));
+});

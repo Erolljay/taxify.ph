@@ -119,6 +119,29 @@ function inviteContent(opts) {
     ? 'You can see your own filed BIR returns and what is due. It is read-only —\nyour accountant does the filing.'
     : 'You will be able to open the client books you have been given access to,\nand prepare and file their BIR returns.';
 
+  // Books requires a second factor. Enrolment happens on the user's first
+  // sign-in, and step 2 is the one that silently breaks it: pressing
+  // Update re-mints the secret, so the QR just scanned stops matching and
+  // every code is rejected with nothing explaining why.
+  const mfaSteps = [
+    'Setting up your authenticator (first Books sign-in)',
+    '---------------------------------------------------',
+    'The first time you sign in to the books, you will be shown a QR code.',
+    '',
+    '  1. Scan it with an authenticator app — Google Authenticator, Microsoft',
+    '     Authenticator and Authy all work.',
+    '  2. Once it has been scanned, DO NOT press Update.',
+    '  3. Log out, then log back in.',
+    '  4. Enter the 6-digit code from your authenticator app.',
+    '',
+    'Step 2 matters: pressing Update issues a new QR code and the one you just',
+    'scanned stops working, so your codes would be rejected. If that happens,',
+    'delete the entry from your app and ask your firm owner to reset it.',
+    '',
+    'After that, every sign-in asks for a code from the app.',
+    '',
+  ];
+
   const text = [
     'Hi,',
     '',
@@ -137,6 +160,8 @@ function inviteContent(opts) {
       ? 'Your firm will send you the separate credentials for the books themselves.'
       : 'Your firm owner will give you your Books sign-in separately — we never send\npasswords by email.',
     '',
+    // Clients never sign in to the books, so pairing does not apply to them.
+    ...(isClient ? [] : mfaSteps),
     "If you were not expecting this, you can ignore this email — you will not be\nable to sign in unless someone at " + firm + ' added you.',
     '',
     '— Txform.ph',

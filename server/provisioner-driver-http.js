@@ -68,6 +68,16 @@ function parseInputValue(html, name) {
 // A checkbox's value, but ONLY when it is ticked. Manager stores state in
 // the value itself (MultifactorAuthentication carries the user's TOTP
 // secret), so a re-post must send back exactly what it was given.
+// Any attribute off a named input, ticked or not. Needed for the blank
+// new-user form, where the MFA checkbox carries the freshly-minted secret
+// but is not yet checked.
+function parseInputAttr(html, name, attr) {
+  const tag = new RegExp('<input[^>]*name="' + name + '"[^>]*>', 'i').exec(html || '');
+  if (!tag) return null;
+  const val = new RegExp(attr + '="([^"]*)"', 'i').exec(tag[0]);
+  return val ? val[1] : null;
+}
+
 function parseCheckedValue(html, name) {
   const re = new RegExp('<input[^>]*name="' + name + '"[^>]*>', 'i');
   const tag = re.exec(html || '');
@@ -175,6 +185,21 @@ function createDriver(opts) {
     async createUser({ email, password, enableMfa }) {
       if (!email) throw new Error('email is required');
       if (!password) throw new Error('password is required');
+
+      // The MultifactorAuthentication checkbox does NOT carry a boolean —
+      // its value is a TOTP secret Manager generates fresh on every render
+      // of the blank form. Posting 'on' is not a value it can parse, so it
+      // silently creates the user with MFA off. Fetch the form and hand
+      // back the exact secret it just minted.
+      let mfaSecret = null;
+      if (enableMfa !== false) {
+        const blank = await client.get(USER_FORM);
+        if (blank.status !== 200) throw new Error('could not open the new-user form (http ' + blank.status + ')');
+        mfaSecret = parseCheckedValue(blank.body, 'MultifactorAuthentication')
+          || parseInputAttr(blank.body, 'MultifactorAuthentication', 'value');
+        if (!mfaSecret) throw new Error('new-user form has no MultifactorAuthentication value — cannot enable MFA');
+      }
+
       const fields = {
         Name: email,
         EmailAddress: email,
@@ -183,8 +208,7 @@ function createDriver(opts) {
         Type: 'Restricted',
         Businesses: [],
       };
-      // Any truthy value ticks it; Manager mints the real secret at save.
-      if (enableMfa !== false) fields.MultifactorAuthentication = 'on';
+      if (mfaSecret) fields.MultifactorAuthentication = mfaSecret;
       const res = await client.postForm(USER_FORM, fields);
       if (res.status >= 400) throw new Error('Manager refused to create user ' + email + ' (http ' + res.status + ')');
 
