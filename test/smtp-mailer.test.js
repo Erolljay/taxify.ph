@@ -323,17 +323,29 @@ test('makeMailer: routes on kind, defaulting to the sign-in email', () => {
 test('inviteContent: staff get the authenticator pairing steps', () => {
   const { text } = M.inviteContent({ firmName: 'Tallo CPA', role: 'staff' });
   assert.match(text, /QR code/);
-  assert.match(text, /DO NOT press Update/, 'the step that silently breaks pairing');
+  assert.match(text, /press Update/);
   assert.match(text, /Log out, then log back in/);
   assert.match(text, /6-digit code/);
+});
+
+test('inviteContent: warns that the "invalid code" error is expected', () => {
+  // Books reports failure even though the pairing saved. Unwarned, people
+  // assume they mis-scanned and start over — which re-mints the secret
+  // and breaks it for real.
+  const { text } = M.inviteContent({ role: 'staff' });
+  assert.match(text, /invalid authentication code/);
+  assert.match(text, /Ignore it/);
+  assert.match(text, /not rescan or start over/);
 });
 
 test('inviteContent: the pairing steps are in the order they must be done', () => {
   const { text } = M.inviteContent({ role: 'staff' });
   const scan = text.indexOf('Scan it with an authenticator');
-  const dont = text.indexOf('DO NOT press Update');
+  const update = text.indexOf('press Update');
+  const ignore = text.indexOf('invalid authentication code');
   const out = text.indexOf('Log out, then log back in');
-  assert.ok(scan < dont && dont < out, 'scan -> do not update -> log out');
+  assert.ok(scan < update && update < ignore && ignore < out,
+    'scan -> update -> ignore the error -> log out');
 });
 
 test('inviteContent: clients get no authenticator steps', () => {

@@ -119,10 +119,13 @@ function inviteContent(opts) {
     ? 'You can see your own filed BIR returns and what is due. It is read-only —\nyour accountant does the filing.'
     : 'You will be able to open the client books you have been given access to,\nand prepare and file their BIR returns.';
 
-  // Books requires a second factor. Enrolment happens on the user's first
-  // sign-in, and step 2 is the one that silently breaks it: pressing
-  // Update re-mints the secret, so the QR just scanned stops matching and
-  // every code is rejected with nothing explaining why.
+  // Books requires a second factor, enrolled on the user's first sign-in.
+  //
+  // The flow has a quirk worth spelling out: Update reports "invalid
+  // authentication code" even when the pairing has in fact been saved.
+  // Without warning, people assume they mis-scanned and start over —
+  // which re-mints the secret and genuinely breaks it. Verified by hand
+  // against Books 26.7.10.
   const mfaSteps = [
     'Setting up your authenticator (first Books sign-in)',
     '---------------------------------------------------',
@@ -130,13 +133,15 @@ function inviteContent(opts) {
     '',
     '  1. Scan it with an authenticator app — Google Authenticator, Microsoft',
     '     Authenticator and Authy all work.',
-    '  2. Once it has been scanned, DO NOT press Update.',
-    '  3. Log out, then log back in.',
-    '  4. Enter the 6-digit code from your authenticator app.',
+    '  2. Type the 6-digit code it shows and press Update.',
+    '  3. You will see "invalid authentication code". Ignore it — the pairing',
+    '     has been saved despite the message.',
+    '  4. Log out, then log back in.',
+    '  5. Enter the current 6-digit code from your app. You are in.',
     '',
-    'Step 2 matters: pressing Update issues a new QR code and the one you just',
-    'scanned stops working, so your codes would be rejected. If that happens,',
-    'delete the entry from your app and ask your firm owner to reset it.',
+    'Step 3 is a quirk of the books software, not a mistake on your part. Do',
+    'not rescan or start over — that replaces the pairing you just made and',
+    'will genuinely stop your codes working.',
     '',
     'After that, every sign-in asks for a code from the app.',
     '',
