@@ -209,9 +209,46 @@
     return base64Size(gzBytes) + (otherBytes || 0) <= capBytes;
   }
 
+  // ── Frozen manual inputs ────────────────────────────────────────────────
+  // These are shown on a filing record, so they have to read as what was
+  // filed rather than as the DOM that captured it.
+
+  // Only a true blank is empty. 0, '0' and false are ANSWERS — January is a
+  // month and an unticked box is a deliberate No — and dropping them hides
+  // part of what was filed.
+  function isEmptyManualInput(value) {
+    return value === '' || value === null || value === undefined;
+  }
+
+  // 'c1601-month' -> 'Month'. Filter ids are '<reportPrefix>-<field>'
+  // (built in shared.js), so the field is everything after the prefix.
+  function manualInputLabel(id) {
+    var parts = String(id || '').split('-');
+    if (parts.length < 2) return String(id || '');
+    var field = parts.slice(1).join(' ');
+    return field.charAt(0).toUpperCase() + field.slice(1);
+  }
+
+  // Month pickers carry 0-based values to match JS Date and periodKey, so a
+  // February filing stores 1. Render the name instead — the raw number
+  // reads like an off-by-one error on a return the preparer is checking.
+  // Anything unrecognised passes through as-is: showing an odd value beats
+  // inventing a month that was never filed.
+  function manualInputDisplay(id, value) {
+    if (typeof value === 'boolean') return value ? 'Yes' : 'No';
+    var key = String(id || '');
+    var n = parseInt(value, 10);
+    if (/-month$/.test(key) && isFinite(n) && n >= 0 && n <= 11) return MONTHS[n];
+    if (/-quarter$/.test(key) && isFinite(n) && n >= 1 && n <= 4) return 'Q' + n;
+    return String(value);
+  }
+
   var api = {
     WORKFLOW_FORMS: WORKFLOW_FORMS,
     WORKFLOW_HEADLINE: WORKFLOW_HEADLINE,
+    isEmptyManualInput: isEmptyManualInput,
+    manualInputLabel: manualInputLabel,
+    manualInputDisplay: manualInputDisplay,
     RETURN_ROOT_SELECTORS: RETURN_ROOT_SELECTORS,
     PAGE_ROOT_SELECTORS: PAGE_ROOT_SELECTORS,
     base64Size: base64Size,
