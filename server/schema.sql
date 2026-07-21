@@ -24,6 +24,15 @@ PRAGMA foreign_keys = ON;
 CREATE TABLE IF NOT EXISTS account (
   id                  INTEGER PRIMARY KEY,
   firm_name           TEXT,                                 -- shown in the portal + on invoices
+  -- Short uppercase code prefixed onto every one of this firm's business
+  -- names in Manager ("TALLO-0001 Acme"). Two purposes:
+  --   1. Names cannot collide across firms, so no firm ever learns that
+  --      another firm already uses a client name.
+  --   2. The server administrator can see at a glance, in Manager's own
+  --      business list, which firm owns which books.
+  -- IMMUTABLE once set: it is baked into every manager_business_name, so
+  -- changing it would orphan every business this firm owns.
+  firm_code           TEXT UNIQUE,
   plan                TEXT    NOT NULL DEFAULT 'starter',   -- starter|pro|firm
   -- pending = signed up but not yet paid. NOTHING is provisioned in Manager
   -- until this leaves 'pending' (pay-first, no trial).
@@ -48,6 +57,17 @@ CREATE TABLE IF NOT EXISTS users (
   email             TEXT    NOT NULL,
   role              TEXT    NOT NULL DEFAULT 'staff',        -- owner|staff|client
   manager_user_ref  TEXT,                                   -- Manager restricted-user id, set by provisioner
+  -- The Manager password the provisioner generated, held ONLY until the
+  -- firm owner has collected it. Plaintext, deliberately and briefly: it
+  -- has to survive from the provisioner run until the owner next opens
+  -- the portal, and there is nowhere else to put it.
+  --
+  -- It is never emailed. It is cleared the moment it is shown, and it
+  -- stops being surfaced 24h after it was set whether collected or not
+  -- (see auth-core.isInitialPasswordVisible). Losing it is cheap — the
+  -- owner presses Reset password and gets a new one.
+  initial_password    TEXT,
+  initial_password_at INTEGER,                              -- epoch ms
   created_at        TEXT    NOT NULL DEFAULT (datetime('now')),
   UNIQUE(account_id, email)
 );
@@ -80,6 +100,11 @@ CREATE TABLE IF NOT EXISTS businesses (
   name                  TEXT    NOT NULL,
   status                TEXT    NOT NULL DEFAULT 'active',   -- active|archived
   archived_at           TEXT,
+  -- Set by the provisioner once the books actually exist in Manager. NULL
+  -- means "registered here, not created there yet" — access grants refuse
+  -- to run against it, which is what stops a typo'd or pending business
+  -- from collecting grants that can never apply.
+  manager_created_at    TEXT,
   created_at            TEXT    NOT NULL DEFAULT (datetime('now')),
   UNIQUE(manager_business_name)
 );

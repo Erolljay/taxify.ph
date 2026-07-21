@@ -20,15 +20,15 @@ const SCHEMA = fs.readFileSync(path.join(__dirname, '..', 'server', 'schema.sql'
 function freshDb() {
   const db = new DatabaseSync(':memory:');
   db.exec(SCHEMA);
-  db.prepare('INSERT INTO account (id, plan, status, seats_limit, businesses_limit) VALUES (?,?,?,?,?)')
-    .run(1, 'firm', 'active', 5, 10);
-  db.prepare('INSERT INTO account (id, plan, status, seats_limit, businesses_limit) VALUES (?,?,?,?,?)')
-    .run(2, 'starter', 'active', 1, 1);
+  db.prepare('INSERT INTO account (id, firm_code, plan, status, seats_limit, businesses_limit) VALUES (?,?,?,?,?,?)')
+    .run(1, 'FIRMA', 'firm', 'active', 5, 10);
+  db.prepare('INSERT INTO account (id, firm_code, plan, status, seats_limit, businesses_limit) VALUES (?,?,?,?,?,?)')
+    .run(2, 'FIRMB', 'starter', 'active', 1, 1);
   db.prepare('INSERT INTO users (id, account_id, email, role) VALUES (?,?,?,?)').run(1, 1, 'owner@x.com', 'owner');
   db.prepare('INSERT INTO users (id, account_id, email, role) VALUES (?,?,?,?)').run(2, 1, 'staff@x.com', 'staff');
   db.prepare('INSERT INTO users (id, account_id, email, role) VALUES (?,?,?,?)').run(3, 2, 'other@x.com', 'owner');
-  db.prepare('INSERT INTO businesses (id, account_id, manager_business_name, name) VALUES (?,?,?,?)').run(1, 1, 'Acme', 'Acme');
-  db.prepare('INSERT INTO businesses (id, account_id, manager_business_name, name) VALUES (?,?,?,?)').run(2, 2, 'OtherCo', 'OtherCo');
+  db.prepare('INSERT INTO businesses (id, account_id, manager_business_name, name, manager_created_at) VALUES (?,?,?,?,?)').run(1, 1, 'Acme', 'Acme', '2026-01-01T00:00:00Z');
+  db.prepare('INSERT INTO businesses (id, account_id, manager_business_name, name, manager_created_at) VALUES (?,?,?,?,?)').run(2, 2, 'OtherCo', 'OtherCo', '2026-01-01T00:00:00Z');
   return db;
 }
 
@@ -293,32 +293,57 @@ test('add-business: owner registers a new client business', () => {
   const r = S.addBusiness(db, { cookie: cookie, name: 'NewClient' }, deps);
   assert.equal(r.status, 201);
   assert.equal(db.prepare('SELECT account_id FROM businesses WHERE id=?').get(r.json.businessId).account_id, 1);
-  assert.equal(r.json.managerBusinessName, 'NewClient');
   assert.ok(db.prepare("SELECT 1 FROM audit_log WHERE action='add_business'").get());
 });
 
-test('add-business: a name another firm already uses is accepted with a scoped Manager name', () => {
+test('add-business: the Manager name is prefixed with the firm code', () => {
   const db = freshDb(), deps = makeDeps();
-  const cookie = signIn(db, deps, 'owner@x.com');        // account 1
-  const r = S.addBusiness(db, { cookie: cookie, name: 'OtherCo' }, deps); // account 2 holds 'OtherCo'
-  assert.equal(r.status, 201, 'must not leak that another account holds the name');
-  assert.equal(r.json.managerBusinessName, 'OtherCo (1)', 'Manager-side name is account-scoped');
+  const cookie = signIn(db, deps, 'owner@x.com'); // account 1, code FIRMA
+  const r = S.addBusiness(db, { cookie: cookie, name: 'Acme Trading' }, deps);
   const row = db.prepare('SELECT name, manager_business_name FROM businesses WHERE id=?').get(r.json.businessId);
-  assert.equal(row.name, 'OtherCo', 'the firm still sees its own chosen name');
+  assert.equal(row.manager_business_name, 'FIRMA-Acme Trading');
+  assert.equal(row.name, 'Acme Trading', 'the firm sees the name it chose');
 });
 
-test('add-business: the scoped fallback is deterministic, not a collision counter', () => {
+test('add-business: two firms can register the same client name, with no signal to either', () => {
   const db = freshDb(), deps = makeDeps();
-  // Two separate firms colliding on the same name must each derive their own
-  // suffix from their account id — never an incrementing count that would
-  // reveal how many other firms hold it.
-  assert.equal(S.managerNameFor(db, 1, 'OtherCo'), 'OtherCo (1)');
-  assert.equal(S.managerNameFor(db, 7, 'OtherCo'), 'OtherCo (7)');
+  // Account 2 ships with room for exactly one business and already has it —
+  // give it headroom so this tests naming, not the seat cap.
+  db.prepare('UPDATE account SET businesses_limit = 5 WHERE id = 2').run();
+  const a = S.addBusiness(db, { cookie: signIn(db, deps, 'owner@x.com'), name: 'Shared Name Co' }, deps);
+  const b = S.addBusiness(db, { cookie: signIn(db, deps, 'other@x.com'), name: 'Shared Name Co' }, deps);
+  assert.equal(a.status, 201);
+  assert.equal(b.status, 201, 'the second firm is not blocked, and learns nothing');
+  const names = db.prepare("SELECT manager_business_name FROM businesses WHERE name='Shared Name Co' ORDER BY id")
+    .all().map((r) => r.manager_business_name);
+  assert.deepEqual(names, ['FIRMA-Shared Name Co', 'FIRMB-Shared Name Co']);
 });
 
-test('add-business: an unused name is taken verbatim', () => {
+test('add-business: the response never reveals the Manager-side name', () => {
   const db = freshDb(), deps = makeDeps();
-  assert.equal(S.managerNameFor(db, 1, 'Brand New Co'), 'Brand New Co');
+  const r = S.addBusiness(db, { cookie: signIn(db, deps, 'owner@x.com'), name: 'Quiet Co' }, deps);
+  assert.equal(r.json.managerBusinessName, undefined,
+    'an internal detail — surfacing it would hint at what other firms hold');
+});
+
+test('add-business: a firm with no code cannot register anything', () => {
+  const db = freshDb(), deps = makeDeps();
+  db.prepare('UPDATE account SET firm_code = NULL WHERE id = 1').run();
+  const r = S.addBusiness(db, { cookie: signIn(db, deps, 'owner@x.com'), name: 'Nameless Co' }, deps);
+  assert.equal(r.status, 409);
+  assert.match(r.json.error, /firm_code_missing/);
+});
+
+test('add-business: queues a create_business job — the books do not exist yet', () => {
+  const db = freshDb(), deps = makeDeps();
+  const r = S.addBusiness(db, { cookie: signIn(db, deps, 'owner@x.com'), name: 'Fresh Co' }, deps);
+  const job = db.prepare("SELECT type, business_id, user_id FROM provision_job WHERE type='create_business'").get();
+  assert.equal(job.business_id, r.json.businessId);
+  assert.equal(job.user_id, null, 'no user involved in creating books');
+  assert.equal(
+    db.prepare('SELECT manager_created_at FROM businesses WHERE id=?').get(r.json.businessId).manager_created_at,
+    null, 'not created in Manager until the provisioner says so'
+  );
 });
 
 test('add-business: re-adding own business is idempotent and costs no slot', () => {
@@ -527,4 +552,82 @@ test('overview: owner sees this month\'s invoice', () => {
   assert.equal(r.json.billing.businesses, 1);
   assert.equal(r.json.billing.net, A.RATE_CENTAVOS, 'no voucher — full rate');
   assert.equal(r.json.billing.reason, null);
+});
+
+// ── initial password handover ────────────────────────────────────
+// The rule these defend: the password is shown to ONE person, once, and
+// never travels by email.
+function withPassword(db, userId, pw, at) {
+  db.prepare('UPDATE users SET manager_user_ref = ?, initial_password = ?, initial_password_at = ? WHERE id = ?')
+    .run('mgr:' + userId, pw, at, userId);
+}
+
+test('password handover: the owner sees a freshly issued password', () => {
+  const db = freshDb(), deps = makeDeps();
+  withPassword(db, 2, 'Abcde-Fghij-Klmno-Pqrst', deps.state.now);
+  const r = S.overview(db, { cookie: signIn(db, deps, 'owner@x.com') }, deps);
+  const staff = r.json.users.find((u) => u.id === 2);
+  assert.equal(staff.initialPassword, 'Abcde-Fghij-Klmno-Pqrst');
+});
+
+test('password handover: staff never see any password, including their own', () => {
+  const db = freshDb(), deps = makeDeps();
+  withPassword(db, 2, 'secret-pw', deps.state.now);
+  const r = S.overview(db, { cookie: signIn(db, deps, 'staff@x.com') }, deps);
+  assert.deepEqual(r.json.users, [], 'staff get no roster at all, so no passwords ride along');
+  assert.equal(JSON.stringify(r.json).indexOf('secret-pw'), -1, 'and it appears nowhere in the payload');
+});
+
+test('password handover: another firm\'s owner cannot see it', () => {
+  const db = freshDb(), deps = makeDeps();
+  withPassword(db, 2, 'secret-pw', deps.state.now);   // account 1's staff
+  const r = S.overview(db, { cookie: signIn(db, deps, 'other@x.com') }, deps); // account 2
+  assert.equal(JSON.stringify(r.json).indexOf('secret-pw'), -1);
+});
+
+test('password handover: an uncollected password stops being shown after 24h', () => {
+  const db = freshDb(), deps = makeDeps();
+  withPassword(db, 2, 'stale-pw', deps.state.now - A.INITIAL_PASSWORD_TTL_MS - 1000);
+  const r = S.overview(db, { cookie: signIn(db, deps, 'owner@x.com') }, deps);
+  assert.equal(r.json.users.find((u) => u.id === 2).initialPassword, null);
+});
+
+test('clear-password: discards our copy once the owner has it', () => {
+  const db = freshDb(), deps = makeDeps();
+  withPassword(db, 2, 'secret-pw', deps.state.now);
+  const cookie = signIn(db, deps, 'owner@x.com');
+  assert.equal(S.clearInitialPassword(db, { cookie, userId: 2 }, deps).status, 200);
+  const row = db.prepare('SELECT initial_password, initial_password_at FROM users WHERE id=2').get();
+  assert.equal(row.initial_password, null);
+  assert.equal(row.initial_password_at, null);
+});
+
+test('clear-password: staff cannot, and neither can another firm', () => {
+  const db = freshDb(), deps = makeDeps();
+  withPassword(db, 2, 'secret-pw', deps.state.now);
+  assert.equal(S.clearInitialPassword(db, { cookie: signIn(db, deps, 'staff@x.com'), userId: 2 }, deps).status, 403);
+  assert.equal(S.clearInitialPassword(db, { cookie: signIn(db, deps, 'other@x.com'), userId: 2 }, deps).status, 403);
+  assert.ok(db.prepare('SELECT initial_password FROM users WHERE id=2').get().initial_password, 'untouched');
+});
+
+test('reset-password: queues a job and audits who asked', () => {
+  const db = freshDb(), deps = makeDeps();
+  withPassword(db, 2, 'old-pw', deps.state.now);
+  const r = S.resetPassword(db, { cookie: signIn(db, deps, 'owner@x.com'), userId: 2 }, deps);
+  assert.equal(r.status, 200);
+  assert.equal(db.prepare("SELECT user_id FROM provision_job WHERE type='reset_password'").get().user_id, 2);
+  assert.ok(db.prepare("SELECT 1 FROM audit_log WHERE action='reset_password'").get());
+});
+
+test('reset-password: refused before the Manager user exists', () => {
+  const db = freshDb(), deps = makeDeps();
+  const r = S.resetPassword(db, { cookie: signIn(db, deps, 'owner@x.com'), userId: 2 }, deps);
+  assert.equal(r.status, 409);
+  assert.match(r.json.error, /not_provisioned_yet/);
+});
+
+test('reset-password: staff cannot reset anyone, including themselves', () => {
+  const db = freshDb(), deps = makeDeps();
+  withPassword(db, 2, 'old-pw', deps.state.now);
+  assert.equal(S.resetPassword(db, { cookie: signIn(db, deps, 'staff@x.com'), userId: 2 }, deps).status, 403);
 });

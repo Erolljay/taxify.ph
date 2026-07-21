@@ -21,7 +21,15 @@ function freshDb() {
   db.exec(SCHEMA);
   return db;
 }
-const args = (s) => C.parseArgs(s.split(' '));
+// Every firm needs a code, so supply a default unless the case is about
+// codes. Keeps the other tests about what they say they're about.
+let _codeSeq = 0;
+function args(s) {
+  const parts = s.split(' ');
+  if (parts.indexOf('--code') === -1) parts.push('--code', 'CODE' + (++_codeSeq));
+  return C.parseArgs(parts);
+}
+const rawArgs = (s) => C.parseArgs(s.split(' '));
 
 // ── argument handling ────────────────────────────────────────────
 test('parseArgs: firm name and email are positional; limits have defaults', () => {
@@ -43,6 +51,28 @@ test('parseArgs: email is lower-cased so sign-in matching cannot miss', () => {
 
 test('parseArgs: an unknown option is rejected rather than ignored', () => {
   assert.throws(() => args('Firm a@b.ph --oops'), /unknown option/);
+});
+
+// ── firm code ────────────────────────────────────────────────────
+test('validate: a firm code is required — it prefixes every business name', () => {
+  assert.match(C.validate(rawArgs('Firm a@b.ph')), /--code is required/);
+});
+
+test('validate: rejects codes that normalizing would silently rewrite', () => {
+  assert.match(C.validate(rawArgs('Firm a@b.ph --code T')), /2-12/, 'too short');
+  assert.match(C.validate(rawArgs('Firm a@b.ph --code TALLO-CPA')), /2-12/, 'punctuation');
+  assert.equal(C.validate(rawArgs('Firm a@b.ph --code TALLO')), null);
+});
+
+test('createFirm: stores the code uppercased, and refuses to reuse one', () => {
+  const db = freshDb();
+  const first = C.createFirm(db, rawArgs('Tallo owner@tallo.ph --code tallo'));
+  assert.equal(db.prepare('SELECT firm_code FROM account WHERE id=?').get(first.accountId).firm_code, 'TALLO');
+
+  const clash = C.createFirm(db, rawArgs('Other other@other.ph --code TALLO'));
+  assert.equal(clash.created, false);
+  assert.equal(clash.codeTaken, true, 'codes are permanent, so a reuse must fail loudly');
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM account').get().n, 1);
 });
 
 test('validate: rejects a missing name, a bad email, and nonsense limits', () => {

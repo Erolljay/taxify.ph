@@ -234,3 +234,67 @@ test('discountPercentFor: no vouchers means full price', () => {
   assert.equal(A.discountPercentFor([], '2026-07'), 0);
   assert.equal(A.discountPercentFor(undefined, '2026-07'), 0);
 });
+
+// ── firm-code business naming ────────────────────────────────────
+test('managerBusinessName: prefixes the firm code', () => {
+  assert.equal(A.managerBusinessName('TALLO', '0001 Acme Trading'), 'TALLO-0001 Acme Trading');
+});
+
+test('managerBusinessName: two firms can hold the same client name', () => {
+  // The whole point of the prefix: no collision, and so no way for one
+  // firm to discover that another already uses a name.
+  assert.notEqual(
+    A.managerBusinessName('TALLO', 'Acme Trading'),
+    A.managerBusinessName('RCRUZ', 'Acme Trading')
+  );
+});
+
+test('managerBusinessName: is pure — no database, no dependence on other firms', () => {
+  assert.equal(A.managerBusinessName('TALLO', 'Acme'), A.managerBusinessName('TALLO', 'Acme'));
+});
+
+test('managerBusinessName: normalizes the code and trims the name', () => {
+  assert.equal(A.managerBusinessName('tallo', '  Acme  '), 'TALLO-Acme');
+});
+
+test('managerBusinessName: refuses to guess when either part is missing', () => {
+  assert.equal(A.managerBusinessName('', 'Acme'), null);
+  assert.equal(A.managerBusinessName('TALLO', '   '), null);
+});
+
+test('normalizeFirmCode: uppercases, strips punctuation, caps length', () => {
+  assert.equal(A.normalizeFirmCode('tallo-cpa'), 'TALLOCPA');
+  assert.equal(A.normalizeFirmCode('a b c'), 'ABC');
+  assert.equal(A.normalizeFirmCode('X'.repeat(40)).length, 12);
+});
+
+test('isValidFirmCode: rejects codes that would be silently rewritten', () => {
+  assert.equal(A.isValidFirmCode('TALLO'), true);
+  assert.equal(A.isValidFirmCode('T'), false, 'too short');
+  assert.equal(A.isValidFirmCode('TALLO CPA'), false, 'a space would be stripped — make them fix it');
+  assert.equal(A.isValidFirmCode(''), false);
+});
+
+// ── initial passwords ────────────────────────────────────────────
+test('generatePassword: long, grouped, and unambiguous', () => {
+  const pw = A.generatePassword();
+  assert.match(pw, /^[A-Za-z2-9]{5}(-[A-Za-z2-9]{5})+$/);
+  assert.ok(pw.replace(/-/g, '').length >= 20);
+  // 0/O and 1/l/I are omitted — these get read aloud and typed by hand.
+  assert.doesNotMatch(pw, /[0O1lI]/);
+});
+
+test('generatePassword: does not repeat', () => {
+  const seen = new Set();
+  for (let i = 0; i < 200; i++) seen.add(A.generatePassword());
+  assert.equal(seen.size, 200);
+});
+
+test('isInitialPasswordVisible: hidden once the window has passed', () => {
+  const now = Date.now();
+  assert.equal(A.isInitialPasswordVisible(now, now), true);
+  assert.equal(A.isInitialPasswordVisible(now - A.INITIAL_PASSWORD_TTL_MS + 1000, now), true);
+  assert.equal(A.isInitialPasswordVisible(now - A.INITIAL_PASSWORD_TTL_MS - 1000, now), false,
+    'an uncollected password stops being shown rather than lingering');
+  assert.equal(A.isInitialPasswordVisible(null, now), false);
+});

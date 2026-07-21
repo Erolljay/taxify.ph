@@ -365,6 +365,77 @@ sudo systemctl restart txform-auth
 
 ---
 
+## Provisioner — credentials, and the check to run after every Manager update
+
+The provisioner reconciles the portal's access grid into Manager: it creates a
+client's books, creates restricted users, and grants or revokes their access.
+It talks to Manager over **plain HTTP — no browser, no npm dependencies**.
+
+### Credentials
+
+Both live in `/etc/txform/provisioner.env`, root-owned and `chmod 600`:
+
+```
+MANAGER_API_KEY=<api2 access token — currently unused, kept for later>
+MANAGER_ADMIN_USER=provisioner
+MANAGER_ADMIN_PASS=<long random; generate with: openssl rand -base64 32>
+```
+
+`provisioner` is a **dedicated Manager Administrator**, deliberately not a
+personal login. Manager's own audit trail then attributes the robot's changes to
+it rather than to you, it can be disabled without locking you out, and you stay
+free to put MFA on your own account — which a robot could never satisfy.
+
+### The check to run after every Manager update
+
+Manager updates often, and the parts the provisioner leans on — the login form
+and the user form — are **not a published API with a stability promise**. When
+an upgrade moves one of them, the symptom is not an error: access changes simply
+stop being applied, while the portal keeps showing green ticks.
+
+This turns that into a failing test. It is **read-only** and creates nothing:
+
+```
+cd /var/www/taxify
+sudo -E env $(sudo cat /etc/txform/provisioner.env | xargs) npm run contract
+```
+
+Seven checks, about half a second. It asserts the things that would otherwise
+break silently:
+
+- the two-step login still issues a session
+- the session still reaches `/api4/businesses` and `/users`
+- `/user-form` still carries `Name`, `EmailAddress`, `Username`, `Password`,
+  `Type`, `Businesses`
+- `Type` still offers `Restricted` — if that option were renamed, new users
+  would fall back to whatever Manager defaults to, which is **Administrator**
+- `Businesses` option values are still `base64(name)` — the entire grant/revoke
+  mechanism is that encoding
+- `POST /api4/business` still takes a name
+- an expired session is recovered automatically, so the timer-driven provisioner
+  does not need restarting when Manager expires it
+
+A failure here means **stop and fix the driver before trusting the access grid.**
+
+### Two encodings, and why they are easy to confuse
+
+Manager uses different encodings in the same page, which cost us a real bug:
+
+| Where | Encoding |
+|---|---|
+| `Businesses` option **values** | plain `base64(businessName)` |
+| URL query **params** (`/user-form?…`, `/login-password?…`) | `0x0a` + length + utf8, unpadded **base64url** |
+
+Addressing `/user-form` with plain base64 does **not** 404 — it quietly serves a
+blank *new-user* form. The driver then reads an empty user, edits that, posts it
+back, and gets a `200`. Every signal says success while nothing was granted.
+
+Two guards now make that impossible to repeat: a blank `Username` on the fetched
+form throws instead of being posted back, and every access change is **read back
+and compared** before the job is marked done.
+
+---
+
 ## Caveats / notes
 - The `esmeres-managerio-backups` bucket + script your partner shared were only a
   **sample** — the live setup is the `txform-managerio-backups` one above. Don't

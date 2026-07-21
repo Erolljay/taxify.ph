@@ -305,12 +305,6 @@ function grantDiscount(db, accountId, opts) {
     .run(accountId, opts.actor || 'admin-cli', 'grant_discount', pct + '% ' + opts.reason);
 }
 
-function managerNameFor(db, accountId, name) {
-  const taken = (n) => !!db.prepare('SELECT 1 FROM businesses WHERE manager_business_name = ?').get(n);
-  if (!taken(name)) return name;
-  const scoped = name + ' (' + accountId + ')';
-  return taken(scoped) ? null : scoped;
-}
 
 // POST /api/tenancy/add-business { name }
 // Owner-only. Registers one of the firm's client businesses against the
@@ -320,12 +314,16 @@ function addBusiness(db, input, deps) {
   const now = deps.now();
   const s = loadSession(db, input.cookie, now);
   if (!s) return { status: 401, json: { error: 'not signed in' } };
-  const account = db.prepare('SELECT id, businesses_limit FROM account WHERE id = ?').get(s.account_id);
+  const account = db.prepare('SELECT id, businesses_limit, firm_code FROM account WHERE id = ?').get(s.account_id);
   const authz = A.authorizeOwnerAction({ role: s.role, account_id: s.account_id, expires_at: s.expires_at }, account, now);
   if (!authz.ok) return { status: 403, json: { error: authz.reason } };
 
   const name = (input && typeof input.name === 'string') ? input.name.trim() : '';
   if (!name) return { status: 400, json: { error: 'name required' } };
+  // Without a firm code we cannot name the books in Manager, and an
+  // unprefixed business would be the one able to collide with another
+  // firm's. Refuse rather than guess.
+  if (!account.firm_code) return { status: 409, json: { error: 'firm_code_missing' } };
 
   // Re-adding a client the firm already has is idempotent and costs no slot.
   // An ARCHIVED one is reactivated instead of duplicated — the Manager name
@@ -350,15 +348,26 @@ function addBusiness(db, input, deps) {
   // Both the plain name and the account-scoped fallback are taken. Only
   // reachable if this firm already holds the suffixed variant as a
   // separate client, so naming it is safe — it's their own data.
-  const managerName = managerNameFor(db, s.account_id, name);
-  if (!managerName) return { status: 409, json: { error: 'name_unavailable' } };
+  // Prefixed with the firm's code, so this can never collide with another
+  // firm's client of the same name — and so no firm can discover that it
+  // would have.
+  const managerName = A.managerBusinessName(account.firm_code, name);
+  if (!managerName) return { status: 400, json: { error: 'name required' } };
+  if (db.prepare('SELECT 1 FROM businesses WHERE manager_business_name = ?').get(managerName)) {
+    // Only reachable within one firm — their own data, safe to name.
+    return { status: 409, json: { error: 'name_unavailable' } };
+  }
 
   const businessId = Number(db.prepare('INSERT INTO businesses (account_id, manager_business_name, name) VALUES (?,?,?)')
     .run(s.account_id, managerName, name).lastInsertRowid);
   recordBillingPeriod(db, businessId, now);
+  // The books do not exist in Manager yet — the provisioner creates them,
+  // and only then does manager_created_at get stamped.
+  db.prepare('INSERT INTO provision_job (type, business_id, created_at, updated_at) VALUES (?,?,?,?)')
+    .run('create_business', businessId, now, now);
   db.prepare('INSERT INTO audit_log (account_id, actor, action, target) VALUES (?,?,?,?)')
     .run(s.account_id, s.email, 'add_business', 'business:' + businessId + ' ' + managerName);
-  return { status: 201, json: { ok: true, businessId: businessId, managerBusinessName: managerName } };
+  return { status: 201, json: { ok: true, businessId: businessId } };
 }
 
 // POST /api/tenancy/archive-business { businessId }
@@ -391,6 +400,45 @@ function archiveBusiness(db, input, deps) {
   db.prepare('INSERT INTO audit_log (account_id, actor, action, target) VALUES (?,?,?,?)')
     .run(s.account_id, s.email, 'archive_business', 'business:' + biz.id);
   return { status: 200, json: { ok: true, revoked: holders.length } };
+}
+
+// POST /api/tenancy/clear-password { userId }
+// Owner-only. Called once the owner has copied the password. Discards our
+// copy — the whole point is that we hold it as briefly as possible.
+function clearInitialPassword(db, input, deps) {
+  const now = deps.now();
+  const s = loadSession(db, input.cookie, now);
+  if (!s) return { status: 401, json: { error: 'not signed in' } };
+  const authz = A.authorizeOwnerAction({ role: s.role, account_id: s.account_id, expires_at: s.expires_at }, { id: s.account_id }, now);
+  if (!authz.ok) return { status: 403, json: { error: authz.reason } };
+
+  const u = db.prepare('SELECT id, account_id FROM users WHERE id = ?').get(input.userId);
+  if (!u || u.account_id !== s.account_id) return { status: 403, json: { error: 'wrong_account' } };
+
+  db.prepare('UPDATE users SET initial_password = NULL, initial_password_at = NULL WHERE id = ?').run(u.id);
+  return { status: 200, json: { ok: true } };
+}
+
+// POST /api/tenancy/reset-password { userId }
+// Owner-only. Queues a fresh Manager password. Deliberately cheap to use:
+// forgetting the handover password should cost a click, not a support
+// request to us.
+function resetPassword(db, input, deps) {
+  const now = deps.now();
+  const s = loadSession(db, input.cookie, now);
+  if (!s) return { status: 401, json: { error: 'not signed in' } };
+  const authz = A.authorizeOwnerAction({ role: s.role, account_id: s.account_id, expires_at: s.expires_at }, { id: s.account_id }, now);
+  if (!authz.ok) return { status: 403, json: { error: authz.reason } };
+
+  const u = db.prepare('SELECT id, account_id, email, manager_user_ref FROM users WHERE id = ?').get(input.userId);
+  if (!u || u.account_id !== s.account_id) return { status: 403, json: { error: 'wrong_account' } };
+  if (!u.manager_user_ref) return { status: 409, json: { error: 'not_provisioned_yet' } };
+
+  db.prepare('INSERT INTO provision_job (type, user_id, created_at, updated_at) VALUES (?,?,?,?)')
+    .run('reset_password', u.id, now, now);
+  db.prepare('INSERT INTO audit_log (account_id, actor, action, target) VALUES (?,?,?,?)')
+    .run(s.account_id, s.email, 'reset_password', 'user:' + u.id + ' ' + u.email);
+  return { status: 200, json: { ok: true } };
 }
 
 // GET /api/tenancy/overview
@@ -431,7 +479,19 @@ function overview(db, input, deps) {
     return { status: 200, json: { account: { firm_name: account.firm_name, status: account.status }, me: me, businesses: businesses, users: [], grants: [], jobs: [] } };
   }
 
-  const users = db.prepare('SELECT id, email, role FROM users WHERE account_id = ? ORDER BY role DESC, email').all(s.account_id);
+  // Initial Manager passwords, for the owner to hand over. Only ever sent
+  // to the owner of that account, only while still visible, and cleared
+  // as soon as they acknowledge it. Never emailed, never logged.
+  const users = db.prepare(
+    'SELECT id, email, role, manager_user_ref, initial_password, initial_password_at FROM users WHERE account_id = ? ORDER BY role DESC, email'
+  ).all(s.account_id).map(function (u) {
+    const visible = u.initial_password && A.isInitialPasswordVisible(u.initial_password_at, now);
+    return {
+      id: u.id, email: u.email, role: u.role,
+      initialPassword: visible ? u.initial_password : null,
+      provisioned: !!u.manager_user_ref,
+    };
+  });
   const businesses = db.prepare(
     'SELECT id, name, manager_business_name, status FROM businesses WHERE account_id = ? ORDER BY status, name'
   ).all(s.account_id);
@@ -458,7 +518,7 @@ function overview(db, input, deps) {
 module.exports = {
   COOKIE_NAME, parseCookie, loadSession,
   requestLink, verifyLink, currentUser,
-  setUserBusiness, inviteStaff, addBusiness, archiveBusiness, managerNameFor,
+  setUserBusiness, inviteStaff, addBusiness, archiveBusiness, clearInitialPassword, resetPassword,
   recordBillingPeriod, billableCount, invoiceFor, grantDiscount, overview,
 };
 
@@ -534,6 +594,8 @@ if (require.main === module) {
         if (req.method === 'POST' && url.pathname === '/api/tenancy/invite-staff') return send(res, inviteStaff(db, { cookie: cookie, email: json.email, role: json.role, businessId: json.businessId }, deps));
         if (req.method === 'POST' && url.pathname === '/api/tenancy/add-business') return send(res, addBusiness(db, { cookie: cookie, name: json.name }, deps));
         if (req.method === 'POST' && url.pathname === '/api/tenancy/archive-business') return send(res, archiveBusiness(db, { cookie: cookie, businessId: json.businessId }, deps));
+        if (req.method === 'POST' && url.pathname === '/api/tenancy/clear-password') return send(res, clearInitialPassword(db, { cookie: cookie, userId: json.userId }, deps));
+        if (req.method === 'POST' && url.pathname === '/api/tenancy/reset-password') return send(res, resetPassword(db, { cookie: cookie, userId: json.userId }, deps));
         if (req.method === 'GET' && url.pathname === '/api/tenancy/overview') return send(res, overview(db, { cookie: cookie }, deps));
         send(res, { status: 404, json: { error: 'not found' } });
       } catch (e) {

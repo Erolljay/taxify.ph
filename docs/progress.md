@@ -4,14 +4,14 @@ Tracking doc referenced by [`docs/ECC-PLAYBOOK.md`](ECC-PLAYBOOK.md). Snapshot o
 where the app stands against the 6-phase SaaS plan, kept current from source
 changes rather than hand-waved.
 
-_Last updated: 2026-07-20_
+_Last updated: 2026-07-21_
 
 ## Phase status
 
 | Phase | Status | Notes |
 |-------|--------|-------|
 | **0 — Foundation hardening** | ✅ Largely done | Pull-based auto-deploy (`scripts/deploy.sh` via 2-min root cron), nginx web-root hardening, LF normalization. Hosting-license confirmed, Manager Server bought. **Backups live (2026-07-13):** AWS Backup EC2 snapshots + S3 Manager.io data backups, both 2 AM Manila, 7/56/400-day retention. **`save-tax-rates.php` hardened & LIVE (2026-07-14, PR #23):** shared-secret token + body cap + backup pruning on top of nginx basic-auth; token file created on the server. Still open: UFW, fail2ban, UptimeRobot, e2e BIR verification. |
-| **1 — Tenancy / entitlement / provisioning** | 🟡 Substantially built | `server/auth-*.js`, `smtp-mailer.js`, `entitlement.php`, `provisioner.js` + Playwright driver, `schema.sql`, systemd units. **95 passing tests.** **Email sender LIVE** — `txform-auth` service running, real magic-link email delivered via Google Workspace. **Magic-link now lands on the portal** — `verifyLink` 302-redirects a browser to `txform.ph/account` (cookie attached) instead of downloading `verify.json`; portal + `/api/*` share the apex origin. **2026-07-20 (PR #40): businesses re-keyed from a phantom GUID to the Manager business NAME** — the old key was a field Manager never sends, which had left both the entitlement gate and freeze/save-report silently dead. **149 passing tests.** Open: live Playwright selectors; `firm_name` / `client` role / archive / billing-period columns; portal access for staff+clients; sign-up flow. |
+| **1 — Tenancy / entitlement / provisioning** | 🟢 Built, undeployed | `server/auth-*.js`, `smtp-mailer.js`, `entitlement.php`, `provisioner.js` + Playwright driver, `schema.sql`, systemd units. **95 passing tests.** **Email sender LIVE** — `txform-auth` service running, real magic-link email delivered via Google Workspace. **Magic-link now lands on the portal** — `verifyLink` 302-redirects a browser to `txform.ph/account` (cookie attached) instead of downloading `verify.json`; portal + `/api/*` share the apex origin. **2026-07-20 (PR #40): businesses re-keyed from a phantom GUID to the Books business NAME** — the old key was a field Books never sends, which had left both the entitlement gate and freeze/save-report silently dead. **2026-07-21 (PR #41): firm accounts complete, and the provisioner reaches Books over plain HTTP** — roles (owner/staff/client), firm-code prefixes, archive, voucher-based comping, high-water-mark billing, a role-scoped portal with search and Open-in-Books links, and one-time password handover with MFA. Playwright deleted; **zero npm dependencies**. Verified end to end against live Books. **249 passing tests.** Open: deploy (schema changed — recreate `txform.db`), install the systemd timer, create the three real firms. |
 | **2 — Website rebuild & SEO** | ✅ Live | **Deployed 2026-07-14 (PR #21).** Full static multi-page site under `website/`: home + features/security/about/contact/faq/terms/privacy, shared `assets/css/site.css` + `assets/js/site.js`, real favicons, `robots.txt` + `sitemap.xml` + per-page meta & JSON-LD. **Positioned as a live product, not a waitlist** — CTAs are "Get started" → contact onboarding and "Sign in" → the owner portal at **`/account`**. Legal pages carry the firm's real details (TalloCPA, Iloilo City, DPO Erol Jay Tallo). Old JS bundle preserved as `index.legacy.html`. Open only: counsel review of legal pages, optional font self-hosting. |
 | **3 — Payments (PayMongo)** | 🔴 Not started | No PayMongo/webhook code yet. **Model decided 2026-07-20:** flat ₱500/business/month (no tiers), no trial, one monthly invoice billed on the high-water mark of active businesses. PayMongo cannot prorate, but invoice line items can be adjusted before an invoice finalises — that's the mechanism. Annual prepay deferred. |
 | **4 — ToS / Data Privacy (RA 10173)** | 🟡 Draft pages | `website/terms.html` + `website/privacy.html` drafted (RA 10173-aligned, NPC/DPO sections) with bracketed firm placeholders; needs real firm details + counsel review before launch. |
@@ -29,6 +29,78 @@ rates, the graduated-tax engine and VAT 2550Q are verified; two income-tax bugs 
   workflow engine that replaced the old monolithic setup screen).
 
 ## Changelog
+
+### 2026-07-21 — Firm accounts, and the provisioner actually reaches Books (PR #41)
+
+**Naming note:** user-facing text now says **Books** for `books.txform.ph`. Code,
+comments and column names still say Manager, because that is genuinely the product
+they talk to — renaming those would make the code lie about its own dependency.
+
+**Roles.** `owner` · `staff` · `client`, the last being the business owner we keep
+books for: read-only, one business, free. The permission matrix lives in one tested
+table (`ROLE_CAPABILITIES`) and **fails closed** on an unknown role. Only the owner
+may amend an already-frozen filing.
+
+**The portal works for everyone.** `overview()` was owner-only, so staff and clients
+could sign in and were then turned away. Now each role gets a scoped payload — staff
+and clients get no team roster, no access grid, no limits, no billing. Five tabs for
+owners, landing on **Clients**; search on Clients/Team/Access once a list passes five
+entries; every client row has an **Open** link into its books.
+
+**Billing.** `business_billing_period` records one row per business per month it was
+active for *any* part of — a high-water mark, not a snapshot of invoice day. Without
+it, archiving before the invoice would be free, and since VAT is filed *quarterly*
+while billing is *monthly*, a firm could add every client, file the whole quarter and
+remove them before being charged. Removal is **archive, never delete**.
+
+**Free accounts are a voucher, not an exemption.** A comped firm is still counted,
+invoiced and audited; its invoice simply totals zero and carries the reason. One code
+path for everybody, and the same mechanism covers promos and partner rates. Money is
+in centavos.
+
+**Firm codes.** Every account has an immutable short code prefixing its business names
+in Books (`TALLO-0001 Acme`). Two firms can hold the same client name, which deleted
+the old collision-suffix scheme — and with it a leak, since a firm that asked for
+"Acme" and got "Acme (1)" could infer another firm had one. It also gives the
+administrator a who-owns-what view in Books' own business list.
+
+**The picker was dropped from the design.** Listing businesses for an owner would have
+shown them every *other* firm's client names, which for CPA firms is the confidential
+asset. No listing endpoint exists to be called.
+
+**Provisioner: Playwright deleted, plain HTTP instead.** Books needs no browser — its
+login is an ordinary two-step form POST with no CSRF token. `package.json` now has
+**zero dependencies**. Verified live against 26.7.10, end to end: business created,
+restricted user created, access granted and revoked.
+
+Four bugs found along the way, three of them the same shape — a partial form post that
+Books reads as the user's *complete* new state:
+
+- **URL params are not plain base64.** `/user-form?<key>` takes a protobuf-style
+  envelope (`0x0a`, length, utf8). Plain base64 does not 404 — it serves a *blank
+  new-user form*, so the driver read an empty user, edited that, and got a `200`.
+  Every signal said success while nothing was granted. Caught only by checking Books
+  directly rather than trusting our own job status.
+- **An access change would have stripped MFA.** `MultifactorAuthentication`'s value is
+  the user's TOTP secret; omitting it posts "MFA off". The robot would have quietly
+  undone the protection it exists to support.
+- **Retries burned out in one tick.** `drainOnce` re-claimed a job that had just failed
+  back to pending, so anything waiting on another job gave up seconds after being
+  queued. Now one attempt per tick.
+- Writes are now **read back and compared** before a job is marked done, and a blank
+  form throws rather than being posted back as a stray account.
+
+**Credentials.** A dedicated `provisioner` admin in Books, long random password, in
+`/etc/txform/provisioner.env` (root, 600). New staff get a generated password shown
+**once** to the firm owner in the portal — never emailed, cleared on acknowledgement,
+expired after 24h — plus a Reset password button. MFA is on by default for provisioned
+users; enrolment happens at their first login.
+
+**A read-only contract test** (`npm run contract`) asserts the shapes we depend on.
+Run it after every Books update — see [`instruction.md`](instruction.md#provisioner--credentials-and-the-check-to-run-after-every-manager-update).
+
+`npm test` **249 green** (was 149). Not yet deployed: the schema changed again, so the
+live `txform.db` needs recreating on merge (it is still effectively empty).
 
 ### 2026-07-20 — Firm-account IA decided + businesses re-keyed to Manager name (PR #40)
 
