@@ -17,9 +17,15 @@
                                      Type=Restricted|Administrator,
                                      Businesses=<base64(name)> (repeatable)
 
-   Access to a business IS the Businesses multi-select on the user form.
-   There is no separate permissions page, so granting and revoking are
-   the same operation: re-post the form with the selection edited.
+   The Businesses multi-select on the user form decides WHICH books a
+   user can open, and granting/revoking there is the same operation:
+   re-post the form with the selection edited.
+
+   It is not the whole story. Each business also keeps its own User
+   Permissions record deciding what that user may DO inside — see
+   manager-permissions.js. An earlier version of this comment claimed no
+   such page existed, which is why provisioned staff could open a
+   client's books and not work in them.
 
    Sessions expire. Every call goes through `request`, which detects a
    bounce back to /login and re-authenticates once before giving up, so
@@ -53,6 +59,78 @@ function managerKeyParam(value, tag) {
   if (bytes.length > 127) throw new Error('managerKeyParam: value too long to length-prefix');
   const envelope = Buffer.concat([Buffer.from([tag || 0x0a, bytes.length]), bytes]);
   return envelope.toString('base64url').replace(/=+$/, '');
+}
+
+// ── The general form of the same envelope ─────────────────────────────
+// managerKeyParam above handles the single-field, low-tag case (/login,
+// /api4/tabs). Business-scoped screens use several fields and tag
+// numbers above 15, which need multi-byte varint keys:
+//
+//   /user-permissions-form?<100:business><101:referrer><200:guid><250:0>
+//
+// Field 250 is a DELETE flag — see the warning in manager-permissions.js.
+// Nothing in this codebase should ever set it; the default of omitting it
+// is deliberate, and callers follow Manager's own links for record URLs
+// rather than assembling them here.
+function varint(n) {
+  const out = [];
+  let v = n;
+  do { let b = v & 0x7f; v >>>= 7; if (v) b |= 0x80; out.push(b); } while (v);
+  return Buffer.from(out);
+}
+
+function tag(field, wire) {
+  return varint((field << 3) | wire);
+}
+
+// A .NET Guid as Manager stores it: the first three groups little-endian,
+// the last eight bytes as written, then split into two fixed64 fields of
+// a nested message. Getting the endianness wrong addresses a DIFFERENT
+// record, which is worse than an error.
+function guidMessage(uuid) {
+  const hex = String(uuid).replace(/-/g, '');
+  if (!/^[0-9a-f]{32}$/i.test(hex)) throw new Error('guidMessage: not a uuid: ' + uuid);
+  const b = Buffer.from(hex, 'hex');
+  const mixed = Buffer.concat([
+    Buffer.from([b[3], b[2], b[1], b[0]]),
+    Buffer.from([b[5], b[4]]),
+    Buffer.from([b[7], b[6]]),
+    b.slice(8),
+  ]);
+  return Buffer.concat([tag(1, 1), mixed.slice(0, 8), tag(2, 1), mixed.slice(8)]);
+}
+
+// parts: [{ field, string }] | [{ field, varint }] | [{ field, guid }]
+function managerKey(parts) {
+  const chunks = [];
+  (parts || []).forEach(function (p) {
+    if (typeof p.string === 'string') {
+      const bytes = Buffer.from(p.string, 'utf8');
+      chunks.push(tag(p.field, 2), varint(bytes.length), bytes);
+    } else if (typeof p.varint === 'number') {
+      chunks.push(tag(p.field, 0), varint(p.varint));
+    } else if (p.guid) {
+      const msg = guidMessage(p.guid);
+      chunks.push(tag(p.field, 2), varint(msg.length), msg);
+    } else {
+      throw new Error('managerKey: field ' + p.field + ' has no value');
+    }
+  });
+  return Buffer.concat(chunks).toString('base64url').replace(/=+$/, '');
+}
+
+// multipart/form-data. Manager's Vue-backed forms post exactly one field
+// (the JSON model), but this stays general.
+function encodeMultipart(fields, boundary) {
+  const parts = [];
+  Object.keys(fields || {}).forEach(function (k) {
+    parts.push(Buffer.from(
+      '--' + boundary + '\r\n'
+      + 'Content-Disposition: form-data; name="' + k + '"\r\n\r\n'
+      + String(fields[k]) + '\r\n', 'utf8'));
+  });
+  parts.push(Buffer.from('--' + boundary + '--\r\n', 'utf8'));
+  return Buffer.concat(parts);
 }
 
 // application/x-www-form-urlencoded. Array values repeat the key, which
@@ -133,6 +211,12 @@ function createClient(opts) {
     return raw('POST', path, JSON.stringify(obj), { 'Content-Type': 'application/json', 'Accept': 'application/json' });
   }
 
+  function postMultipart(path, fields) {
+    const boundary = '----txform' + Date.now().toString(16) + Math.random().toString(16).slice(2);
+    return raw('POST', path, encodeMultipart(fields, boundary),
+      { 'Content-Type': 'multipart/form-data; boundary=' + boundary });
+  }
+
   // Two-step login. The username step returns a 302 whose Location
   // carries the encoded username; the password step must go there.
   async function login() {
@@ -188,6 +272,7 @@ function createClient(opts) {
     const send = function () {
       if (o.json) return postJson(path, o.json);
       if (o.form) return postForm(path, o.form);
+      if (o.multipart) return postMultipart(path, o.multipart);
       return raw(method, path, null, o.headers);
     };
 
@@ -207,10 +292,14 @@ function createClient(opts) {
     get: function (path) { return request('GET', path, {}); },
     postForm: function (path, fields) { return request('POST', path, { form: fields }); },
     postJson: function (path, obj) { return request('POST', path, { json: obj }); },
+    postMultipart: function (path, fields) { return request('POST', path, { multipart: fields }); },
     // exposed for tests / diagnostics only
     _jar: function () { return Object.assign({}, jar); },
     _isSignedOut: isSignedOut,
   };
 }
 
-module.exports = { createClient, encodeForm, mergeCookies, cookieHeader, businessOptionValue, managerKeyParam };
+module.exports = {
+  createClient, encodeForm, mergeCookies, cookieHeader, businessOptionValue,
+  managerKeyParam, managerKey, guidMessage, encodeMultipart,
+};

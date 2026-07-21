@@ -16,17 +16,31 @@
    addressed as /user-form?<base64(username)>, so the ref has to be
    whatever that encodes — not a numeric id, which Manager never exposes.
 
-   ── The one thing to understand about access ──
-   Manager has no per-user permissions page. Access is the `Businesses`
-   multi-select on the user form itself, so grant and revoke are the same
-   operation: read the form, edit the selection, post it back. That makes
-   every write a read-modify-write, and it means a partial form post
-   would silently drop the fields it omitted — so `submitUserForm` always
-   sends the complete set.
+   ── The two things to understand about access ──
+   1. WHICH books a user can open is the `Businesses` multi-select on the
+      user form itself, so grant and revoke are the same operation: read
+      the form, edit the selection, post it back. That makes every write a
+      read-modify-write, and it means a partial form post would silently
+      drop the fields it omitted — so `submitUserForm` always sends the
+      complete set.
+
+   2. WHAT they can do once inside is a separate per-business User
+      Permissions record, with its own `Access type` of Full or Custom.
+      See manager-permissions.js. A user who is linked to a business but
+      has no such record — or has one left on Custom with nothing ticked —
+      signs in, sees the books, and cannot work in them.
+
+   So `grantAccess` does both, and verifies both. Half a grant is worse
+   than a failed one: the portal would show a green tick over books the
+   staff member cannot actually use, and nobody would know until they
+   tried.
    ============================================================ */
 'use strict';
 
 const { createClient, businessOptionValue, managerKeyParam } = require('./manager-client.js');
+const P = require('./manager-permissions.js');
+const T = require('./manager-tabs.js');
+const V = require('./manager-vue-form.js');
 
 const USER_FORM = '/user-form';
 
@@ -163,6 +177,125 @@ function createDriver(opts) {
     return res;
   }
 
+  // Walk Settings → User Permissions for a business and hand back the
+  // list page plus the URL it lives at.
+  //
+  // We navigate rather than construct: the only key we build is the
+  // business name (see manager-permissions.js on why building record
+  // keys is a footgun), and every URL after that is one of Manager's own
+  // hrefs, followed verbatim.
+  // The one page every business-scoped walk starts from. Its sidebar
+  // carries the links we need — User Permissions and Customize (Tabs) —
+  // so we never assemble a record URL ourselves.
+  async function openSettings(businessName) {
+    const settings = await client.get(P.settingsPath(businessName));
+    if (settings.status !== 200) {
+      throw new Error('could not open Settings for "' + businessName + '" (http ' + settings.status + ')');
+    }
+    return settings.body;
+  }
+
+  async function openPermissionsList(businessName) {
+    const body = await openSettings(businessName);
+    const listHref = V.findHref(body, P.PERMISSIONS_LIST);
+    if (!listHref) {
+      throw new Error('no User Permissions link in Settings for "' + businessName + '" — Manager\'s layout may have changed');
+    }
+    const list = await client.get(listHref);
+    if (list.status !== 200) {
+      throw new Error('could not open User Permissions for "' + businessName + '" (http ' + list.status + ')');
+    }
+    return { href: listHref, body: list.body };
+  }
+
+  // Give `username` Full access to `businessName`, creating the
+  // permission record if they have none. Idempotent: a user already on
+  // Full access is left alone, so a retry costs a read and nothing else.
+  async function ensureFullAccess(businessName, username) {
+    const list = await openPermissionsList(businessName);
+    const row = P.findRowForUsername(list.body, username);
+
+    let formHref = row ? row.href : P.findNewPermissionHref(list.body);
+    if (!formHref) {
+      throw new Error('no way to add User Permissions for ' + username + ' in "' + businessName + '"'
+        + ' — neither an existing row nor a New link');
+    }
+
+    const form = await client.get(formHref);
+    if (form.status !== 200) {
+      throw new Error('could not open the permissions form for ' + username + ' (http ' + form.status + ')');
+    }
+
+    // Read-modify-write, exactly as with the user form: the post is the
+    // record's COMPLETE new state, so we start from what Manager gave us
+    // and change only what we mean to.
+    const model = P.parseVueModel(form.body);
+    model.Username = username;
+    model.AccessType = P.ACCESS_FULL;
+    model.FullAccess = true;
+
+    const res = await client.postMultipart(formHref, { [P.MODEL_FIELD]: JSON.stringify(model) });
+    if (res.status >= 400) {
+      throw new Error('permissions form rejected for ' + username + ' in "' + businessName + '" (http ' + res.status + ')');
+    }
+
+    // Read back off the LIST, not the form: the list is what an owner
+    // would look at, and it proves the record exists, belongs to this
+    // user, and reads "Full access". Manager returns 200 for a post that
+    // changed nothing, so without this a grant can report success while
+    // leaving the staff member unable to work.
+    const after = await openPermissionsList(businessName);
+    const confirmed = P.findRowForUsername(after.body, username);
+    if (!confirmed) {
+      throw new Error('Manager accepted the permissions post but ' + username
+        + ' still has no User Permissions record in "' + businessName + '"');
+    }
+    if (!/full access/i.test(confirmed.accessType)) {
+      throw new Error('Manager left ' + username + ' on "' + confirmed.accessType
+        + '" instead of Full access in "' + businessName + '"');
+    }
+    return { accessType: confirmed.accessType, created: !row };
+  }
+
+  // Turn on the tabs the firm works in. Additive: never unticks, so a
+  // retry cannot undo a tab someone enabled deliberately. See
+  // manager-tabs.js for why that trade was made.
+  async function configureTabs(businessName, tabs) {
+    const settings = await openSettings(businessName);
+    const formHref = V.findHref(settings, T.TABS_FORM);
+    if (!formHref) {
+      throw new Error('no Customize (Tabs) link in the sidebar for "' + businessName
+        + '" — Manager\'s layout may have changed');
+    }
+
+    const form = await client.get(formHref);
+    if (form.status !== 200) {
+      throw new Error('could not open the Tabs form for "' + businessName + '" (http ' + form.status + ')');
+    }
+
+    const model = V.parseVueModel(form.body);
+    const turningOn = T.tabsToTurnOn(model, tabs);
+    // Already right — don't write. Keeps a retry cheap, and keeps the
+    // books' History clean of no-op edits.
+    if (turningOn.length === 0) return { tabsEnabled: [], alreadyConfigured: true };
+
+    const next = T.applyTabs(model, tabs);
+    const res = await client.postMultipart(formHref, V.modelPayload(next));
+    if (res.status >= 400) {
+      throw new Error('Tabs form rejected for "' + businessName + '" (http ' + res.status + ')');
+    }
+
+    // Read back. Manager returns 200 for a post that changed nothing, so
+    // without this the books could come out with the client's tabs
+    // missing and the job reporting done.
+    const after = await client.get(formHref);
+    const missing = T.missingTabs(V.parseVueModel(after.body), tabs);
+    if (missing.length) {
+      throw new Error('Manager did not enable ' + missing.join(', ') + ' for "' + businessName + '"');
+    }
+    return { tabsEnabled: turningOn, alreadyConfigured: false };
+  }
+
   return {
     // POST /api4/business {"name"} — the books, empty. BIR scaffolding
     // (custom fields, tax codes, chart of accounts) is deliberately NOT
@@ -173,6 +306,15 @@ function createDriver(opts) {
       const res = await client.postJson('/api4/business', { name: businessName });
       if (res.status >= 400) throw new Error('Manager refused to create "' + businessName + '" (http ' + res.status + ')');
       return { created: true };
+    },
+
+    // Its own job, not part of createBusiness: createBusiness short-
+    // circuits on manager_created_at to avoid making a second set of
+    // books, so folding tabs in there would mean a failed tab write is
+    // never retried.
+    async configureTabs({ businessName, tabs }) {
+      if (!businessName) throw new Error('businessName is required');
+      return configureTabs(businessName, tabs);
     },
 
     // A restricted user with no businesses yet; grants follow as their
@@ -232,12 +374,16 @@ function createDriver(opts) {
       return { reset: true };
     },
 
+    // Both halves of a grant. The link goes first: the User Permissions
+    // screen lives INSIDE the business, and a user who cannot open the
+    // books has nothing for a permission record to apply to.
     async grantAccess({ managerUserRef, businessName }) {
       const value = businessOptionValue(businessName);
       await submitUserForm(managerUserRef, function (fields) {
         if (fields.Businesses.indexOf(value) === -1) fields.Businesses.push(value);
       });
-      return { granted: true };
+      const access = await ensureFullAccess(businessName, managerUserRef);
+      return { granted: true, accessType: access.accessType, permissionCreated: access.created };
     },
 
     async revokeAccess({ managerUserRef, businessName }) {
@@ -260,6 +406,12 @@ function createDriver(opts) {
     },
   };
 }
+
+// Revoke deliberately does NOT delete the User Permissions record. The
+// Businesses multi-select is the gate — with the business unlinked the
+// record applies to nothing — and deleting means building a key with the
+// delete flag set, which is the one envelope this codebase refuses to
+// construct. A leftover record is harmless and gets reused on re-grant.
 
 module.exports = {
   createDriver, userFormPath, parseSelectedBusinesses, parseInputValue, parseSelectedOption,
