@@ -65,10 +65,16 @@ external addresses. 310 tests.
       failure in the system (someone who left still holds the client books) and
       currently it is the least visible one. Surface failed jobs somewhere the
       owner cannot walk past.
-- [ ] **Run the whole loop once, end to end, with everything working** — invite →
-      email arrives → password + pairing handed over → sign in → grant → chip goes
-      live → remove → access stripped in Books. Every piece has now been seen
-      working individually; the full sequence has not.
+- [x] **The whole loop, end to end** — DONE 2026-07-21. Owner signed in, invited
+      `erolljaytallo@gmail.com`, granted `Test-Business-1`, the staff member signed
+      into Books and worked in it, then was removed. Jobs 55/56/57 (`create`,
+      `grant`, `disable`) all `done` first attempt; Books ended with 0 businesses
+      linked, MFA intact, and the audit trail complete. **Both emails arrived**,
+      including to external Gmail — the case SPF broke before.
+      **It found a real bug** (fixed, below): the portal never refreshed, so the
+      one-time password and authenticator steps stayed hidden and grant chips sat
+      on "syncing…" until F5. Exactly the class of failure this run existed to
+      catch — every job had succeeded within seconds, and the screen said otherwise.
 - [x] **Grant + tab-configure verified live** — DONE 2026-07-21 against `Test-Business-1`
       with `idetayson@tallocpa.com`, run from the server with `provisioner.env`.
       Confirmed: both sidebar links found; tabs went 0 → the nine (27 left untouched);

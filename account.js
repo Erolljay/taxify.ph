@@ -138,6 +138,9 @@ async function init() {
 }
 
 function showSignin() {
+  // Whether this is a sign-out or an expired session, keep no timer
+  // polling an endpoint that will only answer 401.
+  stopWatching();
   $('signin-view').hidden = false;
   $('dashboard-view').hidden = true;
   $('who').hidden = true;
@@ -162,6 +165,9 @@ async function loadDashboard() {
   render();
   $('signin-view').hidden = true;
   $('dashboard-view').hidden = false;
+  // Arriving mid-sync (a reload while jobs are queued) must also settle
+  // on its own, not just actions taken in this session.
+  watch();
 }
 
 // ── chrome ────────────────────────────────────────────────────────
@@ -797,6 +803,48 @@ function renderActivity(panel) {
   panel.append(card);
 }
 
+// ── keeping the page honest while the provisioner catches up ──────
+//
+// The provisioner runs on a two-minute timer, so an action taken here is
+// NOT finished when the request returns. The page used to render once and
+// never again: a granted checkbox sat on "syncing…" and a new member's
+// password and authenticator steps stayed hidden until someone pressed
+// F5 — working software that looked broken.
+//
+// So: poll while the provisioner owes us something, and stop the moment
+// it does not. No websocket and no server change — the overview endpoint
+// already carries everything needed to tell (see shared/portal-sync.js).
+let watchTimer = null;
+let watchDeadline = 0;
+
+function stopWatching() {
+  if (watchTimer) { clearInterval(watchTimer); watchTimer = null; }
+}
+
+// Safe to call after any action, and after the first load. Idempotent:
+// calling it while already watching just extends the deadline.
+function watch() {
+  if (!PortalSync.outstandingWork(state)) return stopWatching();
+  watchDeadline = Date.now() + PortalSync.WATCH_MAX_MS;
+  if (!watchTimer) watchTimer = setInterval(watchTick, PortalSync.WATCH_EVERY_MS);
+}
+
+async function watchTick() {
+  if (Date.now() > watchDeadline) return stopWatching();
+  if (document.hidden) return;                    // a background tab helps nobody
+
+  const r = await api('GET', '/api/tenancy/overview');
+  if (r.status !== 200) return stopWatching();    // signed out, or the server is unwell
+  state = r.json;
+
+  // Never yank the caret out from under someone mid-word; try again next
+  // tick. The data is already updated, only the repaint waits.
+  if (PortalSync.shouldDeferRender(document.activeElement)) return;
+
+  render();
+  if (!PortalSync.outstandingWork(state)) stopWatching();
+}
+
 // ── shared ────────────────────────────────────────────────────────
 async function reload(okMsg) {
   const r = await api('GET', '/api/tenancy/overview');
@@ -804,6 +852,7 @@ async function reload(okMsg) {
     state = r.json;
     render();
     if (okMsg) flash($('dash-msg'), 'ok', okMsg);
+    watch();   // an action usually queues provisioner work — follow it
   }
 }
 
