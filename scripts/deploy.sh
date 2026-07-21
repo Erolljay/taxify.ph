@@ -39,6 +39,10 @@ if ! git diff --quiet -- tax-rates-data.json 2>/dev/null; then
   STASHED=1
 fi
 
+# What changed in this pull? Needed below to decide whether the long-running
+# Node service has to be restarted. Captured before the merge moves HEAD.
+CHANGED="$(git diff --name-only HEAD "origin/$BRANCH")"
+
 # --ff-only refuses to deploy anything that isn't a clean fast-forward of main,
 # so a surprise divergence fails loudly instead of creating a merge commit.
 git merge --ff-only "origin/$BRANCH"
@@ -54,6 +58,38 @@ fi
 if [ -f tax-rates-data.json ]; then
   chown www-data:www-data tax-rates-data.json 2>/dev/null || true
 fi
+
+# The static site and the extension are plain files — a pull is enough. But
+# txform-auth is a long-running Node process that loaded server/*.js at start,
+# so pulling new code changes NOTHING until it restarts.
+#
+# This bit was missing, and it failed silently: staff invites were merged,
+# deployed, and still sent no email, because the process serving them had been
+# started before that code existed. Nothing errored — the old code simply kept
+# running. Restarting on every pull would be wasteful, so restart only when the
+# service's own sources moved.
+# schema.sql counts too: the service applies it at boot, so new tables and
+# columns do not exist until it restarts.
+if echo "$CHANGED" | grep -qE '^server/.*\.(js|sql)$'; then
+  echo "[deploy] server code/schema changed — restarting txform-auth"
+  if systemctl restart txform-auth; then
+    sleep 2
+    if [ "$(systemctl is-active txform-auth)" = "active" ]; then
+      echo "[deploy] txform-auth active"
+    else
+      # Loud: a dead auth service means nobody can sign in, and a deploy that
+      # quietly leaves it down is the worst version of this failure.
+      echo "[deploy] ERROR: txform-auth did NOT come back up — check: journalctl -u txform-auth -n 50" >&2
+      exit 1
+    fi
+  else
+    echo "[deploy] ERROR: could not restart txform-auth" >&2
+    exit 1
+  fi
+fi
+
+# The provisioner is a systemd oneshot fired by a timer, so it re-reads its
+# code on every tick — nothing to restart there.
 
 echo "[deploy] after:  $(git rev-parse --short HEAD)"
 echo "[deploy] done"

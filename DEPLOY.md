@@ -11,6 +11,24 @@ runs `scripts/deploy.sh`, which pulls the latest `main` into `/var/www/taxify`
 (the folder that serves `extension.txform.ph`). It safely preserves the live
 `tax-rates-data.json`, and does nothing at all when there's no new change.
 
+**Backend changes also restart `txform-auth`.** The website and the extension are
+plain files, so a pull is enough. But `txform-auth` is a long-running Node process
+that loads `server/*.js` and `schema.sql` when it starts — pulling new code changes
+nothing until it restarts. The deploy does that automatically whenever those files
+move, and fails loudly if the service doesn't come back up.
+
+This used to be missing, and it failed *silently*: the staff-invite email was
+merged and deployed, and still sent nothing, because the process handling invites
+had been started before that code existed. Nothing errored — the old code just kept
+running. If a backend change ever seems not to have taken effect, check when the
+service actually started:
+
+```
+systemctl show txform-auth -p ActiveEnterTimestamp --value
+```
+
+If that's older than your merge, it's running stale code — `sudo systemctl restart txform-auth`.
+
 ## Watching a deploy
 On the server:
 ```
