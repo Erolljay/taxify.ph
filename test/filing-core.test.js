@@ -185,3 +185,37 @@ test('vatHasRecordableActivity is TRUE when only credits moved', () => {
   assert.equal(FC.vatHasRecordableActivity({ i37: 0, i60: 0, i20: 1200, i25: 0 }), true);
   assert.equal(FC.vatHasRecordableActivity({ i37: 0, i60: 0, i20: 0, i25: 900 }), true);
 });
+
+/* ── Snapshot document sizing ─────────────────────────────────────────────
+   A freeze stores the rendered return so the filed document can be shown
+   back exactly as it was, not just its headline figure. The document is
+   gzipped and base64'd into the JSON body, which save-report.php caps. If
+   the packed document would blow the cap the freeze must still succeed —
+   dropping the document and keeping the figures beats failing the filing.
+   These lock the arithmetic that decision rests on. -------------------- */
+
+test('base64Size predicts the encoded length of a byte payload', () => {
+  assert.equal(FC.base64Size(0), 0);
+  assert.equal(FC.base64Size(1), 4);
+  assert.equal(FC.base64Size(3), 4);
+  assert.equal(FC.base64Size(4), 8);
+  assert.equal(FC.base64Size(30000), 40000);
+});
+
+test('documentFitsCap accounts for base64 growth, not raw bytes', () => {
+  // 200_000 raw bytes base64s to ~266_667 — over a 262_144 cap even though
+  // the raw length is under it. Comparing raw bytes would corrupt the body.
+  assert.equal(FC.documentFitsCap(200000, 262144, 0), false);
+  assert.equal(FC.documentFitsCap(150000, 262144, 0), true);
+});
+
+test('documentFitsCap leaves room for the rest of the payload', () => {
+  // The figures, manual inputs and period share the same body.
+  assert.equal(FC.documentFitsCap(150000, 262144, 100000), false);
+  assert.equal(FC.documentFitsCap(150000, 262144, 8000), true);
+});
+
+test('documentFitsCap rejects a missing or absurd size', () => {
+  assert.equal(FC.documentFitsCap(null, 262144, 0), false);
+  assert.equal(FC.documentFitsCap(-1, 262144, 0), false);
+});

@@ -113,7 +113,15 @@
 
   function resetFilingStore() { _batchCache = {}; }
 
+  // Largest request body save-report.php will accept. MUST stay in step
+  // with TXFORM_MAX_BODY_BYTES in server/report-store.php — the client
+  // drops the filed document when it would overrun this, so a client value
+  // larger than the server's means oversized freezes get rejected outright
+  // instead of degrading. test/filing-store-cap.test.js locks the pair.
+  var MAX_BODY_BYTES = 1048576; // 1 MiB
+
   root.FilingStore = {
+    MAX_BODY_BYTES: MAX_BODY_BYTES,
     FilingAuthError: FilingAuthError,
     businessKey: businessKey,
     loadFilingSnapshots: loadFilingSnapshots,

@@ -1459,22 +1459,130 @@ const StepEngine = (function () {
     };
   }
 
-  // Generic capture of every manual field the preparer typed, keyed by iframe.
-  // Currently lost on reload — this is the "persist manual inputs" bonus.
+  // First element matching any of `selectors`, in order.
+  function firstMatch(root, selectors) {
+    for (let i = 0; i < selectors.length; i++) {
+      const el = root.querySelector(selectors[i]);
+      if (el) return el;
+    }
+    return null;
+  }
+
+  // Capture of every manual field the preparer typed, keyed by iframe.
+  //
+  // Scoped to the report's own page root. An unscoped sweep of the document
+  // also picks up inputs that browser extensions inject at <body> level —
+  // those were being frozen into filings and stored server-side, which put
+  // third-party data in the tenant's audit record. Hidden inputs are
+  // skipped too: by definition nobody typed them.
   function captureManualInputs(state) {
     const out = {};
     Object.keys(state.iframes || {}).forEach(iframeId => {
       const iframe = state.iframes[iframeId];
       const doc = iframe && iframe.contentDocument;
       if (!doc) return;
+      const scope = firstMatch(doc, FilingCore.PAGE_ROOT_SELECTORS);
+      if (!scope) return;
       const fields = {};
-      doc.querySelectorAll('input[id], select[id], textarea[id]').forEach(el => {
-        if (['button', 'submit', 'file', 'image', 'reset'].indexOf(el.type) !== -1) return;
+      scope.querySelectorAll('input[id], select[id], textarea[id]').forEach(el => {
+        if (['button', 'submit', 'file', 'image', 'reset', 'hidden'].indexOf(el.type) !== -1) return;
         fields[el.id] = (el.type === 'checkbox' || el.type === 'radio') ? el.checked : el.value;
       });
       if (Object.keys(fields).length) out[iframeId] = fields;
     });
     return out;
+  }
+
+  // ── Filed-document capture ──────────────────────────────────────────────
+  // Build a standalone copy of the return exactly as it stands on screen,
+  // so a filed period can be shown back as it was rather than recomputed
+  // from books that have since moved on.
+  //
+  // Scoped to the return root, so extension-injected nodes never make it in.
+  // Only <script> and .no-print are dropped — NOT .no-print-wrap, which on
+  // 2550q is the wrapper around the return itself.
+  // Best-effort by contract: ANY failure returns null and the freeze goes
+  // ahead without a document. This must never throw — it runs on the path
+  // between the preparer and their filing, and an escaping error would
+  // leave the freeze button dead with the filing unsaved.
+  function captureReturnDocument(iframe) {
+    try {
+      return buildReturnDocument(iframe);
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function buildReturnDocument(iframe) {
+    const doc = iframe && iframe.contentDocument;
+    const win = iframe && iframe.contentWindow;
+    if (!doc || !win || !doc.head) return null;
+    const source = firstMatch(doc, FilingCore.RETURN_ROOT_SELECTORS);
+    if (!source) return null;
+
+    const clone = source.cloneNode(true);
+    clone.querySelectorAll('script, .no-print').forEach(el => el.remove());
+
+    // cloneNode copies the ATTRIBUTE, not the live value — an untouched
+    // clone would render every field at its original default. Walk both
+    // trees together and write the on-screen state into the clone.
+    const live = source.querySelectorAll('input, select, textarea');
+    const copy = clone.querySelectorAll('input, select, textarea');
+    for (let i = 0; i < live.length && i < copy.length; i++) {
+      const l = live[i], c = copy[i];
+      if (l.type === 'checkbox' || l.type === 'radio') {
+        if (l.checked) c.setAttribute('checked', 'checked'); else c.removeAttribute('checked');
+      } else if (l.tagName === 'SELECT') {
+        Array.from(c.options).forEach((o, oi) => {
+          if (oi === l.selectedIndex) o.setAttribute('selected', 'selected');
+          else o.removeAttribute('selected');
+        });
+      } else if (l.tagName === 'TEXTAREA') {
+        c.textContent = l.value;
+      } else {
+        c.setAttribute('value', l.value);
+      }
+      c.setAttribute('readonly', 'readonly');
+    }
+
+    // The report's own stylesheets, plus a <base> so the relative
+    // styles.css href still resolves once this is rendered from srcdoc.
+    const styles = Array.from(doc.head.querySelectorAll('link[rel="stylesheet"], style'))
+      .map(el => el.outerHTML).join('\n');
+    return `<!doctype html><html><head><meta charset="utf-8">`
+      + `<base href="${escHtml(win.location.href)}">${styles}</head>`
+      + `<body>${clone.outerHTML}</body></html>`;
+  }
+
+  // gzip + base64 the captured document for transport. Returns null when
+  // the browser lacks CompressionStream — the freeze then stores figures
+  // only rather than failing, since losing the visual record beats losing
+  // the filing.
+  async function packDocument(html) {
+    if (!html || typeof CompressionStream === 'undefined') return null;
+    try {
+      const stream = new Blob([new TextEncoder().encode(html)]).stream()
+        .pipeThrough(new CompressionStream('gzip'));
+      const bytes = new Uint8Array(await new Response(stream).arrayBuffer());
+      let bin = '';
+      const CHUNK = 0x8000; // chunked so a big doc can't blow the arg limit
+      for (let i = 0; i < bytes.length; i += CHUNK) {
+        bin += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
+      }
+      return { base64: btoa(bin), bytes: bytes.length, rawBytes: html.length };
+    } catch (e) {
+      return null;
+    }
+  }
+
+  // Inverse of packDocument, for rendering a filed document back.
+  async function unpackDocument(b64) {
+    const bin = atob(b64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    const stream = new Blob([bytes]).stream()
+      .pipeThrough(new DecompressionStream('gzip'));
+    return await new Response(stream).text();
   }
 
   function renderFileStep(body, panel, state, step) {
@@ -1540,17 +1648,32 @@ const StepEngine = (function () {
 
     btn.disabled = true;
     statusEl.textContent = 'Freezing…';
+    const payload = {
+      figures: ret.figures || null,
+      period: ret.period || state.period || null,
+      manualInputs: ret.manualInputs || {},
+      filedAtClient: new Date().toISOString(),
+    };
+
+    // Store the return as rendered, so the filed period can be shown back
+    // exactly as it stood. If it can't be captured or won't fit the request
+    // cap, file WITHOUT it — the figures still freeze. A missing visual
+    // record is a degraded filing; a failed freeze is no filing at all.
+    const srcStep = state.workflow.steps.find(s => s.key === step.sourceStepKey);
+    const packed = await packDocument(captureReturnDocument(srcStep && state.iframes[srcStep.iframeId]));
+    if (packed) {
+      const otherBytes = JSON.stringify(payload).length;
+      if (FilingCore.documentFitsCap(packed.bytes, FilingStore.MAX_BODY_BYTES, otherBytes)) {
+        payload.document = { encoding: 'gzip+base64', data: packed.base64, rawBytes: packed.rawBytes };
+      }
+    }
+
     const snapshot = {
       workflowKey: state.workflow.key,
       periodKey: periodKey,
       form: ret.form || null,
       headline: { label: (headlineDef && headlineDef.label) || 'Headline figure', amount: ret.amount },
-      payload: {
-        figures: ret.figures || null,
-        period: ret.period || state.period || null,
-        manualInputs: ret.manualInputs || {},
-        filedAtClient: new Date().toISOString(),
-      },
+      payload: payload,
     };
 
     try {
@@ -1635,6 +1758,8 @@ const StepEngine = (function () {
           <div class="tfy-frozen-figure-amt">${typeof headline.amount === 'number' ? fmtMoney(headline.amount) : '—'}</div>
         </div>
 
+        ${renderFrozenDocument(current)}
+
         ${renderFrozenManualInputs(current)}
 
         <details class="tfy-frozen-history">
@@ -1654,7 +1779,65 @@ const StepEngine = (function () {
       if (handle && handle.amend) handle.amend();
     };
 
+    mountFrozenDocument(container, current);
     runFrozenVariance(container, state, current);
+  }
+
+  // The filed return, as it was rendered on the day it was filed. Absent on
+  // snapshots frozen before documents were captured, and on any freeze where
+  // the document didn't fit the request cap — say so plainly rather than
+  // showing an empty frame.
+  function renderFrozenDocument(current) {
+    const doc = current.payload && current.payload.document;
+    if (!doc || !doc.data) {
+      return `<div class="alert alert-info" style="margin-bottom:12px;">
+        No filed document was stored for this version — the figures below are the record.
+      </div>`;
+    }
+    return `
+      <details class="tfy-frozen-doc" open>
+        <summary>Filed return (as submitted)</summary>
+        <div class="tfy-frozen-doc-actions">
+          <button type="button" class="btn btn-outline" id="tfy-print-filed">🖨 Print / Save as PDF</button>
+        </div>
+        <div id="tfy-filed-doc-wrap"><div class="spinner-wrap"><div class="spinner"></div><span>Opening filed return…</span></div></div>
+      </details>`;
+  }
+
+  // Decompress and render the filed document into a sandboxed frame.
+  // sandbox="" (no allow-scripts) means the stored markup renders but can
+  // never execute — it was captured from a live page, so it is treated as
+  // untrusted on the way back in.
+  async function mountFrozenDocument(container, current) {
+    const wrap = container.querySelector('#tfy-filed-doc-wrap');
+    const doc = current.payload && current.payload.document;
+    if (!wrap || !doc || !doc.data) return;
+    try {
+      const html = await unpackDocument(doc.data);
+      const frame = document.createElement('iframe');
+      frame.className = 'tfy-filed-doc';
+      frame.setAttribute('sandbox', '');
+      frame.setAttribute('title', 'Filed return');
+      frame.srcdoc = html;
+      wrap.innerHTML = '';
+      wrap.appendChild(frame);
+
+      const printBtn = container.querySelector('#tfy-print-filed');
+      if (printBtn) {
+        printBtn.onclick = () => {
+          // A sandboxed frame can't print itself — hand the stored markup
+          // to a fresh window and let the browser's own print flow run.
+          const w = window.open('', '_blank');
+          if (!w) { alert('Allow pop-ups to print the filed return.'); return; }
+          w.document.write(html);
+          w.document.close();
+          w.focus();
+          setTimeout(() => w.print(), 300);
+        };
+      }
+    } catch (e) {
+      wrap.innerHTML = `<div class="alert alert-warn">⚠️ The stored filed return could not be opened. The figures below are still the filed record.</div>`;
+    }
   }
 
   function renderFrozenManualInputs(current) {
