@@ -415,8 +415,10 @@ cd /var/www/taxify
 sudo -E env $(sudo cat /etc/txform/provisioner.env | xargs) npm run contract
 ```
 
-Seven checks, about half a second. It asserts the things that would otherwise
-break silently:
+Thirteen checks, about a second. It asserts the things that would otherwise
+break silently.
+
+**Sign-in and the user form:**
 
 - the two-step login still issues a session
 - the session still reaches `/api4/businesses` and `/users`
@@ -430,13 +432,37 @@ break silently:
 - an expired session is recovered automatically, so the timer-driven provisioner
   does not need restarting when Manager expires it
 
+**The business-scoped screens** (User Permissions and Tabs — the driver reaches
+these by following Manager's own links, so a missing link is a real failure mode):
+
+- the Settings sidebar still carries **both** links the driver follows
+- the Tabs form still names **every one of the nine tabs** the firm turns on, and
+  each is still a boolean
+- Manager still hides child tabs behind their parents the way `PARENTS` in
+  `manager-tabs.js` assumes — otherwise ticking a child saves a setting that
+  never appears in the sidebar
+- the User Permissions list still offers **New User Permissions**, without which
+  a user who has no record could never be granted one
+- **`Access type` still offers Full access as `1`** — the label is what a human
+  reads, `1` is what we post; a renumbering here would set every staff member to
+  Custom access, which is precisely the bug PR #56 fixed
+- the hidden field these Vue forms submit through (`febb4049-…`, read from
+  Manager's own `form.js`) is unchanged — if Manager regenerated it, every post
+  would arrive with a field Manager ignores: a `200` that changes nothing
+
 A failure here means **stop and fix the driver before trusting the access grid.**
 
-**Gap, as of 2026-07-21:** these seven cover login, `/user-form` and `api4` — they
-do **not** yet cover the User Permissions or Tabs screens added in PR #56. A
-Manager upgrade that moved either would still break silently. Tracked in
-[`to-do.md`](to-do.md); until then, after an upgrade, grant access to a throwaway
-business by hand and confirm the Access type really reads "Full access".
+**Which business does it inspect?** The business-scoped screens only exist inside
+a business, so those checks need one. By default it uses the first business
+Manager lists. Pin it to a throwaway if you prefer:
+
+```
+MANAGER_CONTRACT_BUSINESS="Test-Business-1"
+```
+
+**It creates nothing.** Every check is a `GET`, including opening the blank "New
+User Permissions" form — which no more creates a record than `GET /user-form`
+creates a user. Verified after a live run: the permissions list was unchanged.
 
 ### Two encodings, and why they are easy to confuse
 
