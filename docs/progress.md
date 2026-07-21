@@ -11,7 +11,7 @@ _Last updated: 2026-07-21_
 | Phase | Status | Notes |
 |-------|--------|-------|
 | **0 — Foundation hardening** | ✅ Largely done | Pull-based auto-deploy (`scripts/deploy.sh` via 2-min root cron), nginx web-root hardening, LF normalization. Hosting-license confirmed, Manager Server bought. **Backups live (2026-07-13):** AWS Backup EC2 snapshots + S3 Manager.io data backups, both 2 AM Manila, 7/56/400-day retention. **`save-tax-rates.php` hardened & LIVE (2026-07-14, PR #23):** shared-secret token + body cap + backup pruning on top of nginx basic-auth; token file created on the server. Still open: UFW, fail2ban, UptimeRobot, e2e BIR verification. |
-| **1 — Tenancy / entitlement / provisioning** | ✅ Live | `server/auth-*.js`, `smtp-mailer.js`, `migrate.js`, `manager-client.js`, `provisioner.js` + HTTP driver, `manager-vue-form.js` / `manager-permissions.js` / `manager-tabs.js`, `create-firm.js`, `entitlement.php`, systemd units. **366 passing tests, plus 13 read-only contract checks against live Manager (`npm run contract`, run after every Manager upgrade). Zero npm dependencies** — Playwright was deleted once it became clear Books needs no browser. **LIVE as of 2026-07-21:** Tallo CPA (code TALLO) with four users, provisioner timer reconciling every two minutes, deploys restarting the auth service automatically, and email reaching external addresses (SPF/DMARC added). Roles owner/staff/client, firm-code prefixes, archive-not-delete, removal that revokes in Books and kills the session, voucher-based comping, high-water-mark billing, one-time password handover with MFA, and portal sign-out (PR #54). **Provisioning is now complete end to end (PR #56):** a grant sets Full access inside the business as well as linking it, and new books get the firm's nine tabs — both verified live. Open: the two partner firms; failed jobs are visible only in Activity, not as a chip. |
+| **1 — Tenancy / entitlement / provisioning** | ✅ Live | `server/auth-*.js`, `smtp-mailer.js`, `migrate.js`, `manager-client.js`, `provisioner.js` + HTTP driver, `manager-vue-form.js` / `manager-permissions.js` / `manager-tabs.js`, `create-firm.js`, `entitlement.php`, systemd units. **380 passing tests, plus 13 read-only contract checks against live Manager (`npm run contract`, run after every Manager upgrade). Zero npm dependencies** — Playwright was deleted once it became clear Books needs no browser. **LIVE as of 2026-07-21:** Tallo CPA (code TALLO) with four users, provisioner timer reconciling every two minutes, deploys restarting the auth service automatically, and email reaching external addresses (SPF/DMARC added). Roles owner/staff/client, firm-code prefixes, archive-not-delete, removal that revokes in Books and kills the session, voucher-based comping, high-water-mark billing, one-time password handover with MFA, and portal sign-out (PR #54). **Provisioning is now complete end to end (PR #56):** a grant sets Full access inside the business as well as linking it, and new books get the firm's nine tabs — both verified live. Open: the two partner firms; failed jobs are visible only in Activity, not as a chip. |
 | **2 — Website rebuild & SEO** | ✅ Live | **Deployed 2026-07-14 (PR #21).** Full static multi-page site under `website/`: home + features/security/about/contact/faq/terms/privacy, shared `assets/css/site.css` + `assets/js/site.js`, real favicons, `robots.txt` + `sitemap.xml` + per-page meta & JSON-LD. **Positioned as a live product, not a waitlist** — CTAs are "Get started" → contact onboarding and "Sign in" → the owner portal at **`/account`**. Legal pages carry the firm's real details (TalloCPA, Iloilo City, DPO Erol Jay Tallo). Old JS bundle preserved as `index.legacy.html`. Open only: counsel review of legal pages, optional font self-hosting. |
 | **3 — Payments (PayMongo)** | 🔴 Not started | No PayMongo/webhook code yet. **Model decided 2026-07-20:** flat ₱500/business/month (no tiers), no trial, one monthly invoice billed on the high-water mark of active businesses. PayMongo cannot prorate, but invoice line items can be adjusted before an invoice finalises — that's the mechanism. Annual prepay deferred. |
 | **4 — ToS / Data Privacy (RA 10173)** | 🟡 Draft pages | `website/terms.html` + `website/privacy.html` drafted (RA 10173-aligned, NPC/DPO sections) with bracketed firm placeholders; needs real firm details + counsel review before launch. |
@@ -29,6 +29,60 @@ rates, the graduated-tax engine and VAT 2550Q are verified; two income-tax bugs 
   workflow engine that replaced the old monolithic setup screen).
 
 ## Changelog
+
+### 2026-07-21 (late) — The loop ran, and the screen was the thing that lied
+
+The full sequence, by hand, for the first time: owner signs in → invites
+`erolljaytallo@gmail.com` → grants `Test-Business-1` → the staff member
+signs into Books and works in it → is removed → access stripped.
+
+**Every server-side step passed on the first attempt.** Jobs 55/56/57
+(`create`, `grant`, `disable`) all `done`, one attempt each. Books ended
+with 0 businesses linked and MFA intact, the permission record left in
+place by design, the audit trail complete. **Both emails arrived**,
+including to external Gmail — the case SPF silently ate before.
+
+And the run still found a bug, because it was the first time anyone had
+watched the *screen* rather than the database.
+
+**The portal never refreshed.** It rendered once and never again, so:
+
+- a newly invited person's **one-time password and authenticator steps
+  stayed hidden** until F5 — the very things the owner has to read out to
+  their staff member
+- a granted checkbox **sat on "syncing…" forever**, even though the
+  provisioner had finished within seconds
+
+The provisioner runs on a two-minute timer, so nothing here is finished
+when the request returns. The page had no way to learn it had. Working
+software that looked broken — and, worse, an owner would reasonably
+conclude the grant had failed and start clicking again.
+
+Fixed by polling `/api/tenancy/overview` while the provisioner still owes
+something, and stopping the moment it does not. No websocket, no server
+change: the overview payload already carried everything needed to tell.
+
+The decision logic is in [`shared/portal-sync.js`](../shared/portal-sync.js),
+dual-exported like `entitlement-core.js` so it is unit-testable outside a
+browser. Three details are load-bearing:
+
+- **`create` jobs are invisible in `jobs`.** They carry no `business_id`,
+  so the overview never lists them. Watching `jobs` alone is precisely why
+  the password steps never appeared — the second signal is a member who is
+  not `provisioned` yet.
+- **A `failed` job is not "outstanding".** The grid already says "failed",
+  which is accurate and final; treating it as in-progress would poll
+  forever over something no retry will fix.
+- **The owner never counts as unprovisioned.** Owners are control-plane
+  only and get no Manager user, so their permanently-false `provisioned`
+  would otherwise keep the poll alive on every firm, forever.
+
+A tick that lands while someone is typing skips the repaint rather than
+stealing the caret mid-word; the data still updates. Polling stops on
+sign-out, on a background tab, and after three provisioner cycles.
+
+**380 tests** (14 new). Verified in a real DOM that the script loads and
+the wiring resolves.
 
 ### 2026-07-21 (night) — The smoke alarm now covers the new rooms (PR #58)
 
