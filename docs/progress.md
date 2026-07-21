@@ -11,7 +11,7 @@ _Last updated: 2026-07-21_
 | Phase | Status | Notes |
 |-------|--------|-------|
 | **0 — Foundation hardening** | ✅ Largely done | Pull-based auto-deploy (`scripts/deploy.sh` via 2-min root cron), nginx web-root hardening, LF normalization. Hosting-license confirmed, Manager Server bought. **Backups live (2026-07-13):** AWS Backup EC2 snapshots + S3 Manager.io data backups, both 2 AM Manila, 7/56/400-day retention. **`save-tax-rates.php` hardened & LIVE (2026-07-14, PR #23):** shared-secret token + body cap + backup pruning on top of nginx basic-auth; token file created on the server. Still open: UFW, fail2ban, UptimeRobot, e2e BIR verification. |
-| **1 — Tenancy / entitlement / provisioning** | ✅ Live | `server/auth-*.js`, `smtp-mailer.js`, `migrate.js`, `manager-client.js`, `provisioner.js` + HTTP driver, `manager-vue-form.js` / `manager-permissions.js` / `manager-tabs.js`, `create-firm.js`, `entitlement.php`, systemd units. **380 passing tests, plus 13 read-only contract checks against live Manager (`npm run contract`, run after every Manager upgrade). Zero npm dependencies** — Playwright was deleted once it became clear Books needs no browser. **LIVE as of 2026-07-21:** Tallo CPA (code TALLO) with four users, provisioner timer reconciling every two minutes, deploys restarting the auth service automatically, and email reaching external addresses (SPF/DMARC added). Roles owner/staff/client, firm-code prefixes, archive-not-delete, removal that revokes in Books and kills the session, voucher-based comping, high-water-mark billing, one-time password handover with MFA, and portal sign-out (PR #54). **Provisioning is now complete end to end (PR #56):** a grant sets Full access inside the business as well as linking it, and new books get the firm's nine tabs — both verified live. Open: the two partner firms; failed jobs are visible only in Activity, not as a chip. |
+| **1 — Tenancy / entitlement / provisioning** | ✅ Live | `server/auth-*.js`, `smtp-mailer.js`, `migrate.js`, `manager-client.js`, `provisioner.js` + HTTP driver, `manager-vue-form.js` / `manager-permissions.js` / `manager-tabs.js`, `create-firm.js`, `entitlement.php`, systemd units. **403 passing tests, plus 13 read-only contract checks against live Manager (`npm run contract`, run after every Manager upgrade). Zero npm dependencies** — Playwright was deleted once it became clear Books needs no browser. **LIVE as of 2026-07-21:** Tallo CPA (code TALLO) with four users, provisioner timer reconciling every two minutes, deploys restarting the auth service automatically, and email reaching external addresses (SPF/DMARC added). Roles owner/staff/client, firm-code prefixes, archive-not-delete, removal that revokes in Books and kills the session, voucher-based comping, high-water-mark billing, one-time password handover with MFA, and portal sign-out (PR #54). **Provisioning is now complete end to end (PR #56):** a grant sets Full access inside the business as well as linking it, and new books get the firm's nine tabs — both verified live. Open: the two partner firms; failed jobs are visible only in Activity, not as a chip. |
 | **2 — Website rebuild & SEO** | ✅ Live | **Deployed 2026-07-14 (PR #21).** Full static multi-page site under `website/`: home + features/security/about/contact/faq/terms/privacy, shared `assets/css/site.css` + `assets/js/site.js`, real favicons, `robots.txt` + `sitemap.xml` + per-page meta & JSON-LD. **Positioned as a live product, not a waitlist** — CTAs are "Get started" → contact onboarding and "Sign in" → the owner portal at **`/account`**. Legal pages carry the firm's real details (TalloCPA, Iloilo City, DPO Erol Jay Tallo). Old JS bundle preserved as `index.legacy.html`. Open only: counsel review of legal pages, optional font self-hosting. |
 | **3 — Payments (PayMongo)** | 🔴 Not started | No PayMongo/webhook code yet. **Model decided 2026-07-20:** flat ₱500/business/month (no tiers), no trial, one monthly invoice billed on the high-water mark of active businesses. PayMongo cannot prorate, but invoice line items can be adjusted before an invoice finalises — that's the mechanism. Annual prepay deferred. |
 | **4 — ToS / Data Privacy (RA 10173)** | 🟡 Draft pages | `website/terms.html` + `website/privacy.html` drafted (RA 10173-aligned, NPC/DPO sections) with bracketed firm placeholders; needs real firm details + counsel review before launch. |
@@ -29,6 +29,57 @@ rates, the graduated-tax engine and VAT 2550Q are verified; two income-tax bugs 
   workflow engine that replaced the old monolithic setup screen).
 
 ## Changelog
+
+### 2026-07-21 (last) — Making the quietest failure the loudest thing on the page
+
+The highest-consequence failure this system has is a failed offboarding:
+the portal says someone is gone, and the client's books say otherwise. It
+was also, until now, the least visible thing in it — surfacing only as a
+`job_failed` line in Activity, which is a place you go looking rather
+than a place you land. One sat unnoticed in the database until somebody
+queried the table by hand.
+
+Now there is a banner above the page title and outside the tabs, with
+`role="alert"` and `aria-live="assertive"`, so it cannot be navigated
+past or missed by a screen reader.
+
+**Severity is by consequence, not by job type.** A failed `disable` or
+`revoke` is *critical* — somebody has access they should not — and sorts
+above a failed `grant` or `configure_tabs`, which are merely *warnings*:
+somebody cannot do something yet, and nobody is exposed. The copy is
+written for a CPA, not an engineer: "was removed, but may still have
+access in Books", not "disable job:49 failed (http 302)". The raw error
+is still shown underneath, in small type, for when it matters.
+
+**Try again** re-queues the job. That button exists because the
+alternative is what actually happened: a failed offboarding was
+eventually re-queued by hand, with SQL, on the live server. It resets
+`attempts` too — the three-attempt cap exists to stop a broken job
+spinning forever, not to make a fixed one unrunnable, and the usual cause
+(an expired Books session, a Manager upgrade) is generally gone by the
+time anyone looks.
+
+**The payload gained two fields, both deliberately separate from `jobs`.**
+That array powers the access grid, so it requires BOTH a `user_id` and a
+`business_id` — meaning a failed `disable` (no business) or
+`create_business` (no user) could never appear in it. That is precisely
+how one stayed hidden. So `failures` resolves ownership through whichever
+id is present, and `pending` counts queued work of any shape.
+
+`pending` closed the same blind spot one step further along: retrying a
+failed offboard produces a job with no `business_id`, so without it the
+banner would clear on retry and then never report the outcome. The bug
+would have moved rather than gone.
+
+**A test caught a real one before it shipped.** `sortFailures` ranked
+severities with `rank[s] || 9` — and `critical` ranks `0`, which is
+falsy, so the most dangerous failure sorted to the *bottom*. The banner
+would have worked, looked right, and buried the offboarding failure under
+the cosmetic ones.
+
+**403 tests** (12 new). Verified in a real browser that the banner renders
+above the title (42px vs 304px), that critical sorts first, and that the
+severity colours resolve.
 
 ### 2026-07-21 (late) — The loop ran, and the screen was the thing that lied
 

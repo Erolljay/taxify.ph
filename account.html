@@ -144,6 +144,34 @@
     ul.log .what { font-weight:600; }
     ul.log .target { color:var(--muted); word-break:break-word; }
 
+    /* Failed provisioner jobs. Loud by design: the worst failure in the
+       system (someone removed who still holds client books) used to be
+       the least visible thing in it. */
+    #failures { margin:0 0 18px; }
+    .failbar { border-radius:var(--radius); padding:13px 15px; margin-bottom:10px;
+      border:1px solid; display:flex; gap:13px; align-items:flex-start; }
+    .failbar.critical { background:var(--err-bg); border-color:#fecaca; }
+    .failbar.warning  { background:var(--warn-bg); border-color:#fde68a; }
+    .failbar .icon { font-size:15px; line-height:1.4; flex:none; }
+    .failbar .body { flex:1; min-width:0; }
+    .failbar .headline { font-weight:700; font-size:14px; }
+    .failbar.critical .headline { color:var(--err-fg); }
+    .failbar.warning  .headline { color:var(--warn-fg); }
+    .failbar .meaning { font-size:13px; color:var(--ink2); margin-top:3px; }
+    .failbar .detail { font-family:ui-monospace,Menlo,monospace; font-size:11.5px;
+      color:var(--muted); margin-top:6px; word-break:break-word; }
+    .failbar .act { flex:none; display:flex; flex-direction:column; gap:6px; align-items:flex-end; }
+    .failbar button { font:inherit; font-size:12.5px; font-weight:600; padding:5px 13px;
+      border-radius:7px; border:1px solid var(--line); background:#fff; color:var(--ink);
+      cursor:pointer; white-space:nowrap; }
+    .failbar button:hover:not(:disabled) { border-color:var(--muted); }
+    .failbar button:disabled { opacity:.55; cursor:default; }
+    .failbar .tries { font-size:11px; color:var(--muted); }
+    @media (max-width:560px) {
+      .failbar { flex-wrap:wrap; }
+      .failbar .act { width:100%; flex-direction:row; justify-content:flex-start; align-items:center; }
+    }
+
     .alert { border-radius:8px; padding:10px 13px; font-size:13.5px; margin-top:12px; }
     .alert.ok { background:var(--accent-wash); color:var(--accent-deep); }
     .alert.warn { background:var(--warn-bg); color:var(--warn-fg); }
@@ -183,6 +211,9 @@
 
   <!-- ── DASHBOARD ───────────────────────────────────────── -->
   <section id="dashboard-view" hidden>
+    <!-- Above the title and outside the tabs on purpose: a failed
+         offboarding must not be something you can navigate past. -->
+    <div id="failures" role="alert" aria-live="assertive" hidden></div>
     <h1 id="panel-title"></h1>
     <p class="sub" id="panel-sub"></p>
     <div id="dash-msg"></div>

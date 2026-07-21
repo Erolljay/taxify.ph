@@ -558,6 +558,53 @@ function resetPassword(db, input, deps) {
   return { status: 200, json: { ok: true } };
 }
 
+// POST /api/tenancy/retry-job { jobId }
+// Owner-only. Puts a failed provisioner job back in the queue.
+//
+// Exists because the alternative is what actually happened: a failed
+// offboarding sat in the database for days and was eventually re-queued
+// by hand with SQL on the live server. That is not a thing an owner can
+// do, and it should not be a thing anyone has to do.
+//
+// Resets `attempts` as well as status — the three-attempt cap is there to
+// stop a broken job spinning forever, not to make a fixed one
+// unrunnable. Most failures here are transient or were fixed in the
+// meantime (an expired Books session, a Manager upgrade), so a retry
+// after the cause is addressed should get a clean run, not one last go.
+function retryJob(db, input, deps) {
+  const now = deps.now();
+  const s = loadSession(db, input.cookie, now);
+  if (!s) return { status: 401, json: { error: 'not signed in' } };
+  const account = db.prepare('SELECT id FROM account WHERE id = ?').get(s.account_id);
+  const authz = A.authorizeOwnerAction({ role: s.role, account_id: s.account_id, expires_at: s.expires_at }, account, now);
+  if (!authz.ok) return { status: 403, json: { error: authz.reason } };
+
+  const jobId = Number(input && input.jobId);
+  if (!Number.isInteger(jobId) || jobId <= 0) return { status: 400, json: { error: 'jobId required' } };
+
+  // Same ownership rule as the overview: through the user OR the business,
+  // since a job need only carry one of them.
+  const job = db.prepare(
+    `SELECT j.id, j.type, j.status
+       FROM provision_job j
+       LEFT JOIN users u      ON u.id = j.user_id
+       LEFT JOIN businesses b ON b.id = j.business_id
+      WHERE j.id = ? AND (u.account_id = ? OR b.account_id = ?)`
+  ).get(jobId, s.account_id, s.account_id);
+  if (!job) return { status: 403, json: { error: 'wrong_account' } };
+
+  // Only a failed job may be re-queued. Re-queuing one that is pending or
+  // running would let it be claimed twice.
+  if (job.status !== 'failed') return { status: 409, json: { error: 'job_not_failed' } };
+
+  db.prepare("UPDATE provision_job SET status = 'pending', attempts = 0, last_error = NULL, updated_at = ? WHERE id = ?")
+    .run(now, jobId);
+  db.prepare('INSERT INTO audit_log (account_id, actor, action, target) VALUES (?,?,?,?)')
+    .run(s.account_id, s.email, 'retry_job', job.type + ' job:' + jobId);
+
+  return { status: 200, json: { ok: true, jobId: jobId, type: job.type } };
+}
+
 // GET /api/tenancy/overview
 // The one read the portal renders, shaped by role. EVERY signed-in user
 // gets a useful answer — previously this was owner-only, so staff and
@@ -587,13 +634,52 @@ function overview(db, input, deps) {
         AND user_id IN (SELECT id FROM users WHERE account_id = ?)`
   ).all(s.account_id);
 
+  // Every failed job, whatever its shape — deliberately NOT the query
+  // above.
+  //
+  // That one is for the access grid, so it requires BOTH a business_id
+  // and a user_id. A failed `disable` has no business, and a failed
+  // `create_business` has no user, so neither can ever appear in it. That
+  // is not a detail: a failed offboarding is the highest-consequence
+  // failure in the system — someone who left still holding client books —
+  // and it was the single least visible thing here. One sat unnoticed in
+  // the database until somebody happened to query the table by hand
+  // (2026-07-21, job 49).
+  //
+  // Ownership is resolved through whichever of the two is present.
+  const failures = db.prepare(
+    `SELECT j.id, j.type, j.attempts, j.last_error, j.updated_at,
+            u.email AS user_email, b.name AS business_name
+       FROM provision_job j
+       LEFT JOIN users u      ON u.id = j.user_id
+       LEFT JOIN businesses b ON b.id = j.business_id
+      WHERE j.status = 'failed' AND (u.account_id = ? OR b.account_id = ?)
+      ORDER BY j.id DESC`
+  ).all(s.account_id, s.account_id);
+
+  // How much work is still in flight, of ANY shape. The `jobs` array
+  // above cannot answer this: it needs both ids, so a queued `disable` or
+  // `create_business` is invisible in it. The portal uses this to know
+  // whether to keep watching — without it, retrying a failed offboard
+  // would clear the banner and then never report what happened, which is
+  // the same blind spot in a new place.
+  const pending = db.prepare(
+    `SELECT COUNT(*) AS n FROM provision_job j
+       LEFT JOIN users u      ON u.id = j.user_id
+       LEFT JOIN businesses b ON b.id = j.business_id
+      WHERE j.status IN ('pending','running') AND (u.account_id = ? OR b.account_id = ?)`
+  ).get(s.account_id, s.account_id).n;
+
   if (!A.can(s.role, 'allBusinesses')) {
     const businesses = db.prepare(
       `SELECT b.id, b.name, b.manager_business_name, b.status
          FROM businesses b JOIN user_business ub ON ub.business_id = b.id
         WHERE ub.user_id = ? AND b.status = 'active' ORDER BY b.name`
     ).all(s.user_id);
-    return { status: 200, json: { account: { firm_name: account.firm_name, status: account.status }, me: me, businesses: businesses, users: [], grants: [], jobs: [] } };
+    // No `failures` for staff or clients: a stuck provisioner job is the
+    // owner's to act on, and naming who else is mid-offboard is not
+    // theirs to see. Present but empty, so the shape never varies.
+    return { status: 200, json: { account: { firm_name: account.firm_name, status: account.status }, me: me, businesses: businesses, users: [], grants: [], jobs: [], failures: [], pending: 0 } };
   }
 
   // Initial Manager passwords, for the owner to hand over. Only ever sent
@@ -631,7 +717,7 @@ function overview(db, input, deps) {
     status: 200,
     json: {
       account: account, me: me, users: users, businesses: businesses, grants: grants, jobs: jobs,
-      activity: activity,
+      failures: failures, pending: pending, activity: activity,
       billing: invoiceFor(db, s.account_id, A.billingPeriodKey(now)),
     },
   };
@@ -640,7 +726,7 @@ function overview(db, input, deps) {
 module.exports = {
   COOKIE_NAME, parseCookie, loadSession,
   requestLink, verifyLink, currentUser, signOut,
-  setUserBusiness, inviteStaff, addBusiness, archiveBusiness, removeUser, clearInitialPassword, resetPassword,
+  setUserBusiness, inviteStaff, addBusiness, archiveBusiness, removeUser, clearInitialPassword, resetPassword, retryJob,
   recordBillingPeriod, billableCount, invoiceFor, grantDiscount, overview,
 };
 
@@ -726,6 +812,7 @@ if (require.main === module) {
         if (req.method === 'POST' && url.pathname === '/api/tenancy/remove-user') return send(res, removeUser(db, { cookie: cookie, userId: json.userId }, deps));
         if (req.method === 'POST' && url.pathname === '/api/tenancy/clear-password') return send(res, clearInitialPassword(db, { cookie: cookie, userId: json.userId }, deps));
         if (req.method === 'POST' && url.pathname === '/api/tenancy/reset-password') return send(res, resetPassword(db, { cookie: cookie, userId: json.userId }, deps));
+        if (req.method === 'POST' && url.pathname === '/api/tenancy/retry-job') return send(res, retryJob(db, { cookie: cookie, jobId: json.jobId }, deps));
         if (req.method === 'GET' && url.pathname === '/api/tenancy/overview') return send(res, overview(db, { cookie: cookie }, deps));
         send(res, { status: 404, json: { error: 'not found' } });
       } catch (e) {

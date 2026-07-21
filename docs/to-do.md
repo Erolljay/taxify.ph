@@ -59,12 +59,19 @@ external addresses. 310 tests.
       Business defaults to the first Manager lists; override with
       `MANAGER_CONTRACT_BUSINESS`. Both failure modes were proved by deliberately
       breaking a constant and watching the right check fail.
-- [ ] **Make a failed job impossible to miss.** A failed `disable` carries no
-      business, so it never appears as a red chip in the Access grid — only as
-      `job_failed` in Activity. A failed offboarding is the highest-consequence
-      failure in the system (someone who left still holds the client books) and
-      currently it is the least visible one. Surface failed jobs somewhere the
-      owner cannot walk past.
+- [x] **Failed jobs are impossible to miss** — DONE 2026-07-21. A banner above the
+      page title and outside the tabs, `role="alert"` / `aria-live="assertive"`,
+      with a **Try again** button that re-queues the job (previously this needed SQL
+      on the live server — not something an owner can do).
+      Severity is by **consequence, not job type**: a failed `disable` or `revoke`
+      is *critical* (someone has access they should not) and sorts above a failed
+      `grant` or `configure_tabs`, which are merely *warnings*. Copy is written for
+      a CPA — "was removed, but may still have access in Books", not
+      "disable job:49 failed (http 302)".
+      The overview now returns `failures` (every failed job, resolved through user
+      **or** business) and `pending` (queued work of any shape) — both deliberately
+      separate from the grid's `jobs`, which requires both ids and therefore could
+      never carry the failures that mattered.
 
       **This stopped being hypothetical on 2026-07-21.** Job 49 — a `disable`
       for `erolljaytallo@gmail.com` — had burned all three attempts on the
