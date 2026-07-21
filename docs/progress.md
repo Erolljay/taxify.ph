@@ -30,6 +30,31 @@ rates, the graduated-tax engine and VAT 2550Q are verified; two income-tax bugs 
 
 ## Changelog
 
+### 2026-07-21 (later still) — Sign out of the owner portal
+
+The portal could be signed *into* but never *out of* — the header showed who
+you were, with no way to end the session. Added it end to end:
+
+- **Server** ([`server/auth-service.js`](../server/auth-service.js)) — new
+  `POST /api/auth/sign-out` handler. It **deletes the server-side session row**
+  (sessions are secret-in-cookie / hash-in-DB, so dropping the row makes the
+  cookie unreplayable even if a copy survives) and returns a `Max-Age=0`
+  cookie carrying the same `Domain`/`Path` the session was set with — a
+  mismatch there would leave the original cookie in place. Scoped to **this
+  session only** (signing out on one device leaves the user's other sessions
+  alone), and **idempotent** — no cookie, or an already-dead session, still
+  returns 200 with the cleared cookie.
+- **Portal** ([`account.js`](../account.js) + [`account.html`](../account.html)) —
+  a **Sign out** button beside the identity in the header (every role gets it;
+  the header is the one thing on every screen). It POSTs, clears client state,
+  and returns to the sign-in view with a confirmation — resetting optimistically
+  even if the request fails, so a network blip can't strand you "signing out…".
+- **No infra change** — the existing `location /api/auth/` proxy already routes
+  the new path to `:5100`; nothing to add in nginx.
+- **Tests** — +3 in [`test/auth-service.test.js`](../test/auth-service.test.js)
+  (session ends + `/me` 401 + cleared cookie; idempotent no-cookie; this-session-only).
+  `npm test` **313 green** (was 310).
+
 ### 2026-07-21 (later) — Going live: five bugs the real system found
 
 Everything below was found by *running* it, not by reasoning about it. Recorded

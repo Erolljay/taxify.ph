@@ -40,6 +40,14 @@ function sessionCookie(raw, maxAgeMs) {
     (COOKIE_DOMAIN ? '; Domain=' + COOKIE_DOMAIN : '');
 }
 
+// A cookie that overwrites txfsid with an already-expired one so the browser
+// drops it. It must carry the SAME Domain and Path the session cookie was set
+// with, or the browser treats it as a different cookie and keeps the original.
+function clearedCookie() {
+  return COOKIE_NAME + '=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0' +
+    (COOKIE_DOMAIN ? '; Domain=' + COOKIE_DOMAIN : '');
+}
+
 // Resolve the caller's session into { user_id, email, role, account_id,
 // expires_at } or null. Used by every authenticated handler.
 function loadSession(db, cookieHeader, now) {
@@ -144,6 +152,19 @@ function currentUser(db, input, deps) {
   const s = loadSession(db, input.cookie, deps.now());
   if (!s) return { status: 401, json: { error: 'not signed in' } };
   return { status: 200, json: { email: s.email, role: s.role, account_id: s.account_id } };
+}
+
+// POST /api/auth/sign-out  → ends the caller's session.
+// Deletes the server-side session row so the secret in the cookie can never
+// be replayed (even if a copy of the cookie survives somewhere), and clears
+// the cookie in the browser. Scoped to THIS session only — signing out on one
+// device leaves the user's other sessions alone. Idempotent: a missing or
+// already-deleted session still returns 200 with the cleared cookie, because
+// signing out is never an error.
+function signOut(db, input) {
+  const raw = parseCookie(input && input.cookie, COOKIE_NAME);
+  if (raw) db.prepare('DELETE FROM session WHERE session_hash = ?').run(A.hashToken(raw));
+  return { status: 200, json: { ok: true }, setCookie: clearedCookie() };
 }
 
 // POST /api/tenancy/user-business { userId, businessId, grant }
@@ -614,7 +635,7 @@ function overview(db, input, deps) {
 
 module.exports = {
   COOKIE_NAME, parseCookie, loadSession,
-  requestLink, verifyLink, currentUser,
+  requestLink, verifyLink, currentUser, signOut,
   setUserBusiness, inviteStaff, addBusiness, archiveBusiness, removeUser, clearInitialPassword, resetPassword,
   recordBillingPeriod, billableCount, invoiceFor, grantDiscount, overview,
 };
@@ -693,6 +714,7 @@ if (require.main === module) {
         if (req.method === 'POST' && url.pathname === '/api/auth/request-link') return send(res, requestLink(db, { email: json.email, ip: ip }, deps));
         if (url.pathname === '/api/auth/verify') return send(res, verifyLink(db, { token: url.searchParams.get('token'), accept: req.headers.accept }, deps));
         if (url.pathname === '/api/auth/me') return send(res, currentUser(db, { cookie: cookie }, deps));
+        if (req.method === 'POST' && url.pathname === '/api/auth/sign-out') return send(res, signOut(db, { cookie: cookie }));
         if (req.method === 'POST' && url.pathname === '/api/tenancy/user-business') return send(res, setUserBusiness(db, { cookie: cookie, userId: json.userId, businessId: json.businessId, grant: json.grant }, deps));
         if (req.method === 'POST' && url.pathname === '/api/tenancy/invite-staff') return send(res, inviteStaff(db, { cookie: cookie, email: json.email, role: json.role, businessId: json.businessId }, deps));
         if (req.method === 'POST' && url.pathname === '/api/tenancy/add-business') return send(res, addBusiness(db, { cookie: cookie, name: json.name }, deps));

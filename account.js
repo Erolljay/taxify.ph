@@ -188,6 +188,25 @@ function renderWho() {
     st.textContent = state.account.status;
     who.append(st);
   }
+  // Every role gets a way out — the header identity is the one thing on every
+  // screen, so the sign-out lives beside it rather than in a per-tab menu.
+  const out = document.createElement('button');
+  out.type = 'button';
+  out.className = 'signout';
+  out.textContent = 'Sign out';
+  out.addEventListener('click', onSignOut);
+  who.append(out);
+}
+
+async function onSignOut() {
+  // Fire-and-return: the server drops the session row and clears the cookie.
+  // Even if the request fails (offline), we still return to the sign-in view —
+  // a stuck "signing out…" would be worse than an optimistic reset.
+  try { await api('POST', '/api/auth/sign-out'); } catch (e) { /* reset anyway */ }
+  state = null;
+  $('firm-name').textContent = '';
+  showSignin();
+  flash($('signin-msg'), 'ok', 'You have been signed out.');
 }
 
 function renderTabs() {
