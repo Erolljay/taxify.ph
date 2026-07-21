@@ -8,13 +8,16 @@
    pure and unit-tested. This file only does the things that need the
    world: run git, read and write a state file, send mail.
 
-   Install: a root cron entry running this every five minutes. The exact
-   line is in docs/instruction.md — deliberately not repeated here,
-   because a cron expression contains the characters that end a block
-   comment and silently truncated this file when it was.
+   Install: server/txform-deploy-watch.{service,timer}. NOT cron —
+   /etc/txform/auth.env is a systemd EnvironmentFile, and sourcing it from
+   a shell dies on `SMTP_FROM=Txform.ph <hello@txform.ph>` (bash reads the
+   `<` as a redirect), silently leaving every later variable unset.
 
-   Env (shares the mailer's existing config):
-     SMTP_HOST SMTP_PORT SMTP_USER SMTP_PASS MAIL_FROM
+   Env: the SAME variables the auth service's mailer uses, so the alert
+   path is the path already known to deliver:
+     SMTP_HOST SMTP_PORT SMTP_USER SMTP_PASS SMTP_FROM SMTP_SECURE SMTP_EHLO
+   These live in /etc/txform/auth.env, NOT provisioner.env.
+   Plus:
      DEPLOY_ALERT_TO   — where to send. No alerts are sent without it.
    ============================================================ */
 'use strict';
@@ -29,8 +32,15 @@ const REPO = process.env.TXFORM_REPO || '/var/www/taxify';
 const STATE_FILE = process.env.DEPLOY_WATCH_STATE || '/var/lib/txform/deploy-watch.json';
 const BRANCH = 'main';
 
+// `-c safe.directory` on every call, rather than relying on a global
+// git config. The deploy repo is root-owned and this runs as root under
+// ProtectHome=true, which hides /root/.gitconfig — so the usual
+// `git config --global --add safe.directory` fix is invisible here and
+// git refuses the repo with "dubious ownership". Carrying the exception
+// in the command makes the watchdog independent of whose config is
+// readable, which is what a watchdog should be.
 function git(args) {
-  return execFileSync('git', ['-C', REPO].concat(args), { encoding: 'utf8' }).trim();
+  return execFileSync('git', ['-c', 'safe.directory=' + REPO, '-C', REPO].concat(args), { encoding: 'utf8' }).trim();
 }
 
 function readState() {
@@ -47,21 +57,37 @@ function writeState(state) {
 }
 
 async function main() {
-  // Fetch quietly so `origin/main` is current. A network blip must not
-  // masquerade as a stalled deploy, so a failure here exits without
-  // judging anything.
+  // `ls-remote`, deliberately NOT `fetch`.
+  //
+  // We only need to know what sha main points at. `fetch` would write
+  // .git/FETCH_HEAD and update refs — and the unit runs under
+  // ProtectSystem=strict with only /var/lib/txform writable, so it failed
+  // with "Read-only file system". The fix is not to widen those
+  // permissions: a tool that watches the deploy repo has no business
+  // being able to modify it. `ls-remote` asks the question over the
+  // network and writes nothing.
+  //
+  // A network blip must not masquerade as a stalled deploy, so a failure
+  // here means staleness is simply unknown this run. It also exits
+  // NON-ZERO, so a watchdog that cannot see is a visibly failed unit
+  // rather than a quiet success — the disease it exists to detect.
+  let originSha = null;
   try {
-    git(['fetch', '--quiet', 'origin', BRANCH]);
+    const line = git(['ls-remote', 'origin', 'refs/heads/' + BRANCH]);
+    originSha = (line.split(/\s+/)[0] || '').slice(0, 7) || null;
   } catch (e) {
-    console.error('[deploy-watch] could not fetch: ' + e.message);
-    process.exit(0);
+    console.error('[deploy-watch] could not reach origin — staleness unknown this run: '
+      + String(e.message).split('\n')[0]);
   }
 
+  const head = git(['rev-parse', '--short', 'HEAD']);
   const prev = readState();
   const facts = {
     now: Date.now(),
-    headSha: git(['rev-parse', '--short', 'HEAD']),
-    originSha: git(['rev-parse', '--short', 'origin/' + BRANCH]),
+    headSha: head,
+    // Unreachable origin means staleness is unknowable, so report HEAD as
+    // both — "not behind" — rather than alerting about a network problem.
+    originSha: originSha || head,
     // Tracked files only. Untracked ones (backups, tax-rates artefacts)
     // are noise here and never block a fast-forward.
     dirtyTracked: git(['status', '--porcelain', '--untracked-files=no'])
@@ -84,12 +110,23 @@ async function main() {
       // silently cannot bark is worse than none, because it is believed.
       console.error('[deploy-watch] WOULD ALERT but DEPLOY_ALERT_TO is unset: ' + decision.subject);
     } else {
-      const from = process.env.MAIL_FROM || 'Txform <no-reply@txform.ph>';
+      // Read EXACTLY the variables the working mailer reads, with the same
+      // defaults. An alerting path configured differently from the path
+      // that is known to deliver is a path nobody has tested — and the
+      // first time it matters is the first time it runs.
+      const port = Number(process.env.SMTP_PORT || 465);
+      const from = process.env.SMTP_FROM || 'Txform.ph <hello@txform.ph>';
       const message = buildMessage({ from: from, to: to, subject: decision.subject, text: decision.body });
       try {
         await sendMail({
-          host: process.env.SMTP_HOST, port: Number(process.env.SMTP_PORT || 587),
-          user: process.env.SMTP_USER, pass: process.env.SMTP_PASS,
+          host: process.env.SMTP_HOST,
+          port: port,
+          user: process.env.SMTP_USER,
+          pass: process.env.SMTP_PASS,
+          // 465 is implicit TLS, 587 is STARTTLS. Getting this wrong hangs
+          // rather than errors, which in a cron job is silence.
+          secure: process.env.SMTP_SECURE ? process.env.SMTP_SECURE === 'true' : port === 465,
+          ehloName: process.env.SMTP_EHLO || 'txform.ph',
         }, { from: addressOnly(from), to: to }, message);
         console.log('[deploy-watch] alerted ' + to + ': ' + decision.subject);
       } catch (err) {
@@ -103,6 +140,9 @@ async function main() {
   }
 
   writeState(H.nextState(facts, decision));
+
+  // A blind watchdog must look broken, not healthy.
+  if (!originSha) process.exit(1);
 }
 
 main().catch(function (e) {

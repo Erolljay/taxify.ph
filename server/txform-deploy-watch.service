@@ -1,0 +1,53 @@
+# ============================================================
+# Txform.ph — systemd service for the deploy watchdog
+#
+# Oneshot: checks once whether deploys have stopped landing, then exits.
+# Runs on a schedule via txform-deploy-watch.timer (NOT enabled directly).
+#
+# Install:
+#   sudo cp server/txform-deploy-watch.{service,timer} /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now txform-deploy-watch.timer
+#
+# ── Why systemd and not cron ──
+# The SMTP settings live in /etc/txform/auth.env, which is a systemd
+# EnvironmentFile — NOT a shell script. It contains:
+#
+#   SMTP_FROM=Txform.ph <hello@txform.ph>
+#
+# and `. auth.env` from bash reads that `<` as a redirect, aborts at that
+# line, and silently leaves every variable after it unset. A cron install
+# therefore ran, logged, and quietly sent nothing — the exact failure
+# shape this watchdog exists to catch, in the watchdog itself.
+#
+# systemd parses the file properly. Use it.
+#
+# Runs as root, unlike the provisioner: it reads the deploy repo's git
+# metadata (owned by root) and writes /var/lib/txform. It only ever runs
+# `git fetch` / `git rev-parse` / `git status` — never anything that
+# changes the working tree.
+# ============================================================
+[Unit]
+Description=Txform.ph deploy watchdog (alert if deploys stop landing)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/var/www/taxify
+Environment=TXFORM_REPO=/var/www/taxify
+Environment=DEPLOY_WATCH_STATE=/var/lib/txform/deploy-watch.json
+# SMTP_* and DEPLOY_ALERT_TO. Same file the auth service uses, so the
+# alert path is the path already known to deliver.
+EnvironmentFile=/etc/txform/auth.env
+ExecStart=/usr/bin/node /var/www/taxify/server/deploy-watch.js
+
+# A hung SMTP connection must not wedge the timer.
+TimeoutStartSec=90
+
+# Hardening. Needs to read the repo and write only its own state file.
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/txform
+PrivateTmp=true
+ProtectHome=true
