@@ -119,11 +119,13 @@ external addresses. 310 tests.
       delete flag** — Update and Delete differ by that one bit, so the driver builds
       only the business-name key and follows Manager's own hrefs for records.
       See `server/manager-permissions.js`.
-- [ ] **Point the deploy watchdog at a real inbox.** `server/deploy-watch.js` is
-      installed-ready but sends nothing until `DEPLOY_ALERT_TO` is set — it logs
-      `WOULD ALERT but DEPLOY_ALERT_TO is unset` instead. Decide the address, add
-      it to `/etc/txform/provisioner.env`, and add the root cron line from
-      [`instruction.md`](instruction.md). Until then nothing is actually watching.
+- [x] **Deploy watchdog live** — DONE 2026-07-21. Alerts
+      `erolljay@tallocpa.com` (`DEPLOY_ALERT_TO` in `/etc/txform/auth.env`), via
+      `txform-deploy-watch.timer` every five minutes. Delivery confirmed with a
+      real alert during install. **systemd, not cron** — `auth.env` is an
+      EnvironmentFile and sourcing it from bash dies on
+      `SMTP_FROM=Txform.ph <hello@txform.ph>`, silently unsetting everything
+      after it.
 - [ ] *(later)* Two `.bak` files on the server are **unreadable** (copied from a
       WAL-mode database with `cp`). Worth deleting so nobody restores from one
       believing it is real — see the backup note in `instruction.md`.
