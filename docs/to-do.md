@@ -38,6 +38,13 @@ external addresses. 310 tests.
 
 **Left to do:**
 
+- [ ] **Eyeball portal sign-out live** (shipped PR #54, see
+      [`progress.md`](progress.md#2026-07-21-later-still--sign-out-of-the-owner-portal)) —
+      after the cron pull deploys it: sign in at `txform.ph/account`, click **Sign out**,
+      confirm you land on the sign-in card with the "You have been signed out." message and
+      the dashboard does **not** come back on refresh (the session row is really gone, not
+      just hidden). Logic + `Domain`/`Path` cookie-clearing are only unit-tested, not seen in
+      a real browser.
 - [ ] **The two partner firms** — each needs a name, an owner email, and a
       PERMANENT code (it prefixes every business name in Books and cannot be
       changed):
