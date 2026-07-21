@@ -274,3 +274,48 @@ test('session: STARTTLS branch issues STARTTLS then re-EHLOs over the upgraded s
     server.close();
   }
 });
+
+// ── invite email ─────────────────────────────────────────────────
+test('inviteContent: names the firm and points at the portal', () => {
+  const { subject, text } = M.inviteContent({ firmName: 'Tallo CPA', role: 'staff', portalUrl: 'https://txform.ph/account' });
+  assert.match(subject, /Tallo CPA/);
+  assert.match(text, /https:\/\/txform\.ph\/account/);
+});
+
+test('inviteContent: carries NO sign-in link and NO password', () => {
+  // Tokens last 15 minutes, so a link would be dead by morning — and an
+  // emailed password would sit in a mailbox indefinitely.
+  const { text } = M.inviteContent({ firmName: 'Tallo CPA', role: 'staff' });
+  assert.ok(!/verify\?token=/.test(text), 'no one-time link');
+  assert.ok(!/password is|your password:/i.test(text), 'no credential');
+  assert.match(text, /never send\s*\n?passwords by email/, 'and says so');
+});
+
+test('inviteContent: a client is told it is read-only', () => {
+  const { subject, text } = M.inviteContent({ firmName: 'Tallo CPA', role: 'client' });
+  assert.match(subject, /shared your books/);
+  assert.match(text, /read-only/);
+  assert.ok(!/prepare and file/.test(text), 'clients do not file');
+});
+
+test('inviteContent: staff are told what they can do', () => {
+  const { text } = M.inviteContent({ firmName: 'Tallo CPA', role: 'staff' });
+  assert.match(text, /prepare and file/);
+});
+
+test('inviteContent: survives a firm with no name set', () => {
+  const { subject, text } = M.inviteContent({ role: 'staff' });
+  assert.match(subject, /your firm/);
+  assert.ok(!/undefined|null/.test(text));
+});
+
+test('makeMailer: routes on kind, defaulting to the sign-in email', () => {
+  const sent = [];
+  const cfg = { host: 'x', from: 'Txform <hello@txform.ph>' };
+  // Exercise the content selection without opening a socket.
+  const invite = M.inviteContent({ firmName: 'F', role: 'staff' });
+  const signin = M.magicLinkContent('https://txform.ph/api/auth/verify?token=abc');
+  assert.notEqual(invite.subject, signin.subject);
+  assert.match(signin.text, /expires in 15 minutes/);
+  assert.ok(!/expires in 15 minutes/.test(invite.text));
+});

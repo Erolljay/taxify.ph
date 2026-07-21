@@ -470,6 +470,44 @@ test('invite: a client is granted their business immediately and consumes no sea
     'clients are free — seat count unchanged');
 });
 
+test('invite: the person is actually told they exist', () => {
+  // Without this the invite is silent — the row is created, the robot
+  // provisions them, and nobody ever informs the human.
+  const db = freshDb(), deps = makeDeps();
+  const cookie = signIn(db, deps, 'owner@x.com');
+  deps.state.sent.length = 0;
+
+  S.inviteStaff(db, { cookie: cookie, email: 'newstaff@x.com' }, deps);
+  const mail = deps.state.sent.pop();
+  assert.equal(mail.to, 'newstaff@x.com');
+  assert.equal(mail.kind, 'invite');
+  assert.equal(mail.role, 'staff');
+  assert.equal(mail.link, undefined, 'no one-time link — it would expire before they read it');
+});
+
+test('invite: re-inviting an existing member sends nothing', () => {
+  const db = freshDb(), deps = makeDeps();
+  const cookie = signIn(db, deps, 'owner@x.com');
+  S.inviteStaff(db, { cookie: cookie, email: 'newstaff@x.com' }, deps);
+  deps.state.sent.length = 0;
+
+  const again = S.inviteStaff(db, { cookie: cookie, email: 'newstaff@x.com' }, deps);
+  assert.equal(again.json.alreadyMember, true);
+  assert.equal(deps.state.sent.length, 0, 'a second invite must not re-mail them');
+});
+
+test('invite: a mail failure does not fail the invite', () => {
+  // The account and its provisioning are already committed, and a
+  // re-invite is a no-op that would send nothing — so a mail outage must
+  // not leave the caller thinking it failed.
+  const db = freshDb(), deps = makeDeps();
+  const cookie = signIn(db, deps, 'owner@x.com');
+  deps.sendEmail = () => { throw new Error('smtp down'); };
+  const r = S.inviteStaff(db, { cookie: cookie, email: 'resilient@x.com' }, deps);
+  assert.equal(r.status, 201);
+  assert.ok(db.prepare('SELECT 1 FROM users WHERE email=?').get('resilient@x.com'));
+});
+
 test('invite: cannot smuggle in a second owner via the role field', () => {
   const db = freshDb(), deps = makeDeps();
   const cookie = signIn(db, deps, 'owner@x.com');
