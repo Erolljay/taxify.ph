@@ -119,6 +119,11 @@ external addresses. 310 tests.
       delete flag** — Update and Delete differ by that one bit, so the driver builds
       only the business-name key and follows Manager's own hrefs for records.
       See `server/manager-permissions.js`.
+- [ ] **Point the deploy watchdog at a real inbox.** `server/deploy-watch.js` is
+      installed-ready but sends nothing until `DEPLOY_ALERT_TO` is set — it logs
+      `WOULD ALERT but DEPLOY_ALERT_TO is unset` instead. Decide the address, add
+      it to `/etc/txform/provisioner.env`, and add the root cron line from
+      [`instruction.md`](instruction.md). Until then nothing is actually watching.
 - [ ] *(later)* Two `.bak` files on the server are **unreadable** (copied from a
       WAL-mode database with `cp`). Worth deleting so nobody restores from one
       believing it is real — see the backup note in `instruction.md`.

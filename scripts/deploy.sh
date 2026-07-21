@@ -41,6 +41,26 @@ fi
 
 # What changed in this pull? Needed below to decide whether the long-running
 # Node service has to be restarted. Captured before the merge moves HEAD.
+# Refuse early, and say why.
+#
+# `git merge --ff-only` aborts if a tracked file was edited on the server,
+# with a message that reads like a git problem rather than an operational
+# one. Under `set -e` the script then just stops — and because this runs
+# from cron, the only trace is a line in a log nobody reads. The site
+# stays on old code while every merge looks successful from GitHub.
+#
+# That is not hypothetical: on 2026-07-21 an nginx snippet was patched by
+# hand on the server to restore a broken portal, which left exactly this
+# state. Nothing would have deployed again until someone noticed.
+DIRTY="$(git status --porcelain --untracked-files=no)"
+if [ -n "$DIRTY" ]; then
+  echo "[deploy] BLOCKED: the server has local edits to tracked files."
+  echo "[deploy] A fast-forward would overwrite them, so nothing can deploy."
+  echo "$DIRTY" | sed 's/^/[deploy]   /'
+  echo "[deploy] Get the change into the repo, then:  sudo git checkout -- <file>"
+  exit 1
+fi
+
 CHANGED="$(git diff --name-only HEAD "origin/$BRANCH")"
 
 # --ff-only refuses to deploy anything that isn't a clean fast-forward of main,
