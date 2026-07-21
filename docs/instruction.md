@@ -368,8 +368,23 @@ sudo systemctl restart txform-auth
 ## Provisioner — credentials, and the check to run after every Manager update
 
 The provisioner reconciles the portal's access grid into Manager: it creates a
-client's books, creates restricted users, and grants or revokes their access.
-It talks to Manager over **plain HTTP — no browser, no npm dependencies**.
+client's books, turns on the firm's tabs, creates restricted users, and grants
+or revokes their access. It talks to Manager over **plain HTTP — no browser, no
+npm dependencies**.
+
+### Access is TWO things, not one
+
+This cost a real bug. Granting a staff member access requires both:
+
+| | Where | Decides |
+|---|---|---|
+| 1 | `Businesses` multi-select on `/user-form` | **which** books they can open |
+| 2 | **User Permissions** record inside each business (Settings → User Permissions) | **what** they can do once inside |
+
+A freshly created business has **no** permission record — Manager does not make
+one when you link a user. Do only step 1 and the staff member signs in, sees the
+client, opens the books, and cannot work in them. `grantAccess` now does both and
+verifies both, but if you ever do it by hand, do both.
 
 ### Credentials
 
@@ -417,6 +432,12 @@ break silently:
 
 A failure here means **stop and fix the driver before trusting the access grid.**
 
+**Gap, as of 2026-07-21:** these seven cover login, `/user-form` and `api4` — they
+do **not** yet cover the User Permissions or Tabs screens added in PR #56. A
+Manager upgrade that moved either would still break silently. Tracked in
+[`to-do.md`](to-do.md); until then, after an upgrade, grant access to a throwaway
+business by hand and confirm the Access type really reads "Full access".
+
 ### Two encodings, and why they are easy to confuse
 
 Manager uses different encodings in the same page, which cost us a real bug:
@@ -433,6 +454,41 @@ back, and gets a `200`. Every signal says success while nothing was granted.
 Two guards now make that impossible to repeat: a blank `Username` on the fetched
 form throws instead of being posted back, and every access change is **read back
 and compared** before the job is marked done.
+
+### ⚠️ One bit separates Update from Delete
+
+Business-scoped screens (User Permissions, Tabs) use a longer version of that URL
+envelope, and **field 250 in it is destructive** — Delete on the permissions form,
+Reset on the tabs form. The safe URL and the destructive one differ by a single
+character at the end:
+
+```
+Update  …EfLQDwA     (250 = 0)
+Reset   …EfLQDwE     (250 = 1)
+```
+
+Getting it wrong does not error. It deletes.
+
+**So the driver never builds one.** It constructs only the simplest key — the
+business name alone — and then follows Manager's own `href`s to reach records.
+Those already carry a correct, flag-zero envelope. A test asserts that no key the
+driver builds has that flag set.
+
+**If you are ever hand-editing a Manager URL, do not touch the last character.**
+And if you are extending the driver: keep following links. Do not be tempted to
+assemble a record URL because it looks straightforward.
+
+### These screens are Vue apps, not HTML forms
+
+`/user-permissions-form` and `/tabs-form` have **no `name` attributes** on their
+inputs — everything is `v-model`-bound. There is nothing to scrape into a
+urlencoded post. The state is a JS literal at the foot of the page, and Manager's
+`form.js` posts `JSON.stringify(app.$data)` into one multipart field named
+`febb4049-dcdb-4c7a-a395-4b71da72a85b` (a hardcoded constant, not a nonce).
+
+The post is the record's **complete new state**, so anything omitted is blanked.
+Always read the model, change what you mean to, and post the whole thing back —
+which is what [`server/manager-vue-form.js`](../server/manager-vue-form.js) does.
 
 ---
 
