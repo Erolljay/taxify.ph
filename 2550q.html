@@ -394,7 +394,7 @@ async function generate() {
         if (tc === vm.sales_taxable)     { vatableSales += net; outputTax += tax; }
         else if (tc === vm.sales_zero)   { zeroRated    += net; }
         else if (tc === vm.sales_exempt) { exemptSales  += net; }
-        else if (tc === vm.govt_wv012 || tc === vm.govt_wv022) {
+        else if (tc === vm.govt_wv010 || tc === vm.govt_wv020) {
           const custKey  = item?.customer || item?.Customer || '';
           const cd       = custMap[custKey] || {};
           const custName = cd.companyName || [cd.lastName, cd.firstName].filter(Boolean).join(', ') || custKey;
@@ -406,7 +406,7 @@ async function generate() {
             custKey, name: custName, branch: cd.branchCode || '0001',
             income:  gross / 0.05,
             cwt:     gross,
-            type:    tc === vm.govt_wv012 ? 'WV012' : 'WV022',
+            type:    tc === vm.govt_wv010 ? 'WV010' : 'WV020',
           });
         }
       }
