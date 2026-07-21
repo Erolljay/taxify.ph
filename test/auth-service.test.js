@@ -553,3 +553,81 @@ test('overview: owner sees this month\'s invoice', () => {
   assert.equal(r.json.billing.net, A.RATE_CENTAVOS, 'no voucher — full rate');
   assert.equal(r.json.billing.reason, null);
 });
+
+// ── initial password handover ────────────────────────────────────
+// The rule these defend: the password is shown to ONE person, once, and
+// never travels by email.
+function withPassword(db, userId, pw, at) {
+  db.prepare('UPDATE users SET manager_user_ref = ?, initial_password = ?, initial_password_at = ? WHERE id = ?')
+    .run('mgr:' + userId, pw, at, userId);
+}
+
+test('password handover: the owner sees a freshly issued password', () => {
+  const db = freshDb(), deps = makeDeps();
+  withPassword(db, 2, 'Abcde-Fghij-Klmno-Pqrst', deps.state.now);
+  const r = S.overview(db, { cookie: signIn(db, deps, 'owner@x.com') }, deps);
+  const staff = r.json.users.find((u) => u.id === 2);
+  assert.equal(staff.initialPassword, 'Abcde-Fghij-Klmno-Pqrst');
+});
+
+test('password handover: staff never see any password, including their own', () => {
+  const db = freshDb(), deps = makeDeps();
+  withPassword(db, 2, 'secret-pw', deps.state.now);
+  const r = S.overview(db, { cookie: signIn(db, deps, 'staff@x.com') }, deps);
+  assert.deepEqual(r.json.users, [], 'staff get no roster at all, so no passwords ride along');
+  assert.equal(JSON.stringify(r.json).indexOf('secret-pw'), -1, 'and it appears nowhere in the payload');
+});
+
+test('password handover: another firm\'s owner cannot see it', () => {
+  const db = freshDb(), deps = makeDeps();
+  withPassword(db, 2, 'secret-pw', deps.state.now);   // account 1's staff
+  const r = S.overview(db, { cookie: signIn(db, deps, 'other@x.com') }, deps); // account 2
+  assert.equal(JSON.stringify(r.json).indexOf('secret-pw'), -1);
+});
+
+test('password handover: an uncollected password stops being shown after 24h', () => {
+  const db = freshDb(), deps = makeDeps();
+  withPassword(db, 2, 'stale-pw', deps.state.now - A.INITIAL_PASSWORD_TTL_MS - 1000);
+  const r = S.overview(db, { cookie: signIn(db, deps, 'owner@x.com') }, deps);
+  assert.equal(r.json.users.find((u) => u.id === 2).initialPassword, null);
+});
+
+test('clear-password: discards our copy once the owner has it', () => {
+  const db = freshDb(), deps = makeDeps();
+  withPassword(db, 2, 'secret-pw', deps.state.now);
+  const cookie = signIn(db, deps, 'owner@x.com');
+  assert.equal(S.clearInitialPassword(db, { cookie, userId: 2 }, deps).status, 200);
+  const row = db.prepare('SELECT initial_password, initial_password_at FROM users WHERE id=2').get();
+  assert.equal(row.initial_password, null);
+  assert.equal(row.initial_password_at, null);
+});
+
+test('clear-password: staff cannot, and neither can another firm', () => {
+  const db = freshDb(), deps = makeDeps();
+  withPassword(db, 2, 'secret-pw', deps.state.now);
+  assert.equal(S.clearInitialPassword(db, { cookie: signIn(db, deps, 'staff@x.com'), userId: 2 }, deps).status, 403);
+  assert.equal(S.clearInitialPassword(db, { cookie: signIn(db, deps, 'other@x.com'), userId: 2 }, deps).status, 403);
+  assert.ok(db.prepare('SELECT initial_password FROM users WHERE id=2').get().initial_password, 'untouched');
+});
+
+test('reset-password: queues a job and audits who asked', () => {
+  const db = freshDb(), deps = makeDeps();
+  withPassword(db, 2, 'old-pw', deps.state.now);
+  const r = S.resetPassword(db, { cookie: signIn(db, deps, 'owner@x.com'), userId: 2 }, deps);
+  assert.equal(r.status, 200);
+  assert.equal(db.prepare("SELECT user_id FROM provision_job WHERE type='reset_password'").get().user_id, 2);
+  assert.ok(db.prepare("SELECT 1 FROM audit_log WHERE action='reset_password'").get());
+});
+
+test('reset-password: refused before the Manager user exists', () => {
+  const db = freshDb(), deps = makeDeps();
+  const r = S.resetPassword(db, { cookie: signIn(db, deps, 'owner@x.com'), userId: 2 }, deps);
+  assert.equal(r.status, 409);
+  assert.match(r.json.error, /not_provisioned_yet/);
+});
+
+test('reset-password: staff cannot reset anyone, including themselves', () => {
+  const db = freshDb(), deps = makeDeps();
+  withPassword(db, 2, 'old-pw', deps.state.now);
+  assert.equal(S.resetPassword(db, { cookie: signIn(db, deps, 'staff@x.com'), userId: 2 }, deps).status, 403);
+});

@@ -306,7 +306,24 @@ function renderTeam(panel) {
     role.className = 'role';
     role.textContent = u.role + (u.role === 'client' ? ' · free' : '');
     li.append(email, role);
+
+    const spacer = el('span', 'spacer');
+    li.append(spacer);
+
+    if (u.provisioned && u.role !== 'owner') {
+      const reset = document.createElement('button');
+      reset.type = 'button';
+      reset.className = 'ghost';
+      reset.textContent = 'Reset password';
+      reset.addEventListener('click', () => onResetPassword(u));
+      li.append(reset);
+    }
     list.append(li);
+
+    // Shown ONCE. The owner hands it over through whatever channel they
+    // already use with their staff — we never email it, because a working
+    // credential to client books should not sit in a mailbox.
+    if (u.initialPassword) list.append(passwordRow(u));
   });
   card.append(list);
 
@@ -342,6 +359,70 @@ function renderTeam(panel) {
   form.addEventListener('submit', onInvite);
   card.append(form);
   panel.append(card);
+}
+
+function passwordRow(u) {
+  const li = document.createElement('li');
+  const box = el('div', 'handover');
+
+  const head = document.createElement('strong');
+  head.textContent = 'Manager password for ' + u.email;
+
+  const pw = el('code', 'pw');
+  pw.textContent = u.initialPassword;
+
+  const note = el('div', 'note');
+  note.textContent = 'Shown once. Give it to them directly — do not email it. '
+    + 'They will be asked to set up an authenticator app the first time they sign in to the books.';
+
+  const actions = el('div', 'handover-actions');
+  const copy = document.createElement('button');
+  copy.type = 'button';
+  copy.textContent = 'Copy';
+  copy.addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(u.initialPassword);
+      copy.textContent = 'Copied';
+    } catch (err) {
+      // Clipboard is blocked on insecure origins and in some browsers —
+      // select it instead so they can copy by hand rather than being stuck.
+      const range = document.createRange();
+      range.selectNodeContents(pw);
+      const sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(range);
+      copy.textContent = 'Selected — press Ctrl+C';
+    }
+  });
+
+  const done = document.createElement('button');
+  done.type = 'button';
+  done.className = 'ghost';
+  done.textContent = 'I have saved it';
+  done.addEventListener('click', () => onClearPassword(u));
+
+  actions.append(copy, done);
+  box.append(head, pw, note, actions);
+  li.append(box);
+  return li;
+}
+
+async function onClearPassword(u) {
+  const ok = window.confirm('Hide the password for ' + u.email + '?\n\n'
+    + 'It cannot be shown again. If it is lost, use Reset password to issue a new one.');
+  if (!ok) return;
+  const r = await api('POST', '/api/tenancy/clear-password', { userId: u.id });
+  if (r.status === 200) await reload('Password hidden.');
+  else flash($('dash-msg'), 'err', errText(r, 'Could not hide it.'));
+}
+
+async function onResetPassword(u) {
+  const ok = window.confirm('Issue a new Manager password for ' + u.email + '?\n\n'
+    + 'Their current password stops working immediately. The new one appears here once it is set.');
+  if (!ok) return;
+  const r = await api('POST', '/api/tenancy/reset-password', { userId: u.id });
+  if (r.status === 200) await reload('New password queued — it will appear here shortly.');
+  else flash($('dash-msg'), 'err', errText(r, 'Could not reset the password.'));
 }
 
 async function onInvite(e) {

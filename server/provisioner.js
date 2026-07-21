@@ -25,6 +25,8 @@
    ============================================================ */
 'use strict';
 
+const A = require('./auth-core.js');
+
 const MAX_ATTEMPTS = 3;
 
 // After a failed attempt, retry until we've burned MAX_ATTEMPTS.
@@ -73,11 +75,27 @@ async function dispatch(db, job, driver) {
     return r || {};
   }
 
+  // Create the Manager login. The password is generated HERE, not in the
+  // driver, so the one copy of it lands in the row the portal reads —
+  // the owner collects it once and it is cleared.
   if (job.type === 'create') {
     const user = db.prepare('SELECT id, email FROM users WHERE id = ?').get(job.user_id);
     if (!user) throw new Error('user not found');
-    const r = await driver.createUser({ email: user.email });
-    db.prepare('UPDATE users SET manager_user_ref = ? WHERE id = ?').run(r.managerUserRef, user.id);
+    const password = A.generatePassword();
+    const r = await driver.createUser({ email: user.email, password: password });
+    db.prepare('UPDATE users SET manager_user_ref = ?, initial_password = ?, initial_password_at = ? WHERE id = ?')
+      .run(r.managerUserRef, password, Date.now(), user.id);
+    return r;
+  }
+
+  if (job.type === 'reset_password') {
+    const user = db.prepare('SELECT id, email, manager_user_ref FROM users WHERE id = ?').get(job.user_id);
+    if (!user) throw new Error('user not found');
+    if (!user.manager_user_ref) throw new Error('manager user not created yet');
+    const password = A.generatePassword();
+    const r = await driver.setPassword({ managerUserRef: user.manager_user_ref, password: password });
+    db.prepare('UPDATE users SET initial_password = ?, initial_password_at = ? WHERE id = ?')
+      .run(password, Date.now(), user.id);
     return r;
   }
 

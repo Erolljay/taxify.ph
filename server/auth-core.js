@@ -35,6 +35,28 @@ function generateToken() {
   return crypto.randomBytes(32).toString('base64url');
 }
 
+// How long an initial password stays visible to the firm owner before it
+// is discarded unread. It exists only to be handed over once.
+const INITIAL_PASSWORD_TTL_MS = 24 * 60 * MINUTE;
+
+// A staff member's first Manager password. Nobody memorises this — they
+// enrol MFA and can change it — so favour entropy over typeability, but
+// avoid the characters people misread when copying by hand.
+function generatePassword() {
+  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789';
+  const bytes = crypto.randomBytes(20);
+  let out = '';
+  for (let i = 0; i < bytes.length; i++) out += alphabet[bytes[i] % alphabet.length];
+  return out.match(/.{1,5}/g).join('-');   // grouped, so it survives being read aloud
+}
+
+// Should this initial password still be shown? Anything older than the
+// TTL is treated as never collected and is no longer surfaced.
+function isInitialPasswordVisible(setAtMs, now) {
+  if (!setAtMs) return false;
+  return now - Number(setAtMs) < INITIAL_PASSWORD_TTL_MS;
+}
+
 // Is a login token usable right now? Enforces single-use + expiry.
 // token = { expires_at:ms, consumed_at:ms|null } (or null if not found).
 function isLoginTokenUsable(token, now) {
@@ -192,7 +214,8 @@ function sessionExpiry(now) { return now + SESSION_TTL_MS; }
 
 module.exports = {
   TOKEN_TTL_MS, SESSION_TTL_MS, LINK_RATE, ROLE_CAPABILITIES, RATE_CENTAVOS,
-  hashToken, generateToken,
+  INITIAL_PASSWORD_TTL_MS,
+  hashToken, generateToken, generatePassword, isInitialPasswordVisible,
   isLoginTokenUsable, withinRateLimit, canProvisionMore,
   isSessionValid, authorizeOwnerAction, can, consumesSeat, billingPeriodKey,
   discountPercentFor, computeInvoice,

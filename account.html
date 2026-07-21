@@ -63,6 +63,17 @@
     .empty { color:var(--muted); font-size:13.5px; padding:12px 0 2px; }
     .note { color:var(--muted); font-size:12.5px; line-height:1.5; margin-top:10px; }
 
+    /* one-time credential handover */
+    .handover { width:100%; background:var(--warn-bg); border:1px solid #f2e3b8; border-radius:8px;
+      padding:14px 16px; display:flex; flex-direction:column; gap:8px; }
+    .handover strong { font-size:13.5px; color:var(--warn-fg); }
+    .handover .pw { font-family:ui-monospace,Menlo,monospace; font-size:16px; letter-spacing:.04em;
+      background:#fff; border:1px solid #e6d9ad; border-radius:6px; padding:9px 12px;
+      user-select:all; word-break:break-all; }
+    .handover .note { margin-top:0; color:var(--warn-fg); opacity:.85; }
+    .handover-actions { display:flex; gap:8px; }
+    .handover-actions button { font-size:13px; padding:6px 13px; }
+
     form.inline { display:flex; gap:8px; margin-top:16px; flex-wrap:wrap; align-items:center; }
     input[type=text], input[type=email], select { flex:1 1 160px; min-width:0; font:inherit; font-size:14px;
       padding:8px 11px; border:1px solid var(--line); border-radius:8px; background:#fff; color:var(--ink); }

@@ -57,6 +57,17 @@ CREATE TABLE IF NOT EXISTS users (
   email             TEXT    NOT NULL,
   role              TEXT    NOT NULL DEFAULT 'staff',        -- owner|staff|client
   manager_user_ref  TEXT,                                   -- Manager restricted-user id, set by provisioner
+  -- The Manager password the provisioner generated, held ONLY until the
+  -- firm owner has collected it. Plaintext, deliberately and briefly: it
+  -- has to survive from the provisioner run until the owner next opens
+  -- the portal, and there is nowhere else to put it.
+  --
+  -- It is never emailed. It is cleared the moment it is shown, and it
+  -- stops being surfaced 24h after it was set whether collected or not
+  -- (see auth-core.isInitialPasswordVisible). Losing it is cheap — the
+  -- owner presses Reset password and gets a new one.
+  initial_password    TEXT,
+  initial_password_at INTEGER,                              -- epoch ms
   created_at        TEXT    NOT NULL DEFAULT (datetime('now')),
   UNIQUE(account_id, email)
 );

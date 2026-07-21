@@ -225,7 +225,7 @@ test('createBusiness: posts the prefixed name as JSON to api4', () => {
 
 test('createUser: makes a RESTRICTED user with no businesses yet', () => {
   const client = fakeClient(userFormHtml([]));
-  return D.createDriver({ client }).createUser({ email: 'jun@firm.ph' }).then((r) => {
+  return D.createDriver({ client }).createUser({ email: 'jun@firm.ph', password: 'pw-1' }).then((r) => {
     const fields = lastPost(client)[2];
     assert.equal(fields.Type, 'Restricted', 'never an administrator');
     assert.deepEqual(fields.Businesses, [], 'access arrives as its own grant jobs');
@@ -238,6 +238,7 @@ test('createBusiness / createUser reject empty input instead of creating junk', 
   const d = D.createDriver({ client: fakeClient(userFormHtml([])) });
   await assert.rejects(() => d.createBusiness({ businessName: '' }), /required/);
   await assert.rejects(() => d.createUser({ email: '' }), /required/);
+  await assert.rejects(() => d.createUser({ email: 'a@b.ph' }), /password is required/);
 });
 
 test('a rejected form surfaces as an error so the job retries', async () => {
@@ -245,6 +246,38 @@ test('a rejected form surfaces as an error so the job retries', async () => {
   await assert.rejects(
     () => D.createDriver({ client }).grantAccess({ managerUserRef: 'm@f.ph', businessName: 'X' }),
     /rejected/
+  );
+});
+
+// ── passwords + MFA on new users ─────────────────────────────────
+test('createUser: enables MFA by default', async () => {
+  // Enrolment happens at the user's FIRST LOGIN, where Manager shows them
+  // a QR — so ticking it here strands nobody.
+  const client = fakeClient(userFormHtml([]));
+  await D.createDriver({ client }).createUser({ email: 'jun@firm.ph', password: 'pw-1' });
+  assert.ok(client.calls.find((c) => c[0] === 'postForm')[2].MultifactorAuthentication);
+});
+
+test('createUser: MFA can be turned off explicitly', async () => {
+  const client = fakeClient(userFormHtml([]));
+  await D.createDriver({ client }).createUser({ email: 'jun@firm.ph', password: 'pw-1', enableMfa: false });
+  assert.equal(client.calls.find((c) => c[0] === 'postForm')[2].MultifactorAuthentication, undefined);
+});
+
+test('setPassword: changes the password without disturbing access or MFA', async () => {
+  const client = fakeClient(userFormHtml(['TALLO-0001 Acme'], 'secret-abc'));
+  await D.createDriver({ client }).setPassword({ managerUserRef: 'maria@firm.ph', password: 'new-pw' });
+  const f = lastPost(client)[2];
+  assert.equal(f.Password, 'new-pw');
+  assert.deepEqual(f.Businesses, [b64('TALLO-0001 Acme')], 'a reset must not cost them their books');
+  assert.equal(f.MultifactorAuthentication, 'secret-abc', 'nor their second factor');
+});
+
+test('setPassword: refuses an empty password rather than blanking it', async () => {
+  const client = fakeClient(userFormHtml([]));
+  await assert.rejects(
+    () => D.createDriver({ client }).setPassword({ managerUserRef: 'maria@firm.ph', password: '' }),
+    /password is required/
   );
 });
 

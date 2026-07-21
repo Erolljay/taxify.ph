@@ -168,16 +168,24 @@ function createDriver(opts) {
     // A restricted user with no businesses yet; grants follow as their
     // own jobs. Username is the email — it is what addresses the form
     // later, so it must be stable and unique, which an email already is.
-    async createUser({ email }) {
+    // MFA is on by default. Enrolment happens at the user's FIRST LOGIN —
+    // Manager shows them a QR then — so ticking it here strands nobody.
+    // (The confusing case is scanning from the admin form, where the value
+    // is a candidate the save then replaces. Staff never see that form.)
+    async createUser({ email, password, enableMfa }) {
       if (!email) throw new Error('email is required');
-      const res = await client.postForm(USER_FORM, {
+      if (!password) throw new Error('password is required');
+      const fields = {
         Name: email,
         EmailAddress: email,
         Username: email,
-        Password: opts.newUserPassword ? opts.newUserPassword(email) : undefined,
+        Password: password,
         Type: 'Restricted',
         Businesses: [],
-      });
+      };
+      // Any truthy value ticks it; Manager mints the real secret at save.
+      if (enableMfa !== false) fields.MultifactorAuthentication = 'on';
+      const res = await client.postForm(USER_FORM, fields);
       if (res.status >= 400) throw new Error('Manager refused to create user ' + email + ' (http ' + res.status + ')');
 
       // Confirm the user is really addressable before the queue moves on
@@ -188,6 +196,16 @@ function createDriver(opts) {
         throw new Error('Manager reported success but user ' + email + ' is not there');
       }
       return { managerUserRef: email };
+    },
+
+    // Set a new password without disturbing anything else — same
+    // read-modify-write, so their businesses and MFA secret survive.
+    async setPassword({ managerUserRef, password }) {
+      if (!password) throw new Error('password is required');
+      await submitUserForm(managerUserRef, function (fields) {
+        fields.Password = password;
+      });
+      return { reset: true };
     },
 
     async grantAccess({ managerUserRef, businessName }) {
