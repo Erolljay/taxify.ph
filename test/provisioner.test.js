@@ -36,6 +36,7 @@ function fakeDriver(opts = {}) {
   return {
     calls,
     createBusiness: async (a) => { rec('createBusiness', a); if (opts.failCreateBusiness) throw new Error('create-business boom'); return {}; },
+    configureTabs: async (a) => { rec('configureTabs', a); if (opts.failConfigureTabs) throw new Error('tabs boom'); return { tabsEnabled: [], alreadyConfigured: true }; },
     createUser: async (a) => { rec('createUser', a); if (opts.failCreate) throw new Error('create boom'); return { managerUserRef: 'mgr:' + a.email, screenshot: '/s/create.png' }; },
     grantAccess: async (a) => { rec('grantAccess', a); if (opts.failGrant) throw new Error('grant boom'); return { screenshot: '/s/grant.png' }; },
     revokeAccess: async (a) => { rec('revokeAccess', a); return { screenshot: '/s/revoke.png' }; },
@@ -138,6 +139,69 @@ test('create_business: creates the books and stamps manager_created_at', async (
   assert.deepEqual(only(driver.calls, 'createBusiness')[0][1], { businessName: 'FIRMA-New Co' });
   assert.ok(db.prepare('SELECT manager_created_at FROM businesses WHERE id=2').get().manager_created_at,
     'stamped, so grants may now proceed');
+});
+
+// ── configure_tabs ───────────────────────────────────────────────
+test('configure_tabs: turns on the firm\'s tabs once the books exist', async () => {
+  const db = seed();
+  db.prepare("INSERT INTO businesses (id, account_id, manager_business_name, name, manager_created_at) VALUES (2, 1, ?, ?, ?)")
+    .run('FIRMA-New Co', 'New Co', '2026-01-01T00:00:00Z');
+  enqueue(db, 'configure_tabs', null, 2);
+  const driver = fakeDriver();
+
+  await P.drainOnce(db, driver, { now: () => 1 });
+
+  assert.deepEqual(only(driver.calls, 'configureTabs')[0][1], { businessName: 'FIRMA-New Co' });
+  assert.equal(jobStatus(db, 1).status, 'done');
+});
+
+test('configure_tabs: waits for the books rather than failing outright', async () => {
+  // Queued alongside create_business, so on the first tick the books may
+  // not exist yet. It must go back to pending, not burn its attempts.
+  const db = seed();
+  db.prepare("INSERT INTO businesses (id, account_id, manager_business_name, name) VALUES (2, 1, ?, ?)")
+    .run('FIRMA-New Co', 'New Co');
+  enqueue(db, 'configure_tabs', null, 2);
+  const driver = fakeDriver();
+
+  await P.drainOnce(db, driver, { now: () => 1 });
+
+  assert.equal(only(driver.calls, 'configureTabs').length, 0, 'must not touch Manager yet');
+  assert.equal(jobStatus(db, 1).status, 'pending');
+  assert.match(jobStatus(db, 1).last_error, /not created in Manager yet/);
+});
+
+test('configure_tabs: runs after create_business when both are queued', async () => {
+  const db = seed();
+  db.prepare("INSERT INTO businesses (id, account_id, manager_business_name, name) VALUES (2, 1, ?, ?)")
+    .run('FIRMA-New Co', 'New Co');
+  enqueue(db, 'create_business', null, 2);
+  enqueue(db, 'configure_tabs', null, 2);
+  const driver = fakeDriver();
+
+  // First tick: books get made; tabs defers because one attempt per job
+  // per tick. Second tick: tabs runs.
+  await P.drainOnce(db, driver, { now: () => 1 });
+  await P.drainOnce(db, driver, { now: () => 2 });
+
+  const order = driver.calls.map((c) => c[0]);
+  assert.deepEqual(order, ['createBusiness', 'configureTabs']);
+  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM provision_job WHERE status='pending'").get().n, 0);
+});
+
+test('configure_tabs: a failure does not block the books being usable', async () => {
+  // The books still exist and grants still work — only the sidebar is
+  // unconfigured. It must retry, and be visible in the log if it gives up.
+  const db = seed();
+  db.prepare("INSERT INTO businesses (id, account_id, manager_business_name, name, manager_created_at) VALUES (2, 1, ?, ?, ?)")
+    .run('FIRMA-New Co', 'New Co', '2026-01-01T00:00:00Z');
+  enqueue(db, 'configure_tabs', null, 2);
+  const driver = fakeDriver({ failConfigureTabs: true });
+
+  await P.drainOnce(db, driver, { now: () => 1 });
+
+  assert.equal(jobStatus(db, 1).status, 'pending');
+  assert.match(jobStatus(db, 1).last_error, /tabs boom/);
 });
 
 test('create_business: a retry after an unseen response does not make a second set of books', async () => {

@@ -415,6 +415,10 @@ function addBusiness(db, input, deps) {
   // and only then does manager_created_at get stamped.
   db.prepare('INSERT INTO provision_job (type, business_id, created_at, updated_at) VALUES (?,?,?,?)')
     .run('create_business', businessId, now, now);
+  // Turn on the tabs the firm works in. Its own job so a tab failure
+  // retries on its own, and ordered behind create_business by id.
+  db.prepare('INSERT INTO provision_job (type, business_id, created_at, updated_at) VALUES (?,?,?,?)')
+    .run('configure_tabs', businessId, now, now);
   db.prepare('INSERT INTO audit_log (account_id, actor, action, target) VALUES (?,?,?,?)')
     .run(s.account_id, s.email, 'add_business', 'business:' + businessId + ' ' + managerName);
   return { status: 201, json: { ok: true, businessId: businessId } };

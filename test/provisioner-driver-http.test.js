@@ -41,13 +41,105 @@ function userFormHtml(selectedNames, mfaSecret) {
 // reads back after every write, so a fake that always replayed the
 // original page would make every test fail — and a fake that ignored
 // writes would hide the very bug read-back exists to catch.
+// The permissions half of the fake. A grant now walks Settings → the
+// User Permissions list → the record's form, so the fake has to serve
+// all three and remember what was written to the last one.
+//
+// `access` is what the list currently reports for the user; null means
+// they have no record yet and must go through "New User Permissions".
+function permissionsPages(state) {
+  const editHref = '/user-permissions-form?EDITKEY';
+  const newHref = '/user-permissions-form?NEWKEY';
+  const listHref = '/user-permissions?LISTKEY';
+  return {
+    listHref,
+    editHref,
+    newHref,
+    // The sidebar carries BOTH links the driver follows: User
+    // Permissions and Customize (Tabs).
+    settings: () => '<a href="/summary-view?x">Summary</a>'
+      + '<a href ="' + listHref + '" class="btn">User Permissions</a>'
+      + '<a href="/tabs-form?TABSKEY" class="font-semibold">Customize</a>',
+    list: () => '<a href ="' + newHref + '" class="btn">New User Permissions</a>'
+      + '<table><thead><tr><th><a href ="/user-permissions?SORT">Username</a></th></tr></thead><tbody>'
+      + (state.access === null ? '' :
+        '<tr><td><a href ="' + editHref + '" class="btn btn-sm">Edit</a></td>'
+        + '<td><span>' + state.username + '</span></td>'
+        + '<td><span>' + state.access + '</span></td></tr>')
+      + '</tbody></table>',
+    form: () => '<div id="v-model-form"></div><script>app = new Vue({ el: "#v-model-form", data: '
+      + JSON.stringify({
+        Username: state.access === null ? '' : state.username,
+        BankAndCashAccounts: [],
+        AccessType: state.access === 'Full access' ? 1 : 0,
+        Namespaces: {},
+        Namespaces2: {},
+        FullAccess: state.access === 'Full access',
+        id: '019f834c-1e46-7150-9fca-ae9d824481f1',
+      })
+      + ', methods: { getIfUsername: function() { return true; } } })</script>',
+  };
+}
+
 function fakeClient(html, opts = {}) {
   const calls = [];
   let current = html;
   const decode = (v) => Buffer.from(v, 'base64').toString('utf8');
+  // Default: the user already has a Full access record, so tests that
+  // are about the user form are unaffected by the permissions step.
+  const perm = Object.assign(
+    { username: 'maria@firm.ph', access: 'Full access', ignoreWrites: false },
+    opts.permissions || {});
+  const pages = permissionsPages(perm);
+
+  // Tabs state, mutated by a successful post so the read-back sees it.
+  const tabs = Object.assign({
+    BankAndCashAccounts: false, Receipts: false, Payments: false,
+    InterAccountTransfers: false, BankReconciliations: false, ExpenseClaims: false,
+    Customers: false, SalesQuotes: false, SalesOrders: false, SalesInvoices: false,
+    CreditNotes: false, LatePaymentFees: false, BillableTime: false,
+    WithholdingTaxReceipts: false, DeliveryNotes: false, Suppliers: false,
+    PurchaseQuotes: false, PurchaseOrders: false, PurchaseInvoices: false,
+    DebitNotes: false, GoodsReceipts: false, Projects: false, InventoryItems: false,
+    InventoryTransfers: false, InventoryWriteOffs: false, ProductionOrders: false,
+    Employees: false, Payslips: false, Investments: false, FixedAssets: false,
+    DepreciationEntries: false, IntangibleAssets: false, AmortizationEntries: false,
+    CapitalAccounts: false, SpecialAccounts: false, Folders: false,
+    id: 'ac789d1f-034f-4964-a8b5-ebfffc3511f2',
+  }, opts.tabs || {});
+  const tabsForm = () => '<div id="v-model-form"></div><script>app = new Vue({ el: "#v-model-form", data: '
+    + JSON.stringify(tabs) + ', methods: {} })</script>';
   return {
     calls,
-    get: async (p) => { calls.push(['get', p]); return { status: 200, body: current }; },
+    pages,
+    permissionState: perm,
+    tabState: tabs,
+    get: async (p) => {
+      calls.push(['get', p]);
+      if (p.indexOf('/settings?') === 0) return { status: 200, body: pages.settings() };
+      if (p.indexOf('/user-permissions?') === 0) return { status: 200, body: pages.list() };
+      if (p.indexOf('/user-permissions-form?') === 0) return { status: 200, body: pages.form() };
+      if (p.indexOf('/tabs-form?') === 0) {
+        if (opts.tabsFormStatus) return { status: opts.tabsFormStatus, body: '' };
+        return { status: 200, body: tabsForm() };
+      }
+      return { status: 200, body: current };
+    },
+    postMultipart: async (p, f) => {
+      calls.push(['postMultipart', p, f]);
+      const model = JSON.parse(f['febb4049-dcdb-4c7a-a395-4b71da72a85b']);
+      if (p.indexOf('/tabs-form?') === 0) {
+        if (opts.tabsPostStatus) return { status: opts.tabsPostStatus, body: '' };
+        if (!opts.tabsIgnoreWrites) Object.assign(tabs, model);
+        return { status: 200, body: '' };
+      }
+      if (opts.permissionPostStatus) return { status: opts.permissionPostStatus, body: '' };
+      if (!perm.ignoreWrites) {
+        perm.username = model.Username;
+        perm.access = model.AccessType === 1 ? 'Full access' : 'Custom access';
+      }
+      return { status: 200, body: '' };
+    },
     postForm: async (p, f) => {
       calls.push(['postForm', p, f]);
       if (opts.postStatus) return { status: opts.postStatus, body: '' };
@@ -318,6 +410,214 @@ test('setPassword: refuses an empty password rather than blanking it', async () 
 });
 
 // ── encoding ─────────────────────────────────────────────────────
+// ── the second half of a grant: Full access inside the business ──
+//
+// Linking the business only decides WHICH books open. Without a User
+// Permissions record set to Full access, the staff member signs in,
+// sees the client listed, and cannot work in it — which is how this
+// gap was found in production.
+
+const lastMultipart = (c) => c.calls.filter((x) => x[0] === 'postMultipart').pop();
+const postedModel = (c) => JSON.parse(lastMultipart(c)[2]['febb4049-dcdb-4c7a-a395-4b71da72a85b']);
+
+test('grantAccess sets Full access, not just the business link', async () => {
+  const client = fakeClient(userFormHtml([]), { permissions: { access: 'Custom access' } });
+  const res = await D.createDriver({ client })
+    .grantAccess({ managerUserRef: 'maria@firm.ph', businessName: 'TALLO-0001 Acme' });
+
+  assert.equal(res.granted, true);
+  assert.equal(res.accessType, 'Full access');
+  assert.equal(postedModel(client).AccessType, 1);
+  assert.equal(client.permissionState.access, 'Full access');
+});
+
+test('grantAccess creates the permission record when the user has none', async () => {
+  const client = fakeClient(userFormHtml([]), { permissions: { access: null } });
+  const res = await D.createDriver({ client })
+    .grantAccess({ managerUserRef: 'maria@firm.ph', businessName: 'TALLO-0001 Acme' });
+
+  assert.equal(res.permissionCreated, true);
+  // It must go through the New link, not an Edit link that isn't there.
+  assert.equal(lastMultipart(client)[1], client.pages.newHref);
+  assert.equal(postedModel(client).Username, 'maria@firm.ph');
+});
+
+test('grantAccess edits the existing record rather than adding a second', async () => {
+  const client = fakeClient(userFormHtml([]), { permissions: { access: 'Custom access' } });
+  const res = await D.createDriver({ client })
+    .grantAccess({ managerUserRef: 'maria@firm.ph', businessName: 'TALLO-0001 Acme' });
+
+  assert.equal(res.permissionCreated, false);
+  assert.equal(lastMultipart(client)[1], client.pages.editHref);
+});
+
+test('the posted model keeps the fields we did not mean to change', async () => {
+  // The post is the record's COMPLETE new state, so a model missing `id`
+  // or Namespaces would blank them.
+  const client = fakeClient(userFormHtml([]), { permissions: { access: 'Custom access' } });
+  await D.createDriver({ client })
+    .grantAccess({ managerUserRef: 'maria@firm.ph', businessName: 'TALLO-0001 Acme' });
+
+  const model = postedModel(client);
+  assert.equal(model.id, '019f834c-1e46-7150-9fca-ae9d824481f1');
+  assert.deepEqual(model.Namespaces, {});
+  assert.deepEqual(model.BankAndCashAccounts, []);
+  assert.equal(model.FullAccess, true);
+});
+
+test('a grant that Manager silently ignores fails instead of reporting success', async () => {
+  // The failure that matters most: the portal would show a green tick
+  // over books the staff member cannot use.
+  const client = fakeClient(userFormHtml([]), {
+    permissions: { access: 'Custom access', ignoreWrites: true },
+  });
+  await assert.rejects(
+    () => D.createDriver({ client })
+      .grantAccess({ managerUserRef: 'maria@firm.ph', businessName: 'TALLO-0001 Acme' }),
+    /left maria@firm\.ph on "Custom access" instead of Full access/,
+  );
+});
+
+test('a rejected permissions post surfaces as an error so the job retries', async () => {
+  const client = fakeClient(userFormHtml([]), {
+    permissions: { access: 'Custom access' }, permissionPostStatus: 500,
+  });
+  await assert.rejects(
+    () => D.createDriver({ client })
+      .grantAccess({ managerUserRef: 'maria@firm.ph', businessName: 'TALLO-0001 Acme' }),
+    /permissions form rejected/,
+  );
+});
+
+test('a grant is idempotent — a retry on Full access changes nothing', async () => {
+  const client = fakeClient(userFormHtml([]), { permissions: { access: 'Full access' } });
+  const res = await D.createDriver({ client })
+    .grantAccess({ managerUserRef: 'maria@firm.ph', businessName: 'TALLO-0001 Acme' });
+
+  assert.equal(res.accessType, 'Full access');
+  assert.equal(client.permissionState.access, 'Full access');
+});
+
+test('no URL the driver requests ever carries the delete flag', async () => {
+  // Field 250 = 1 is Delete, and Update/Delete differ by that one bit.
+  // The driver builds only the business-name key and follows Manager's
+  // own hrefs, so no request should decode to a set delete flag.
+  const client = fakeClient(userFormHtml([]), { permissions: { access: 'Custom access' } });
+  await D.createDriver({ client })
+    .grantAccess({ managerUserRef: 'maria@firm.ph', businessName: 'TALLO-0001 Acme' });
+
+  const built = client.calls
+    .map((c) => String(c[1]))
+    .filter((p) => p.indexOf('/settings?') === 0);
+  assert.ok(built.length > 0, 'expected the driver to build at least one key itself');
+  built.forEach((p) => {
+    const buf = Buffer.from(p.split('?')[1], 'base64url');
+    // 0xd0 0x0f is the tag for field 250; the byte after it is the flag.
+    for (let i = 0; i < buf.length - 2; i++) {
+      if (buf[i] === 0xd0 && buf[i + 1] === 0x0f) {
+        assert.equal(buf[i + 2], 0, 'delete flag set in a key the driver built: ' + p);
+      }
+    }
+  });
+});
+
+test('revokeAccess leaves the permission record alone', async () => {
+  // Deleting it would mean building a delete-flagged key. The Businesses
+  // multi-select is the gate, so an orphaned record grants nothing.
+  const client = fakeClient(userFormHtml(['TALLO-0001 Acme']), {
+    permissions: { access: 'Full access' },
+  });
+  await D.createDriver({ client })
+    .revokeAccess({ managerUserRef: 'maria@firm.ph', businessName: 'TALLO-0001 Acme' });
+
+  assert.equal(lastMultipart(client), undefined, 'revoke should not touch the permissions form');
+  assert.deepEqual(lastPost(client)[2].Businesses, []);
+});
+
+// ── Tabs: making a new client's books usable on arrival ──────────
+
+const T = require('../server/manager-tabs.js');
+
+test('configureTabs turns on all nine the firm works in', async () => {
+  const client = fakeClient(userFormHtml([]));
+  const res = await D.createDriver({ client }).configureTabs({ businessName: 'TALLO-0001 Acme' });
+
+  assert.equal(res.alreadyConfigured, false);
+  assert.equal(res.tabsEnabled.length, 9);
+  T.REQUIRED_TABS.forEach((tab) => assert.equal(client.tabState[tab], true, tab));
+});
+
+test('configureTabs is additive — it never switches a tab off', async () => {
+  // A client had Fixed Assets turned on by hand. A retry must not undo
+  // it, which is the whole reason this step only ever ticks.
+  const client = fakeClient(userFormHtml([]), {
+    tabs: { FixedAssets: true, DepreciationEntries: true },
+  });
+  await D.createDriver({ client }).configureTabs({ businessName: 'TALLO-0001 Acme' });
+
+  assert.equal(client.tabState.FixedAssets, true);
+  assert.equal(client.tabState.DepreciationEntries, true);
+  assert.equal(client.tabState.InventoryItems, false, 'unrelated tabs stay off');
+});
+
+test('configureTabs skips the write when the books are already right', async () => {
+  const already = {};
+  T.REQUIRED_TABS.forEach((t) => { already[t] = true; });
+  const client = fakeClient(userFormHtml([]), { tabs: already });
+  const res = await D.createDriver({ client }).configureTabs({ businessName: 'TALLO-0001 Acme' });
+
+  assert.equal(res.alreadyConfigured, true);
+  assert.equal(client.calls.filter((c) => c[0] === 'postMultipart').length, 0,
+    'a no-op retry should not write, so the books\' History stays clean');
+});
+
+test('a tab change Manager silently ignores fails instead of reporting done', async () => {
+  const client = fakeClient(userFormHtml([]), { tabsIgnoreWrites: true });
+  await assert.rejects(
+    () => D.createDriver({ client }).configureTabs({ businessName: 'TALLO-0001 Acme' }),
+    /did not enable .*Payslips/,
+  );
+});
+
+test('a rejected Tabs post surfaces as an error so the job retries', async () => {
+  const client = fakeClient(userFormHtml([]), { tabsPostStatus: 500 });
+  await assert.rejects(
+    () => D.createDriver({ client }).configureTabs({ businessName: 'TALLO-0001 Acme' }),
+    /Tabs form rejected/,
+  );
+});
+
+test('a missing Customize link is an error, not a silent no-op', async () => {
+  const client = fakeClient(userFormHtml([]));
+  const plain = client.get;
+  client.get = async (p) => (p.indexOf('/settings?') === 0
+    ? { status: 200, body: '<a href="/summary-view?x">Summary</a>' }
+    : plain(p));
+  await assert.rejects(
+    () => D.createDriver({ client }).configureTabs({ businessName: 'TALLO-0001 Acme' }),
+    /no Customize \(Tabs\) link/,
+  );
+});
+
+test('configureTabs posts the whole model, not just the nine', async () => {
+  // Manager treats the post as the record's complete new state, so a
+  // partial model would blank every tab it omitted.
+  const client = fakeClient(userFormHtml([]), { tabs: { Projects: true } });
+  await D.createDriver({ client }).configureTabs({ businessName: 'TALLO-0001 Acme' });
+
+  const sent = JSON.parse(lastMultipart(client)[2]['febb4049-dcdb-4c7a-a395-4b71da72a85b']);
+  assert.equal(Object.keys(sent).length, 37, 'all 36 tabs plus id');
+  assert.equal(sent.id, 'ac789d1f-034f-4964-a8b5-ebfffc3511f2');
+  assert.equal(sent.Projects, true);
+});
+
+test('configureTabs rejects an empty business name rather than guessing', async () => {
+  await assert.rejects(
+    () => D.createDriver({ client: fakeClient(userFormHtml([])) }).configureTabs({ businessName: '' }),
+    /businessName is required/,
+  );
+});
+
 test('businessOptionValue: base64 of the name, matching Manager option values', () => {
   // Verified against a live /user-form: "Demo Business" -> RGVtbyBCdXNpbmVzcw==
   assert.equal(businessOptionValue('Demo Business'), 'RGVtbyBCdXNpbmVzcw==');

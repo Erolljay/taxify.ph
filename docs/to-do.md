@@ -52,9 +52,28 @@ external addresses. 310 tests.
       email arrives → password + pairing handed over → sign in → grant → chip goes
       live → remove → access stripped in Books. Every piece has now been seen
       working individually; the full sequence has not.
-- [ ] *(later)* Move grant/revoke to api2's `user-permissions-form` if the session
-      path proves fragile. The token is already in `provisioner.env` and works; its
-      request shape is unknown, and learning it means writing to live books.
+- [x] **Grant + tab-configure verified live** — DONE 2026-07-21 against `Test-Business-1`
+      with `idetayson@tallocpa.com`, run from the server with `provisioner.env`.
+      Confirmed: both sidebar links found; tabs went 0 → the nine (27 left untouched);
+      the permission record was **created** (a fresh business has none, which is the
+      original bug); access read back as Full; the user went 16 → 17 businesses with
+      MFA intact. Re-run was clean — tabs skipped the write entirely
+      (`alreadyConfigured`), the grant edited rather than duplicating, count held at 17.
+      Additive behaviour confirmed live too: a hand-enabled Fixed Assets survived a
+      subsequent run.
+- [x] **Tabs on a new business** — DONE 2026-07-21. `configure_tabs`, queued beside
+      `create_business`, turns on the nine the firm works in (Bank and Cash Accounts,
+      Receipts, Payments, Customers, Sales Invoices, Suppliers, Purchase Invoices,
+      Employees, Payslips). **Additive only** — it never unticks, so a retry cannot
+      undo a tab enabled by hand for a client. Journal Entries has no checkbox;
+      Manager always shows it. See `server/manager-tabs.js`.
+- [x] **`user-permissions-form` request shape** — LEARNED 2026-07-21, no longer a
+      guess. It is a Vue form: the whole model goes back as JSON in one multipart
+      field (`febb4049-…`, hardcoded in Manager's `form.js`), `AccessType` 1 = Full,
+      0 = Custom. URL keys are a multi-field protobuf envelope where **field 250 is a
+      delete flag** — Update and Delete differ by that one bit, so the driver builds
+      only the business-name key and follows Manager's own hrefs for records.
+      See `server/manager-permissions.js`.
 - [ ] *(later)* Two `.bak` files on the server are **unreadable** (copied from a
       WAL-mode database with `cp`). Worth deleting so nobody restores from one
       believing it is real — see the backup note in `instruction.md`.
@@ -365,10 +384,14 @@ clean layout), then build save-reports into that clean structure.
     4. [ ] **Live Playwright selectors** — map the real `books.txform.ph` admin DOM so
        `createUser`/`grantAccess`/`revokeAccess`/`disableUser` stop being stubs (they currently throw
        "not implemented" and `createUser` returns a null ref). Depends on #3. **Model corrected
-       2026-07-20 (PR #40):** there is no per-user permissions page — access is the `Businesses`
-       multi-select on `/user-form?<base64 email>`, whose option values are `base64(businessName)`,
-       so grant and revoke are the same operation (re-open the form, edit the selection, save).
-       Use the `/playwright` skill against a live admin session to pin the selectors.
+       2026-07-20 (PR #40):** access is the `Businesses` multi-select on
+       `/user-form?<base64 email>`, whose option values are `base64(businessName)`, so grant and
+       revoke are the same operation (re-open the form, edit the selection, save).
+       **Corrected again 2026-07-21:** that is only half of it. The `Businesses` select decides
+       *which* books open; each business also keeps its own **User Permissions** record
+       (Settings → User Permissions) whose `Access type` decides what the user may *do* inside.
+       Linking without setting Full access leaves staff able to see a client and not work in it.
+       `grantAccess` now does both and verifies both.
     5. [ ] **Plan-status enforcement (expiry ladder)** — enforce `account.status`
        (active → grace → suspended → cancelled) on `verifyLink`/`/me` and in `entitlement.php`; wire
        `current_period_end` / `grace_until`. Nothing blocks a lapsed account today. (Couples with Phase 3 webhooks.)

@@ -14,6 +14,7 @@
 
    Driver interface (all async, may throw):
      createBusiness({ businessName })
+     configureTabs({ businessName })
      createUser({ email })            -> { managerUserRef }
      grantAccess({ managerUserRef, businessName })
      revokeAccess({ managerUserRef, businessName })
@@ -73,6 +74,17 @@ async function dispatch(db, job, driver) {
     db.prepare('UPDATE businesses SET manager_created_at = ? WHERE id = ?')
       .run(new Date(Date.now()).toISOString(), biz.id);
     return r || {};
+  }
+
+  // Turn on the tabs the firm works in, so a new client's books are
+  // usable without a round of manual ticking. Queued alongside
+  // create_business and ordered behind it by the same retry mechanism as
+  // everything else: no books yet means throw, and try again next tick.
+  if (job.type === 'configure_tabs') {
+    const biz = db.prepare('SELECT id, manager_business_name, manager_created_at FROM businesses WHERE id = ?').get(job.business_id);
+    if (!biz) throw new Error('business not found');
+    if (!biz.manager_created_at) throw new Error('business not created in Manager yet');
+    return driver.configureTabs({ businessName: biz.manager_business_name });
   }
 
   // Create the Manager login. The password is generated HERE, not in the
