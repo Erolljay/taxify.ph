@@ -234,6 +234,42 @@ test('createUser: makes a RESTRICTED user with no businesses yet', () => {
   });
 });
 
+test('createUser: posts the secret Books minted, not a boolean', async () => {
+  // The MFA checkbox value IS a freshly-generated TOTP secret. Posting
+  // 'on' is not something Books can parse, so it silently creates the
+  // user with MFA off — which is exactly what shipped and was caught in
+  // real use.
+  const client = fakeClient(userFormHtml([], 'minted-secret-123'));
+  await D.createDriver({ client }).createUser({ email: 'jun@firm.ph', password: 'pw' });
+  const fields = lastPost(client)[2];
+  assert.equal(fields.MultifactorAuthentication, 'minted-secret-123');
+  assert.notEqual(fields.MultifactorAuthentication, 'on');
+});
+
+test('createUser: reads the blank form BEFORE posting, to get that secret', async () => {
+  const client = fakeClient(userFormHtml([], 'minted-secret-123'));
+  await D.createDriver({ client }).createUser({ email: 'jun@firm.ph', password: 'pw' });
+  const firstGet = client.calls.findIndex((c) => c[0] === 'get');
+  const firstPost = client.calls.findIndex((c) => c[0] === 'postForm');
+  assert.ok(firstGet >= 0 && firstGet < firstPost, 'must fetch the form first');
+});
+
+test('createUser: enableMfa false skips the field entirely', async () => {
+  const client = fakeClient(userFormHtml([], 'minted-secret-123'));
+  await D.createDriver({ client }).createUser({ email: 'jun@firm.ph', password: 'pw', enableMfa: false });
+  assert.equal(lastPost(client)[2].MultifactorAuthentication, undefined);
+});
+
+test('createUser: refuses rather than quietly creating a user with no second factor', async () => {
+  // If Books stops offering the field, failing loudly beats provisioning
+  // staff who can reach client books with a password alone.
+  const client = fakeClient('<form><input name="Username" value="" /></form>');
+  await assert.rejects(
+    () => D.createDriver({ client }).createUser({ email: 'jun@firm.ph', password: 'pw' }),
+    /cannot enable MFA/
+  );
+});
+
 test('createBusiness / createUser reject empty input instead of creating junk', async () => {
   const d = D.createDriver({ client: fakeClient(userFormHtml([])) });
   await assert.rejects(() => d.createBusiness({ businessName: '' }), /required/);

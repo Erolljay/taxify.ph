@@ -194,7 +194,7 @@ function inviteStaff(db, input, deps) {
   const now = deps.now();
   const s = loadSession(db, input.cookie, now);
   if (!s) return { status: 401, json: { error: 'not signed in' } };
-  const account = db.prepare('SELECT id, seats_limit FROM account WHERE id = ?').get(s.account_id);
+  const account = db.prepare('SELECT id, seats_limit, firm_name FROM account WHERE id = ?').get(s.account_id);
   const authz = A.authorizeOwnerAction({ role: s.role, account_id: s.account_id, expires_at: s.expires_at }, account, now);
   if (!authz.ok) return { status: 403, json: { error: authz.reason } };
 
@@ -245,6 +245,28 @@ function inviteStaff(db, input, deps) {
 
   db.prepare('INSERT INTO audit_log (account_id, actor, action, target) VALUES (?,?,?,?)')
     .run(s.account_id, s.email, 'invite_' + role, 'user:' + userId + ' ' + email);
+
+  // Tell them they exist. Without this the invite is silent: the row is
+  // created, the robot provisions them, and nobody ever informs the
+  // person. Carries no link and no password — see inviteContent.
+  //
+  // Fire-and-forget, like the sign-in mail: a mail outage must not fail
+  // the invite, because the account and its provisioning are already
+  // committed and re-inviting is a no-op that would send nothing.
+  if (deps.sendEmail) {
+    try {
+      deps.sendEmail({
+        to: email,
+        kind: 'invite',
+        role: role,
+        firmName: account.firm_name || null,
+        portalUrl: deps.portalUrl || ((deps.baseUrl || 'https://txform.ph') + '/account'),
+      });
+    } catch (e) {
+      console.error('[invite] could not send to', email, '-', e.message);
+    }
+  }
+
   return { status: 201, json: { ok: true, userId: userId, role: role } };
 }
 

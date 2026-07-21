@@ -94,6 +94,82 @@ function buildMessage(opts) {
 }
 
 // The sign-in email copy. Pure so the wording stays under test.
+// "Your firm added you" — sent once, when an owner invites someone.
+//
+// Deliberately carries NO sign-in link. Login tokens last 15 minutes, so
+// an invite opened the next morning would be a dead link and a support
+// call; pointing at the portal instead can never go stale. It also means
+// the email holds no credential at all.
+//
+// And never the Books password. That is shown once to the owner in the
+// portal, for them to pass on however they already talk to their staff —
+// email keeps a working credential in a mailbox indefinitely, which for
+// a system holding clients' financial records is the control an auditor
+// would ask about first.
+function inviteContent(opts) {
+  const firm = (opts && opts.firmName) || 'your firm';
+  const portal = (opts && opts.portalUrl) || 'https://txform.ph/account';
+  const isClient = opts && opts.role === 'client';
+
+  const subject = isClient
+    ? firm + ' has shared your books on Txform.ph'
+    : 'You have been added to ' + firm + ' on Txform.ph';
+
+  const what = isClient
+    ? 'You can see your own filed BIR returns and what is due. It is read-only —\nyour accountant does the filing.'
+    : 'You will be able to open the client books you have been given access to,\nand prepare and file their BIR returns.';
+
+  // Books requires a second factor. Enrolment happens on the user's first
+  // sign-in, and step 2 is the one that silently breaks it: pressing
+  // Update re-mints the secret, so the QR just scanned stops matching and
+  // every code is rejected with nothing explaining why.
+  const mfaSteps = [
+    'Setting up your authenticator (first Books sign-in)',
+    '---------------------------------------------------',
+    'The first time you sign in to the books, you will be shown a QR code.',
+    '',
+    '  1. Scan it with an authenticator app — Google Authenticator, Microsoft',
+    '     Authenticator and Authy all work.',
+    '  2. Once it has been scanned, DO NOT press Update.',
+    '  3. Log out, then log back in.',
+    '  4. Enter the 6-digit code from your authenticator app.',
+    '',
+    'Step 2 matters: pressing Update issues a new QR code and the one you just',
+    'scanned stops working, so your codes would be rejected. If that happens,',
+    'delete the entry from your app and ask your firm owner to reset it.',
+    '',
+    'After that, every sign-in asks for a code from the app.',
+    '',
+  ];
+
+  const text = [
+    'Hi,',
+    '',
+    firm + ' has added you to Txform.ph.',
+    '',
+    what,
+    '',
+    'To sign in, go to:',
+    '',
+    portal,
+    '',
+    'Enter this email address and we will send you a one-time sign-in link.',
+    'There is no password to remember.',
+    '',
+    isClient
+      ? 'Your firm will send you the separate credentials for the books themselves.'
+      : 'Your firm owner will give you your Books sign-in separately — we never send\npasswords by email.',
+    '',
+    // Clients never sign in to the books, so pairing does not apply to them.
+    ...(isClient ? [] : mfaSteps),
+    "If you were not expecting this, you can ignore this email — you will not be\nable to sign in unless someone at " + firm + ' added you.',
+    '',
+    '— Txform.ph',
+  ].join('\n');
+
+  return { subject, text };
+}
+
 function magicLinkContent(link) {
   const subject = 'Your Txform.ph sign-in link';
   const text = [
@@ -254,7 +330,9 @@ function makeMailer(config) {
   const envelopeFrom = addressOnly(from);
   return function sendEmail(m) {
     const to = oneLine(m.to);
-    const { subject, text } = magicLinkContent(m.link);
+    // Two kinds of mail now. Anything without an explicit kind is a
+    // sign-in link, keeping the original contract for existing callers.
+    const { subject, text } = m.kind === 'invite' ? inviteContent(m) : magicLinkContent(m.link);
     const message = buildMessage({ from: from, to: to, subject: subject, text: text });
     return sendMail(config, { from: envelopeFrom, to: to }, message)
       .catch((err) => { console.error('[mailer] send to', to, 'failed:', err.message); });
@@ -262,6 +340,6 @@ function makeMailer(config) {
 }
 
 module.exports = {
-  buildMessage, magicLinkContent, dotStuff, addressOnly, encodeHeader, rfc5322Date,
+  buildMessage, magicLinkContent, inviteContent, dotStuff, addressOnly, encodeHeader, rfc5322Date,
   createClient, session, sendMail, makeMailer,
 };

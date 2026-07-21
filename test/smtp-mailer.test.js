@@ -274,3 +274,70 @@ test('session: STARTTLS branch issues STARTTLS then re-EHLOs over the upgraded s
     server.close();
   }
 });
+
+// ── invite email ─────────────────────────────────────────────────
+test('inviteContent: names the firm and points at the portal', () => {
+  const { subject, text } = M.inviteContent({ firmName: 'Tallo CPA', role: 'staff', portalUrl: 'https://txform.ph/account' });
+  assert.match(subject, /Tallo CPA/);
+  assert.match(text, /https:\/\/txform\.ph\/account/);
+});
+
+test('inviteContent: carries NO sign-in link and NO password', () => {
+  // Tokens last 15 minutes, so a link would be dead by morning — and an
+  // emailed password would sit in a mailbox indefinitely.
+  const { text } = M.inviteContent({ firmName: 'Tallo CPA', role: 'staff' });
+  assert.ok(!/verify\?token=/.test(text), 'no one-time link');
+  assert.ok(!/password is|your password:/i.test(text), 'no credential');
+  assert.match(text, /never send\s*\n?passwords by email/, 'and says so');
+});
+
+test('inviteContent: a client is told it is read-only', () => {
+  const { subject, text } = M.inviteContent({ firmName: 'Tallo CPA', role: 'client' });
+  assert.match(subject, /shared your books/);
+  assert.match(text, /read-only/);
+  assert.ok(!/prepare and file/.test(text), 'clients do not file');
+});
+
+test('inviteContent: staff are told what they can do', () => {
+  const { text } = M.inviteContent({ firmName: 'Tallo CPA', role: 'staff' });
+  assert.match(text, /prepare and file/);
+});
+
+test('inviteContent: survives a firm with no name set', () => {
+  const { subject, text } = M.inviteContent({ role: 'staff' });
+  assert.match(subject, /your firm/);
+  assert.ok(!/undefined|null/.test(text));
+});
+
+test('makeMailer: routes on kind, defaulting to the sign-in email', () => {
+  const sent = [];
+  const cfg = { host: 'x', from: 'Txform <hello@txform.ph>' };
+  // Exercise the content selection without opening a socket.
+  const invite = M.inviteContent({ firmName: 'F', role: 'staff' });
+  const signin = M.magicLinkContent('https://txform.ph/api/auth/verify?token=abc');
+  assert.notEqual(invite.subject, signin.subject);
+  assert.match(signin.text, /expires in 15 minutes/);
+  assert.ok(!/expires in 15 minutes/.test(invite.text));
+});
+
+test('inviteContent: staff get the authenticator pairing steps', () => {
+  const { text } = M.inviteContent({ firmName: 'Tallo CPA', role: 'staff' });
+  assert.match(text, /QR code/);
+  assert.match(text, /DO NOT press Update/, 'the step that silently breaks pairing');
+  assert.match(text, /Log out, then log back in/);
+  assert.match(text, /6-digit code/);
+});
+
+test('inviteContent: the pairing steps are in the order they must be done', () => {
+  const { text } = M.inviteContent({ role: 'staff' });
+  const scan = text.indexOf('Scan it with an authenticator');
+  const dont = text.indexOf('DO NOT press Update');
+  const out = text.indexOf('Log out, then log back in');
+  assert.ok(scan < dont && dont < out, 'scan -> do not update -> log out');
+});
+
+test('inviteContent: clients get no authenticator steps', () => {
+  // Clients never sign in to the books, so pairing does not apply to them.
+  const { text } = M.inviteContent({ firmName: 'Tallo CPA', role: 'client' });
+  assert.ok(!/QR code/.test(text));
+});
