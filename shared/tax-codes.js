@@ -63,8 +63,8 @@ function buildTaxCodeTemplates() {
   { Name: 'WC640 – Govt/GOCC goods (1%)',          Label: 'Non-Individual – Govt/GOCC goods',     birRate: 1.0,  managerRate: 100, group: 'EWT' },
 
   // ── GROUP 3: EWT / CWT GOVERNMENT WITHHELD ───────────────
-  { Name: 'WV012 – Govt WHT VAT Goods (5%)',       Label: 'Final withholding VAT on goods',       birRate: 5.0, managerRate: 100, group: 'GOVT' },
-  { Name: 'WV022 – Govt WHT VAT Services (5%)',    Label: 'Final withholding VAT on services',    birRate: 5.0, managerRate: 100, group: 'GOVT' },
+  { Name: 'WV010 – Govt WHT VAT Goods (5%)',       Label: 'Final withholding VAT on goods',       birRate: 5.0, managerRate: 100, group: 'GOVT' },
+  { Name: 'WV020 – Govt WHT VAT Services (5%)',    Label: 'Final withholding VAT on services',    birRate: 5.0, managerRate: 100, group: 'GOVT' },
   { Name: 'WB080 – Govt WHT Percentage Tax (3%)',  Label: 'Sec. 109BB percentage tax',            birRate: 3.0, managerRate: 100, group: 'GOVT' },
 
   // ── GROUP 4: FINAL WITHHOLDING TAX ───────────────────────
@@ -107,8 +107,8 @@ const VAT_CATEGORIES = [
   { key: 'purch_services', label: 'Input VAT 12% – Services',          side: 'purchase', rate: 12.0 },
   { key: 'purch_zero',     label: 'Zero-Rated Purchases',              side: 'purchase', rate: 0    },
   { key: 'purch_exempt',   label: 'VAT Exempt Purchases',              side: 'purchase', rate: 0    },
-  { key: 'govt_wv012',     label: 'Govt Withholding VAT – Goods (WV012)',    side: 'sales', rate: 5.0 },
-  { key: 'govt_wv022',     label: 'Govt Withholding VAT – Services (WV022)', side: 'sales', rate: 5.0 },
+  { key: 'govt_wv010',     label: 'Govt Withholding VAT – Goods (WV010)',    side: 'sales', rate: 5.0 },
+  { key: 'govt_wv020',     label: 'Govt Withholding VAT – Services (WV020)', side: 'sales', rate: 5.0 },
 ];
 
 // ── BIR category → exact Manager tax code Name (from TAX_CODE_TEMPLATES) ──
@@ -121,8 +121,8 @@ const VAT_CATEGORY_TC_NAME = {
   purch_services:  'Input VAT 12% (Services)',
   purch_zero:      'Zero-Rated Purchases',
   purch_exempt:    'VAT Exempt Purchases',
-  govt_wv012:      'WV012 – Govt WHT VAT Goods (5%)',
-  govt_wv022:      'WV022 – Govt WHT VAT Services (5%)',
+  govt_wv010:      'WV010 – Govt WHT VAT Goods (5%)',
+  govt_wv020:      'WV020 – Govt WHT VAT Services (5%)',
 };
 
 // Fetch this business's Manager tax codes as [{ key, name, rate }]
