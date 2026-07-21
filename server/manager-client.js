@@ -154,9 +154,30 @@ function createClient(opts) {
   }
 
   // Did this response mean "your session is gone"?
+  //
+  // Books does NOT redirect an unauthenticated request to /login — it
+  // sends it to the site root, as an ABSOLUTE url:
+  //
+  //   GET /user-form  ->  302  Location: http://127.0.0.1:5000/
+  //
+  // An earlier version only matched a relative '/login' prefix, so it
+  // never recognised the real thing. The client then failed to
+  // re-authenticate and reported the redirect as a mystery — a live
+  // offboarding job burned all its retries on
+  // "could not open the user form (http 302)" and left someone's access
+  // in place, which is the one direction that must not fail quietly.
+  //
+  // Matched on the PATH, so the host and scheme are irrelevant.
   function isSignedOut(res) {
     if (res.status === 401) return true;
-    return res.status === 302 && typeof res.location === 'string' && res.location.indexOf('/login') === 0;
+    if (res.status !== 302 || typeof res.location !== 'string') return false;
+    let path;
+    try {
+      path = new URL(res.location, base).pathname;
+    } catch (e) {
+      path = res.location;
+    }
+    return path === '/' || path.indexOf('/login') === 0;
   }
 
   // Every authenticated call goes through here: run it, and if the
@@ -188,6 +209,7 @@ function createClient(opts) {
     postJson: function (path, obj) { return request('POST', path, { json: obj }); },
     // exposed for tests / diagnostics only
     _jar: function () { return Object.assign({}, jar); },
+    _isSignedOut: isSignedOut,
   };
 }
 
