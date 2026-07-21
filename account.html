@@ -83,6 +83,18 @@
       user-select:all; word-break:break-all; }
     .handover .note { margin-top:0; color:var(--warn-fg); opacity:.85; }
     .handover-actions { display:flex; gap:8px; }
+
+    /* Authenticator steps, handed over with the password. The numbers must
+       actually render — the warning underneath refers to "step 4". */
+    details.pairing { margin-top:4px; }
+    details.pairing summary { cursor:pointer; font-size:13px; font-weight:600; color:var(--warn-fg); }
+    details.pairing ol { margin:10px 0 6px; padding-left:22px; font-size:13.5px; color:var(--ink2); }
+    /* `ul.rows li` is a descendant selector, so it also matches these
+       nested list items and makes them flex — and a flex item renders no
+       list marker. Put them back to list-item or the numbers vanish. */
+    details.pairing ol li { display:list-item; list-style:decimal; margin:0 0 6px;
+      padding:0 0 0 2px; border:none; gap:0; }
+    details.pairing .note { margin-bottom:10px; }
     .handover-actions button { font-size:13px; padding:6px 13px; }
 
     form.inline { display:flex; gap:8px; margin-top:16px; flex-wrap:wrap; align-items:center; }

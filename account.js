@@ -473,8 +473,49 @@ function passwordRow(u) {
   pw.textContent = u.initialPassword;
 
   const note = el('div', 'note');
-  note.textContent = 'Shown once. Give it to them directly — do not email it. '
-    + 'They will be asked to set up an authenticator app the first time they sign in to the books.';
+  note.textContent = 'Shown once. Give it to them directly — do not email it.';
+
+  // The pairing steps live here, beside the password, rather than in the
+  // invite email. Two reasons: they are needed sitting in front of Books,
+  // not days earlier in an inbox — and an email full of QR codes, 6-digit
+  // codes and "ignore the security warning" reads exactly like phishing,
+  // which is why the long version was never delivered to an external
+  // address while the short sign-in mail always arrived.
+  const steps = el('details', 'pairing');
+  const sum = document.createElement('summary');
+  sum.textContent = 'Authenticator setup — send these steps with the password';
+  const list = document.createElement('ol');
+  [
+    'Sign in to the books; a QR code is shown.',
+    'Scan it with an authenticator app (Google Authenticator, Microsoft Authenticator or Authy).',
+    'Type the 6-digit code and press Update.',
+    'It will say "invalid authentication code" — ignore it, the pairing was saved.',
+    'Log out, then log back in and enter the current 6-digit code.',
+  ].forEach((t) => {
+    const li2 = document.createElement('li');
+    li2.textContent = t;
+    list.append(li2);
+  });
+  const warn = el('div', 'note');
+  warn.textContent = 'Step 4 is a quirk of the books software. Do not rescan or start over — '
+    + 'that replaces the pairing and their codes will stop working.';
+
+  const copySteps = document.createElement('button');
+  copySteps.type = 'button';
+  copySteps.className = 'ghost';
+  copySteps.textContent = 'Copy steps';
+  copySteps.addEventListener('click', async () => {
+    const text = [...list.querySelectorAll('li')].map((n, i) => (i + 1) + '. ' + n.textContent).join('\n')
+      + '\n\n' + warn.textContent;
+    try {
+      await navigator.clipboard.writeText(text);
+      copySteps.textContent = 'Copied';
+    } catch (err) {
+      copySteps.textContent = 'Select the steps above and copy';
+    }
+  });
+
+  steps.append(sum, list, warn, copySteps);
 
   const actions = el('div', 'handover-actions');
   const copy = document.createElement('button');
@@ -503,7 +544,7 @@ function passwordRow(u) {
   done.addEventListener('click', () => onClearPassword(u));
 
   actions.append(copy, done);
-  box.append(head, pw, note, actions);
+  box.append(head, pw, note, actions, steps);
   li.append(box);
   return li;
 }

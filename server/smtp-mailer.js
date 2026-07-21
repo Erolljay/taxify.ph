@@ -95,56 +95,32 @@ function buildMessage(opts) {
 
 // "Your firm added you" — sent once, when an owner invites someone.
 //
-// Deliberately carries NO sign-in link. Login tokens last 15 minutes, so
-// an invite opened the next morning would be a dead link and a support
-// call; pointing at the portal instead can never go stale. It also means
-// the email holds no credential at all.
+// KEPT DELIBERATELY SHORT. An earlier version carried the whole
+// authenticator-pairing walkthrough and was never delivered to an
+// external Gmail address, while the sign-in email to the SAME address
+// arrived every time. Same sender, same domain, same SMTP — the only
+// variable was the body, and that body read exactly like a phishing
+// attempt: added-to-an-account, a link, passwords, QR codes, 6-digit
+// codes, and an instruction to ignore a security warning.
 //
-// And never the Books password. That is shown once to the owner in the
-// portal, for them to pass on however they already talk to their staff —
-// email keeps a working credential in a mailbox indefinitely, which for
-// a system holding clients' financial records is the control an auditor
-// would ask about first.
+// So this now says only what a notification needs to say. The pairing
+// steps live in the portal, next to the one-time password, where the
+// owner passes both to their staff together — which is where they are
+// actually useful, since they are needed sitting in front of Books, not
+// days earlier in an inbox.
+//
+// It carries NO sign-in link (tokens last 15 minutes, so an invite read
+// the next morning would be a dead link) and NO password, ever.
 function inviteContent(opts) {
   const firm = (opts && opts.firmName) || 'your firm';
   const portal = (opts && opts.portalUrl) || 'https://txform.ph/account';
   const isClient = opts && opts.role === 'client';
 
-  const subject = isClient
-    ? firm + ' has shared your books on Txform.ph'
-    : 'You have been added to ' + firm + ' on Txform.ph';
+  const subject = firm + ' has added you on Txform.ph';
 
   const what = isClient
-    ? 'You can see your own filed BIR returns and what is due. It is read-only —\nyour accountant does the filing.'
-    : 'You will be able to open the client books you have been given access to,\nand prepare and file their BIR returns.';
-
-  // Books requires a second factor, enrolled on the user's first sign-in.
-  //
-  // The flow has a quirk worth spelling out: Update reports "invalid
-  // authentication code" even when the pairing has in fact been saved.
-  // Without warning, people assume they mis-scanned and start over —
-  // which re-mints the secret and genuinely breaks it. Verified by hand
-  // against Books 26.7.10.
-  const mfaSteps = [
-    'Setting up your authenticator (first Books sign-in)',
-    '---------------------------------------------------',
-    'The first time you sign in to the books, you will be shown a QR code.',
-    '',
-    '  1. Scan it with an authenticator app — Google Authenticator, Microsoft',
-    '     Authenticator and Authy all work.',
-    '  2. Type the 6-digit code it shows and press Update.',
-    '  3. You will see "invalid authentication code". Ignore it — the pairing',
-    '     has been saved despite the message.',
-    '  4. Log out, then log back in.',
-    '  5. Enter the current 6-digit code from your app. You are in.',
-    '',
-    'Step 3 is a quirk of the books software, not a mistake on your part. Do',
-    'not rescan or start over — that replaces the pairing you just made and',
-    'will genuinely stop your codes working.',
-    '',
-    'After that, every sign-in asks for a code from the app.',
-    '',
-  ];
+    ? 'You can view your filed BIR returns and what is due.'
+    : 'You can now work on the client books you have been given access to.';
 
   const text = [
     'Hi,',
@@ -153,20 +129,17 @@ function inviteContent(opts) {
     '',
     what,
     '',
-    'To sign in, go to:',
+    'To get started, go to:',
     '',
     portal,
     '',
     'Enter this email address and we will send you a one-time sign-in link.',
-    'There is no password to remember.',
     '',
     isClient
-      ? 'Your firm will send you the separate credentials for the books themselves.'
-      : 'Your firm owner will give you your Books sign-in separately — we never send\npasswords by email.',
+      ? firm + ' will be in touch with anything else you need.'
+      : firm + ' will send you the rest of what you need to get set up.',
     '',
-    // Clients never sign in to the books, so pairing does not apply to them.
-    ...(isClient ? [] : mfaSteps),
-    "If you were not expecting this, you can ignore this email — you will not be\nable to sign in unless someone at " + firm + ' added you.',
+    'If you were not expecting this, you can ignore this email.',
     '',
     '— Txform.ph',
   ].join('\n');

@@ -287,20 +287,40 @@ test('inviteContent: carries NO sign-in link and NO password', () => {
   // emailed password would sit in a mailbox indefinitely.
   const { text } = M.inviteContent({ firmName: 'Tallo CPA', role: 'staff' });
   assert.ok(!/verify\?token=/.test(text), 'no one-time link');
-  assert.ok(!/password is|your password:/i.test(text), 'no credential');
-  assert.match(text, /never send\s*\n?passwords by email/, 'and says so');
+  assert.ok(!/password/i.test(text), 'the word password does not appear at all');
 });
 
-test('inviteContent: a client is told it is read-only', () => {
-  const { subject, text } = M.inviteContent({ firmName: 'Tallo CPA', role: 'client' });
-  assert.match(subject, /shared your books/);
-  assert.match(text, /read-only/);
-  assert.ok(!/prepare and file/.test(text), 'clients do not file');
-});
-
-test('inviteContent: staff are told what they can do', () => {
+test('inviteContent: stays SHORT and free of credential vocabulary', () => {
+  // The long version — QR codes, 6-digit codes, "ignore the security
+  // warning" — was never delivered to an external Gmail, while the short
+  // sign-in mail to the same address always arrived. It read like
+  // phishing. Keep it looking like a notification.
   const { text } = M.inviteContent({ firmName: 'Tallo CPA', role: 'staff' });
-  assert.match(text, /prepare and file/);
+  assert.ok(text.split('\n').length < 25, 'a wall of instructions is what got it filtered');
+  ['QR code', 'authenticator', '6-digit', 'invalid authentication', 'Ignore it'].forEach((phrase) => {
+    assert.ok(!new RegExp(phrase, 'i').test(text), 'must not mention: ' + phrase);
+  });
+});
+
+test('inviteContent: points at the portal and says to use this address', () => {
+  const { text } = M.inviteContent({ firmName: 'Tallo CPA', role: 'staff', portalUrl: 'https://txform.ph/account' });
+  assert.match(text, /https:\/\/txform\.ph\/account/);
+  assert.match(text, /one-time sign-in link/);
+});
+
+test('inviteContent: tells them the rest is coming from their firm', () => {
+  // The password and pairing steps travel through the owner, so the email
+  // has to set that expectation or the person is left waiting.
+  assert.match(M.inviteContent({ firmName: 'Tallo CPA', role: 'staff' }).text,
+    /Tallo CPA will send you the rest/);
+  assert.match(M.inviteContent({ firmName: 'Tallo CPA', role: 'client' }).text,
+    /Tallo CPA will be in touch/);
+});
+
+test('inviteContent: a client is told it is a view, not a job', () => {
+  const { text } = M.inviteContent({ firmName: 'Tallo CPA', role: 'client' });
+  assert.match(text, /view your filed BIR returns/);
+  assert.ok(!/work on the client books/.test(text));
 });
 
 test('inviteContent: survives a firm with no name set', () => {
@@ -318,34 +338,6 @@ test('makeMailer: routes on kind, defaulting to the sign-in email', () => {
   assert.notEqual(invite.subject, signin.subject);
   assert.match(signin.text, /expires in 15 minutes/);
   assert.ok(!/expires in 15 minutes/.test(invite.text));
-});
-
-test('inviteContent: staff get the authenticator pairing steps', () => {
-  const { text } = M.inviteContent({ firmName: 'Tallo CPA', role: 'staff' });
-  assert.match(text, /QR code/);
-  assert.match(text, /press Update/);
-  assert.match(text, /Log out, then log back in/);
-  assert.match(text, /6-digit code/);
-});
-
-test('inviteContent: warns that the "invalid code" error is expected', () => {
-  // Books reports failure even though the pairing saved. Unwarned, people
-  // assume they mis-scanned and start over — which re-mints the secret
-  // and breaks it for real.
-  const { text } = M.inviteContent({ role: 'staff' });
-  assert.match(text, /invalid authentication code/);
-  assert.match(text, /Ignore it/);
-  assert.match(text, /not rescan or start over/);
-});
-
-test('inviteContent: the pairing steps are in the order they must be done', () => {
-  const { text } = M.inviteContent({ role: 'staff' });
-  const scan = text.indexOf('Scan it with an authenticator');
-  const update = text.indexOf('press Update');
-  const ignore = text.indexOf('invalid authentication code');
-  const out = text.indexOf('Log out, then log back in');
-  assert.ok(scan < update && update < ignore && ignore < out,
-    'scan -> update -> ignore the error -> log out');
 });
 
 test('inviteContent: clients get no authenticator steps', () => {
