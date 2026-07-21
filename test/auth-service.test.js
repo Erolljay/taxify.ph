@@ -13,6 +13,7 @@ const path = require('node:path');
 const { DatabaseSync } = require('node:sqlite');
 const S = require('../server/auth-service.js');
 const A = require('../server/auth-core.js');
+const P = require('../server/provisioner.js');
 
 const SCHEMA = fs.readFileSync(path.join(__dirname, '..', 'server', 'schema.sql'), 'utf8');
 
@@ -683,6 +684,140 @@ test('overview: only the caller\'s account is visible (no cross-tenant leak)', (
   const r = S.overview(db, { cookie: cookie }, deps);
   assert.ok(r.json.businesses.every((b) => b.manager_business_name !== 'OtherCo'), 'account 2 business absent');
   assert.ok(r.json.users.every((u) => u.email !== 'other@x.com'), 'account 2 user absent');
+});
+
+// ── failed jobs: the banner's data, and re-queueing ──────────────
+//
+// The grid's `jobs` array requires BOTH a user_id and a business_id, so a
+// failed `disable` (no business) or `create_business` (no user) can never
+// appear in it. That is exactly how one sat unnoticed in production.
+
+function failJob(db, fields) {
+  const cols = Object.assign({ type: 'disable', user_id: 2, business_id: null, attempts: 3, last_error: 'boom' }, fields);
+  return Number(db.prepare(
+    `INSERT INTO provision_job (type, user_id, business_id, status, attempts, last_error, created_at, updated_at)
+     VALUES (?,?,?,'failed',?,?,?,?)`
+  ).run(cols.type, cols.user_id, cols.business_id, cols.attempts, cols.last_error, 1, 1).lastInsertRowid);
+}
+
+test('overview: a failed disable is reported even though it has no business', () => {
+  const db = freshDb(), deps = makeDeps();
+  const cookie = signIn(db, deps, 'owner@x.com');
+  const id = failJob(db, { type: 'disable', user_id: 2, business_id: null });
+
+  const r = S.overview(db, { cookie: cookie }, deps);
+  assert.equal(r.json.jobs.length, 0, 'the grid array cannot carry it — that is the bug being fixed');
+  assert.equal(r.json.failures.length, 1, 'but the banner must see it');
+  assert.equal(r.json.failures[0].id, id);
+  assert.equal(r.json.failures[0].type, 'disable');
+  assert.equal(r.json.failures[0].user_email, 'staff@x.com');
+  assert.equal(r.json.failures[0].last_error, 'boom');
+});
+
+test('overview: a failed create_business is reported even though it has no user', () => {
+  const db = freshDb(), deps = makeDeps();
+  const cookie = signIn(db, deps, 'owner@x.com');
+  failJob(db, { type: 'create_business', user_id: null, business_id: 1 });
+
+  const r = S.overview(db, { cookie: cookie }, deps);
+  assert.equal(r.json.failures.length, 1);
+  assert.equal(r.json.failures[0].business_name, 'Acme');
+});
+
+test('overview: `pending` counts queued work of any shape', () => {
+  // Without this the portal stops watching after a retry and never
+  // reports the outcome.
+  const db = freshDb(), deps = makeDeps();
+  const cookie = signIn(db, deps, 'owner@x.com');
+  db.prepare("INSERT INTO provision_job (type, user_id, status, created_at, updated_at) VALUES ('disable',2,'pending',1,1)").run();
+
+  const r = S.overview(db, { cookie: cookie }, deps);
+  assert.equal(r.json.jobs.length, 0, 'still invisible to the grid');
+  assert.equal(r.json.pending, 1, 'but counted');
+});
+
+test('overview: another firm\'s failures are never shown', () => {
+  const db = freshDb(), deps = makeDeps();
+  const cookie = signIn(db, deps, 'owner@x.com');       // account 1
+  failJob(db, { type: 'disable', user_id: 3, business_id: null });  // account 2's user
+  const r = S.overview(db, { cookie: cookie }, deps);
+  assert.equal(r.json.failures.length, 0);
+});
+
+test('overview: staff and clients are told nothing about failures', () => {
+  const db = freshDb(), deps = makeDeps();
+  const owner = signIn(db, deps, 'owner@x.com');
+  S.setUserBusiness(db, { cookie: owner, userId: 2, businessId: 1, grant: true }, deps);
+  failJob(db, { type: 'disable', user_id: 2, business_id: null });
+
+  const r = S.overview(db, { cookie: signIn(db, deps, 'staff@x.com') }, deps);
+  assert.deepEqual(r.json.failures, [], 'a stuck job is the owner\'s to act on');
+  assert.equal(r.json.pending, 0);
+});
+
+test('retry-job: re-queues a failed job and clears its attempts', () => {
+  const db = freshDb(), deps = makeDeps();
+  const cookie = signIn(db, deps, 'owner@x.com');
+  const id = failJob(db, { attempts: 3 });
+
+  const r = S.retryJob(db, { cookie: cookie, jobId: id }, deps);
+  assert.equal(r.status, 200);
+
+  const job = db.prepare('SELECT status, attempts, last_error FROM provision_job WHERE id = ?').get(id);
+  assert.equal(job.status, 'pending');
+  assert.equal(job.attempts, 0, 'the cap stops a broken job looping, not a fixed one running');
+  assert.equal(job.last_error, null);
+  assert.ok(db.prepare("SELECT 1 FROM audit_log WHERE action='retry_job'").get(), 'audited');
+});
+
+test('retry-job: refuses a job that is not failed', () => {
+  // Re-queuing a running job would let it be claimed twice.
+  const db = freshDb(), deps = makeDeps();
+  const cookie = signIn(db, deps, 'owner@x.com');
+  const id = Number(db.prepare(
+    "INSERT INTO provision_job (type, user_id, status, created_at, updated_at) VALUES ('disable',2,'running',1,1)"
+  ).run().lastInsertRowid);
+
+  const r = S.retryJob(db, { cookie: cookie, jobId: id }, deps);
+  assert.equal(r.status, 409);
+  assert.match(r.json.error, /job_not_failed/);
+});
+
+test('retry-job: cannot touch another firm\'s job', () => {
+  const db = freshDb(), deps = makeDeps();
+  const cookie = signIn(db, deps, 'owner@x.com');            // account 1
+  const id = failJob(db, { user_id: 3, business_id: null }); // account 2
+  assert.equal(S.retryJob(db, { cookie: cookie, jobId: id }, deps).status, 403);
+  assert.equal(db.prepare('SELECT status FROM provision_job WHERE id = ?').get(id).status, 'failed', 'untouched');
+});
+
+test('retry-job: staff cannot re-queue anything', () => {
+  const db = freshDb(), deps = makeDeps();
+  const owner = signIn(db, deps, 'owner@x.com');
+  const id = failJob(db, {});
+  const r = S.retryJob(db, { cookie: signIn(db, deps, 'staff@x.com'), jobId: id }, deps);
+  assert.equal(r.status, 403);
+});
+
+test('retry-job: rejects a missing or nonsense job id', () => {
+  const db = freshDb(), deps = makeDeps();
+  const cookie = signIn(db, deps, 'owner@x.com');
+  assert.equal(S.retryJob(db, { cookie: cookie }, deps).status, 400);
+  assert.equal(S.retryJob(db, { cookie: cookie, jobId: 'abc' }, deps).status, 400);
+  assert.equal(S.retryJob(db, { cookie: cookie, jobId: 99999 }, deps).status, 403);
+});
+
+test('a re-queued job is then actually picked up by the provisioner', () => {
+  // The end the owner cares about: the button leads to a real retry.
+  const db = freshDb(), deps = makeDeps();
+  const cookie = signIn(db, deps, 'owner@x.com');
+  const id = failJob(db, { type: 'disable', user_id: 2 });
+  db.prepare("UPDATE users SET manager_user_ref='mgr:staff@x.com' WHERE id=2").run();
+
+  S.retryJob(db, { cookie: cookie, jobId: id }, deps);
+  const claimed = P.claimNext(db, Date.now(), []);
+  assert.equal(claimed.id, id, 'the provisioner claims it on the next tick');
+  assert.equal(claimed.type, 'disable');
 });
 
 test('overview: unauthenticated is denied', () => {

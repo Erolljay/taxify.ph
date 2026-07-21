@@ -173,8 +173,85 @@ async function loadDashboard() {
 // ── chrome ────────────────────────────────────────────────────────
 function render() {
   renderWho();
+  renderFailures();
   renderTabs();
   renderPanel();
+}
+
+// Failed provisioner jobs, above the title and outside the tabs.
+//
+// These used to be visible only as a `job_failed` line in Activity, which
+// is a place you go looking rather than a place you land. A failed
+// offboarding — someone removed here who still holds the client's books —
+// is the highest-consequence failure in the system, and it was the
+// quietest. One sat unnoticed in the database until somebody queried the
+// table by hand.
+function renderFailures() {
+  const host = $('failures');
+  host.textContent = '';
+  const failures = PortalSync.sortFailures((state && state.failures) || []);
+  host.hidden = failures.length === 0;
+  if (!failures.length) return;
+
+  failures.forEach((f) => {
+    const bar = el('div', 'failbar ' + f.severity);
+
+    const icon = el('span', 'icon');
+    icon.textContent = f.severity === 'critical' ? '⚠️' : 'ℹ️';
+    icon.setAttribute('aria-hidden', 'true');
+    bar.append(icon);
+
+    const body = el('div', 'body');
+    const head = el('div', 'headline');
+    // Screen readers should hear the urgency, not infer it from a colour.
+    head.textContent = (f.severity === 'critical' ? 'Needs attention: ' : '') + f.headline;
+    body.append(head);
+
+    const why = el('div', 'meaning');
+    why.textContent = f.meaning;
+    body.append(why);
+
+    if (f.detail) {
+      const d = el('div', 'detail');
+      d.textContent = f.detail;
+      body.append(d);
+    }
+    bar.append(body);
+
+    const act = el('div', 'act');
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.textContent = 'Try again';
+    btn.addEventListener('click', () => retryFailure(f, btn));
+    act.append(btn);
+    if (f.attempts) {
+      const tries = el('span', 'tries');
+      tries.textContent = f.attempts === 1 ? '1 attempt' : f.attempts + ' attempts';
+      act.append(tries);
+    }
+    bar.append(act);
+
+    host.append(bar);
+  });
+}
+
+// Re-queue a failed job. Previously this required SQL on the live server,
+// which is not something an owner can do — and it is the fix for most of
+// these, since the usual cause (an expired Books session, a Manager
+// upgrade) is already gone by the time anyone looks.
+async function retryFailure(failure, btn) {
+  btn.disabled = true;
+  btn.textContent = 'Queued…';
+  const r = await api('POST', '/api/tenancy/retry-job', { jobId: failure.id });
+  if (r.status !== 200) {
+    btn.disabled = false;
+    btn.textContent = 'Try again';
+    return flash($('dash-msg'), 'err', errText(r, 'Could not queue that again.'));
+  }
+  // reload() picks up the job now being 'pending', which drops it out of
+  // `failures` and starts the watcher — so the bar disappears on its own
+  // and the result shows up without a refresh.
+  await reload('Queued again. This usually completes within two minutes.');
 }
 
 function renderWho() {

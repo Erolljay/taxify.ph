@@ -114,6 +114,97 @@ test('a render is not deferred for ordinary focus', () => {
   assert.equal(S.shouldDeferRender({}), false);
 });
 
+// ── queued work of any shape ─────────────────────────────────────────
+
+test('queued work with no business still counts as outstanding', () => {
+  // A retried `disable` has no business_id, so it never appears in
+  // `jobs`. Without the `pending` count the banner would clear on retry
+  // and then never report what happened — the same blind spot, moved.
+  const state = overview({ users: [staff()], jobs: [], pending: 1 });
+  assert.equal(S.outstandingWork(state), true);
+});
+
+test('pending zero with everything settled stops the watch', () => {
+  assert.equal(S.outstandingWork(overview({ users: [staff()], jobs: [], pending: 0 })), false);
+});
+
+// ── describing a failure to a CPA ────────────────────────────────────
+
+test('a failed offboard is CRITICAL and says what is true right now', () => {
+  const d = S.describeFailure({ id: 49, type: 'disable', user_email: 'jun@firm.ph', attempts: 3 });
+  assert.equal(d.severity, 'critical');
+  assert.match(d.headline, /jun@firm\.ph was removed, but may still have access/);
+  assert.match(d.meaning, /still holding the client books/);
+  assert.equal(d.attempts, 3);
+});
+
+test('a failed revoke is CRITICAL and names the client', () => {
+  const d = S.describeFailure({ id: 7, type: 'revoke', user_email: 'jun@firm.ph', business_name: 'Acme' });
+  assert.equal(d.severity, 'critical');
+  assert.match(d.headline, /may still have access to Acme/);
+});
+
+test('a failed grant is only a WARNING — nobody is exposed', () => {
+  const d = S.describeFailure({ id: 8, type: 'grant', user_email: 'jun@firm.ph', business_name: 'Acme' });
+  assert.equal(d.severity, 'warning');
+  assert.match(d.headline, /cannot open Acme yet/);
+});
+
+test('every job type the provisioner can run has copy', () => {
+  // A type with no entry falls back to the unknown branch, which is
+  // deliberately loud — but shipping a known type that way would be a
+  // bug, so pin the list.
+  ['create', 'create_business', 'configure_tabs', 'grant', 'revoke', 'disable', 'reset_password']
+    .forEach(function (type) {
+      const d = S.describeFailure({ id: 1, type: type, user_email: 'a@b.c', business_name: 'Acme' });
+      assert.doesNotMatch(d.headline, /unknown|“/, type + ' fell through to the unknown branch');
+      assert.ok(d.meaning.length > 10, type + ' has no explanation');
+    });
+});
+
+test('an unrecognised job type surfaces loudly rather than vanishing', () => {
+  const d = S.describeFailure({ id: 99, type: 'teleport', last_error: 'boom' });
+  assert.equal(d.severity, 'critical', 'an unknown failure must not be quietly downgraded');
+  assert.match(d.headline, /teleport/);
+  assert.equal(d.detail, 'boom');
+});
+
+test('missing names degrade to readable English, not "undefined"', () => {
+  const d = S.describeFailure({ id: 1, type: 'revoke' });
+  assert.doesNotMatch(d.headline, /undefined|null/);
+  assert.match(d.headline, /Someone.*a client/);
+});
+
+test('describeFailure survives junk input', () => {
+  assert.equal(S.describeFailure(null).severity, 'critical');
+  assert.equal(S.describeFailure({}).severity, 'critical');
+});
+
+// ── ordering: the dangerous one first ────────────────────────────────
+
+test('critical failures sort above warnings, newest first within each', () => {
+  const sorted = S.sortFailures([
+    { id: 10, type: 'grant', user_email: 'a@b.c', business_name: 'Acme' },   // warning
+    { id: 11, type: 'disable', user_email: 'jun@firm.ph' },                  // critical
+    { id: 12, type: 'create', user_email: 'x@y.z' },                         // warning
+    { id: 13, type: 'revoke', user_email: 'z@z.z', business_name: 'Beta' },  // critical
+  ]);
+  assert.deepEqual(sorted.map((f) => f.id), [13, 11, 12, 10]);
+  assert.equal(sorted[0].severity, 'critical');
+  assert.equal(sorted[3].severity, 'warning');
+});
+
+test('sortFailures handles an empty or missing list', () => {
+  assert.deepEqual(S.sortFailures([]), []);
+  assert.deepEqual(S.sortFailures(null), []);
+});
+
+test('hasCritical spots an offboard failure hiding among warnings', () => {
+  assert.equal(S.hasCritical([{ id: 1, type: 'grant' }, { id: 2, type: 'disable' }]), true);
+  assert.equal(S.hasCritical([{ id: 1, type: 'grant' }, { id: 2, type: 'create' }]), false);
+  assert.equal(S.hasCritical([]), false);
+});
+
 // ── the timings ──────────────────────────────────────────────────────
 
 test('polling is faster than the provisioner tick, and gives up after several', () => {
