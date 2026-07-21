@@ -20,6 +20,61 @@
 
 const $ = (id) => document.getElementById(id);
 
+// Where a firm's books live. Opening one deep-links straight into it.
+const BOOKS_URL = 'https://books.txform.ph';
+
+// Books addresses a business as /start?<param>, where the param is a
+// length-prefixed envelope in unpadded base64url — tag bytes 0xa2 0x06,
+// then the length, then the utf8 name. Observed live:
+//   /start?ogYOMDAwMCB0eGZvcm0ucGg  ->  a2 06 0e "0000 txform.ph"
+// Note the tag differs per endpoint (the user form uses 0x0a), so this
+// encoding is specific to business links and not reusable as-is.
+function booksBusinessUrl(managerBusinessName) {
+  const name = new TextEncoder().encode(String(managerBusinessName || ''));
+  if (!name.length || name.length > 127) return null;
+  const bytes = new Uint8Array(3 + name.length);
+  bytes[0] = 0xa2; bytes[1] = 0x06; bytes[2] = name.length;
+  bytes.set(name, 3);
+  let bin = '';
+  bytes.forEach((b) => { bin += String.fromCharCode(b); });
+  const param = btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  return BOOKS_URL + '/start?' + param;
+}
+
+// Per-tab search text. Kept out of `state` so a reload of firm data
+// doesn't wipe what the user typed.
+const search = { clients: '', team: '', access: '' };
+
+const matches = (needle, ...haystack) => {
+  const q = needle.trim().toLowerCase();
+  return !q || haystack.filter(Boolean).some((h) => String(h).toLowerCase().indexOf(q) !== -1);
+};
+
+// A search box that filters as you type. Re-rendering the panel would
+// steal focus mid-word, so this re-renders and then restores the caret.
+function searchBox(key, placeholder, count) {
+  const wrap = el('div', 'searchbar');
+  const input = document.createElement('input');
+  input.type = 'search';
+  input.id = 'search-' + key;
+  input.placeholder = placeholder;
+  input.value = search[key];
+  input.setAttribute('aria-label', placeholder);
+  input.addEventListener('input', () => {
+    search[key] = input.value;
+    renderPanel();
+    const again = $('search-' + key);
+    if (again) { again.focus(); again.setSelectionRange(again.value.length, again.value.length); }
+  });
+  wrap.append(input);
+  if (search[key]) {
+    const hits = el('span', 'hits');
+    hits.textContent = count === 1 ? '1 match' : count + ' matches';
+    wrap.append(hits);
+  }
+  return wrap;
+}
+
 // fetch wrapper — always sends the session cookie.
 async function api(method, path, body) {
   const res = await fetch(path, {
@@ -187,12 +242,17 @@ function renderClients(panel) {
   }
   card.append(h);
 
+  const all = state.businesses.filter((b) => isOwner() || b.status === 'active');
+  const visible = all.filter((b) => matches(search.clients, b.name));
+  if (all.length > 5 || search.clients) card.append(searchBox('clients', 'Search clients…', visible.length));
+
   const list = el('ul', 'rows');
-  const visible = state.businesses.filter((b) => isOwner() || b.status === 'active');
-  if (!visible.length) {
+  if (!all.length) {
     list.append(emptyLi(isOwner()
       ? 'No client businesses yet — add your first below.'
       : 'No businesses have been shared with you yet. Ask your firm owner for access.'));
+  } else if (!visible.length) {
+    list.append(emptyLi('No client matches “' + search.clients + '”.'));
   }
   visible.forEach((b) => list.append(businessRow(b)));
   card.append(list);
@@ -213,7 +273,7 @@ function renderClients(panel) {
     // and a name that doesn't match is an orphaned row whose access grants
     // will queue against books Manager has never heard of.
     const note = el('div', 'note');
-    note.textContent = 'Registers books that already exist in Manager — type the name exactly as it appears there. '
+    note.textContent = 'Registers books that already exist in Books — type the name exactly as it appears there. '
       + 'Creating new businesses from the portal comes with the provisioner.';
     card.append(note);
   }
@@ -226,16 +286,10 @@ function businessRow(b) {
   name.textContent = b.name;
   li.append(name);
 
-  // The Manager-side name normally matches, so showing it would be noise.
-  // It differs only when another firm already registered this client name
-  // and ours was given a suffix — worth surfacing, because that's the name
-  // they'll actually see in Manager's business list.
-  if (b.manager_business_name && b.manager_business_name !== b.name) {
-    const alias = document.createElement('span');
-    alias.className = 'role';
-    alias.textContent = 'in Manager: ' + b.manager_business_name;
-    li.append(alias);
-  }
+  // The Books-side name is deliberately NOT shown. Every business now
+  // carries its firm's code as a prefix, so it always differs from what
+  // the firm typed — showing it would put "TALLO-" on every row for no
+  // reason. It stays in the payload because the Open link needs it.
 
   const spacer = document.createElement('span');
   spacer.className = 'spacer';
@@ -246,7 +300,29 @@ function businessRow(b) {
     badge.className = 'badge cancelled';
     badge.textContent = 'archived';
     li.append(badge);
-  } else if (isOwner()) {
+    return li;
+  }
+
+  // Straight into the books. Every role gets this — it is the whole point
+  // of the screen — and it only appears once the books actually exist,
+  // since a link to a business still being created would 404.
+  const url = b.manager_business_name ? booksBusinessUrl(b.manager_business_name) : null;
+  if (url) {
+    const open = document.createElement('a');
+    open.className = 'btn-link';
+    open.href = url;
+    open.target = '_blank';
+    open.rel = 'noopener';
+    open.textContent = 'Open';
+    open.title = 'Open ' + b.name + ' in Books';
+    li.append(open);
+  } else {
+    const pending = el('span', 'role');
+    pending.textContent = 'setting up…';
+    li.append(pending);
+  }
+
+  if (isOwner()) {
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'danger';
@@ -274,7 +350,7 @@ async function onArchive(b) {
   // Archiving revokes real people's access to real books — worth a beat.
   const ok = window.confirm(
     'Archive "' + b.name + '"?\n\n' +
-    'Everyone loses access to it in Manager, but its filed returns are kept.\n' +
+    'Everyone loses access to it in Books, but its filed returns are kept.\n' +
     'You can restore it later by adding the same name again.'
   );
   if (!ok) return;
@@ -297,8 +373,12 @@ function renderTeam(panel) {
   h.append(use);
   card.append(h);
 
+  const shown = state.users.filter((u) => matches(search.team, u.email, u.role));
+  if (state.users.length > 5 || search.team) card.append(searchBox('team', 'Search people…', shown.length));
+
   const list = el('ul', 'rows');
-  state.users.forEach((u) => {
+  if (!shown.length) list.append(emptyLi('Nobody matches “' + search.team + '”.'));
+  shown.forEach((u) => {
     const li = document.createElement('li');
     const email = document.createElement('span');
     email.textContent = u.email;
@@ -366,7 +446,7 @@ function passwordRow(u) {
   const box = el('div', 'handover');
 
   const head = document.createElement('strong');
-  head.textContent = 'Manager password for ' + u.email;
+  head.textContent = 'Books password for ' + u.email;
 
   const pw = el('code', 'pw');
   pw.textContent = u.initialPassword;
@@ -417,7 +497,7 @@ async function onClearPassword(u) {
 }
 
 async function onResetPassword(u) {
-  const ok = window.confirm('Issue a new Manager password for ' + u.email + '?\n\n'
+  const ok = window.confirm('Issue a new Books password for ' + u.email + '?\n\n'
     + 'Their current password stops working immediately. The new one appears here once it is set.');
   if (!ok) return;
   const r = await api('POST', '/api/tenancy/reset-password', { userId: u.id });
@@ -436,7 +516,7 @@ async function onInvite(e) {
     $('inv-biz').hidden = true;
     await reload(r.json.alreadyMember
       ? 'That person is already on your team.'
-      : 'Invited — they get Manager credentials once provisioning finishes.');
+      : 'Invited — they get Books credentials once provisioning finishes.');
   } else {
     flash($('dash-msg'), 'err', errText(r, 'Could not send invite.'));
   }
@@ -444,7 +524,7 @@ async function onInvite(e) {
 
 // ── Access ────────────────────────────────────────────────────────
 function renderAccess(panel) {
-  heading('Access', 'Who can open which books. Changes reach Manager within a couple of minutes.');
+  heading('Access', 'Who can open which books. Changes reach Books within a couple of minutes.');
 
   const card = el('div', 'card');
   const h = document.createElement('h2');
@@ -452,9 +532,19 @@ function renderAccess(panel) {
   card.append(h);
 
   const staff = state.users.filter((u) => u.role === 'staff');
-  const businesses = state.businesses.filter((b) => b.status === 'active');
-  if (!staff.length || !businesses.length) {
+  const allBiz = state.businesses.filter((b) => b.status === 'active');
+  if (!staff.length || !allBiz.length) {
     card.append(emptyDiv('Add at least one staff member and one business to assign access.'));
+    panel.append(card);
+    return;
+  }
+
+  // Filters the ROWS (clients), which is the axis that grows. Staff stay
+  // across the top so you can still see who has what.
+  const businesses = allBiz.filter((b) => matches(search.access, b.name));
+  if (allBiz.length > 5 || search.access) card.append(searchBox('access', 'Search clients…', businesses.length));
+  if (!businesses.length) {
+    card.append(emptyDiv('No client matches “' + search.access + '”.'));
     panel.append(card);
     return;
   }
@@ -505,7 +595,7 @@ function renderAccess(panel) {
   card.append(scroll);
 
   const legend = el('div', 'legend');
-  ['Ticked and clear — live in Manager', 'syncing… — queued, usually under two minutes',
+  ['Ticked and clear — live in Books', 'syncing… — queued, usually under two minutes',
     'failed — the robot could not apply it; it retries'].forEach((t) => {
     const s = document.createElement('span');
     s.textContent = t;
@@ -532,7 +622,7 @@ async function toggleGrant(user, business, cb) {
     return;
   }
   flash($('dash-msg'), 'ok',
-    (cb.checked ? 'Granted ' : 'Revoked ') + user.email + ' → ' + business.name + '. Syncing to Manager…');
+    (cb.checked ? 'Granted ' : 'Revoked ') + user.email + ' → ' + business.name + '. Syncing to Books…');
   await reload();
 }
 

@@ -1,5 +1,5 @@
 # ============================================================
-# Txform.ph — systemd service for the provisioner (Phase 1.4)
+# Txform.ph — systemd service for the provisioner
 #
 # Oneshot: drains the provision_job queue once, then exits. Runs on a
 # schedule via txform-provisioner.timer (NOT enabled directly).
@@ -9,14 +9,15 @@
 #   sudo systemctl daemon-reload
 #   sudo systemctl enable --now txform-provisioner.timer
 #
-# Needs (one-time on the box):
-#   cd /var/www/taxify && npm install playwright && npx playwright install --with-deps chromium
+# NO install step is needed. The provisioner talks to Books over plain
+# HTTP using Node built-ins only — there is nothing to npm install, which
+# is what keeps the git-pull deploy a pure file copy.
 #
-# Manager admin creds come from an EnvironmentFile (root-owned, 600) —
-# never in the repo.
+# Credentials come from an EnvironmentFile (root-owned, 600) — never the
+# repo. See docs/instruction.md → "Provisioner".
 # ============================================================
 [Unit]
-Description=Txform.ph provisioner (drain provision_job queue -> Manager)
+Description=Txform.ph provisioner (drain provision_job queue -> Books)
 After=network.target
 
 [Service]
@@ -24,13 +25,20 @@ Type=oneshot
 User=www-data
 WorkingDirectory=/var/www/taxify/server
 Environment=TXFORM_DB=/var/www/taxify/server/txform.db
-Environment=MANAGER_URL=https://books.txform.ph
-Environment=TXFORM_SHOT_DIR=/var/www/taxify/server/provision-shots
+# Loopback: Books runs on this same box, so there is no reason to leave
+# it and come back through nginx and TLS.
+Environment=MANAGER_URL=http://127.0.0.1:5000
 # MANAGER_ADMIN_USER / MANAGER_ADMIN_PASS live here, root:root 600:
 EnvironmentFile=/etc/txform/provisioner.env
 ExecStart=/usr/bin/node /var/www/taxify/server/provisioner.js
+
+# A run that hangs must not wedge the timer. Jobs stay pending until they
+# succeed, so the next tick simply picks the work up again.
+TimeoutStartSec=120
+
 # Hardening
 NoNewPrivileges=true
 ProtectSystem=strict
 ReadWritePaths=/var/www/taxify/server
 PrivateTmp=true
+ProtectHome=true

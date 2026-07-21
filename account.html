@@ -63,6 +63,17 @@
     .empty { color:var(--muted); font-size:13.5px; padding:12px 0 2px; }
     .note { color:var(--muted); font-size:12.5px; line-height:1.5; margin-top:10px; }
 
+    /* per-tab filter */
+    .searchbar { display:flex; align-items:center; gap:10px; margin-top:14px; }
+    .searchbar input { flex:1 1 auto; font:inherit; font-size:14px; padding:8px 11px;
+      border:1px solid var(--line); border-radius:8px; background:#fff; color:var(--ink); }
+    .searchbar .hits { font-size:12px; color:var(--muted); white-space:nowrap; }
+
+    /* "Open" — a link styled as a button, because it navigates */
+    a.btn-link { font-size:13px; font-weight:600; padding:5px 13px; border-radius:8px;
+      border:1px solid var(--line); color:var(--accent-deep); text-decoration:none; white-space:nowrap; }
+    a.btn-link:hover { background:var(--accent-wash); border-color:var(--accent); }
+
     /* one-time credential handover */
     .handover { width:100%; background:var(--warn-bg); border:1px solid #f2e3b8; border-radius:8px;
       padding:14px 16px; display:flex; flex-direction:column; gap:8px; }
