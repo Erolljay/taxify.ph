@@ -130,9 +130,59 @@
     };
   }
 
+  // A ledger line only reaches Manager if it moves at least a centavo —
+  // the posting guard in step-engine.js filters the rest out. Both the
+  // voucher's "is there anything to post?" check and that filter run
+  // through isRecordableLine so the two can never disagree: if this says a
+  // voucher has nothing recordable, readRows() is guaranteed to be empty.
+  var LINE_EPSILON = 0.005;
+
+  function isRecordableLine(row) {
+    if (!row) return false;
+    return (row.debit || 0) > LINE_EPSILON || (row.credit || 0) > LINE_EPSILON;
+  }
+
+  // True when a computed voucher has at least one line worth posting.
+  // False means the period had no activity at all (e.g. a 0619E month with
+  // nothing withheld), so there is no bookkeeping entry to make — the step
+  // closes on its own rather than demanding a ₱0.00 journal entry that
+  // would be meaningless in the books and rejected by Manager anyway.
+  // Note this keys off the LINES, not the headline figure: a VAT quarter
+  // whose output tax is fully offset by input tax nets to ₱0 cash but
+  // still has a real closing entry to post.
+  function hasRecordableLines(rows) {
+    if (!Array.isArray(rows)) return false;
+    for (var i = 0; i < rows.length; i++) {
+      if (isRecordableLine(rows[i])) return true;
+    }
+    return false;
+  }
+
+  // Whether a VAT quarter has anything to post. VAT is unlike the
+  // withholding forms, where the single remittance line IS the whole entry:
+  // a VAT quarter can net to ₱0 cash and still need a real clearing entry —
+  // reverse output tax, close input tax, carry any excess forward. So this
+  // asks whether the BOOKS moved, not whether the net payable came out at
+  // zero. In particular a quarter with purchases but no sales computes every
+  // voucher line as ₱0.00 (inputUsed is capped at outputTax) yet still has
+  // input tax to close out. Only a dormant quarter — no output tax, no
+  // available input tax, no credits — has nothing to record.
+  //   i37 = output tax · i60 = total available input tax credit
+  //   i20 = CWT + other credits · i25 = advance/other payments
+  function vatHasRecordableActivity(v) {
+    if (!v) return false;
+    return Math.abs(v.i37 || 0) > LINE_EPSILON
+        || Math.abs(v.i60 || 0) > LINE_EPSILON
+        || Math.abs((v.i20 || 0) + (v.i25 || 0)) > LINE_EPSILON;
+  }
+
   var api = {
     WORKFLOW_FORMS: WORKFLOW_FORMS,
     WORKFLOW_HEADLINE: WORKFLOW_HEADLINE,
+    LINE_EPSILON: LINE_EPSILON,
+    isRecordableLine: isRecordableLine,
+    hasRecordableLines: hasRecordableLines,
+    vatHasRecordableActivity: vatHasRecordableActivity,
     periodKey: periodKey,
     parsePeriodKey: parsePeriodKey,
     periodLabel: periodLabel,

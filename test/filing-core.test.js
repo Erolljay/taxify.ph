@@ -105,3 +105,83 @@ test('computeVariance is inconclusive when either side is missing', () => {
   assert.equal(FC.computeVariance({}, 500).changed, false);
   assert.equal(FC.computeVariance({ amount: 1000 }, NaN).liveAmount, null);
 });
+
+/* ── Nothing-to-record detection ──────────────────────────────────────────
+   A period with no activity (e.g. a 0619E month where nothing was withheld)
+   computes a voucher whose every line is ₱0.00. The posting guard drops
+   sub-centavo lines, so such a voucher can never be posted — which used to
+   leave the payment step permanently incomplete and, because each step is
+   locked until the previous one is done, made the freeze step unreachable.
+   A zero return is still a mandatory BIR filing, so it must be closable
+   without inventing a meaningless journal entry.
+
+   isRecordableLine MUST mirror the posting filter exactly: if it says a
+   voucher has nothing recordable, readRows() must return an empty array.
+   Any drift between the two re-opens the bug. ---------------------------- */
+
+test('isRecordableLine matches the posting filter at the centavo boundary', () => {
+  assert.equal(FC.isRecordableLine({ debit: 0, credit: 0 }), false);
+  assert.equal(FC.isRecordableLine({ debit: 0.005, credit: 0 }), false, 'exactly 0.005 is dropped by readRows');
+  assert.equal(FC.isRecordableLine({ debit: 0.01, credit: 0 }), true);
+  assert.equal(FC.isRecordableLine({ debit: 0, credit: 0.01 }), true);
+  assert.equal(FC.isRecordableLine({}), false);
+  assert.equal(FC.isRecordableLine(null), false);
+});
+
+test('hasRecordableLines is false for a 0619E month with nothing withheld', () => {
+  // mountRemittanceVoucherContent builds exactly one line from the total.
+  const rows = [{ desc: 'Withholding Tax Payable (EWT)', debit: 0, credit: 0 }];
+  assert.equal(FC.hasRecordableLines(rows), false);
+});
+
+test('hasRecordableLines is false for an empty or absent voucher', () => {
+  assert.equal(FC.hasRecordableLines([]), false);
+  assert.equal(FC.hasRecordableLines(null), false);
+});
+
+test('hasRecordableLines is TRUE when VAT nets to zero but has real movement', () => {
+  // Output tax fully offset by input tax: net cash is ₱0, yet the closing
+  // entry is real and must still be posted. This is the regression guard —
+  // the fix keys off the lines, not off the headline figure.
+  const rows = [
+    { desc: 'Clear Output VAT', debit: 50000, credit: 0 },
+    { desc: 'Apply Input Tax', debit: 0, credit: 50000 },
+  ];
+  assert.equal(FC.hasRecordableLines(rows), true);
+});
+
+test('hasRecordableLines is true when any single line has movement', () => {
+  const rows = [
+    { desc: 'Clear Output VAT', debit: 0, credit: 0 },
+    { desc: 'Apply Input Tax', debit: 0, credit: 1200.5 },
+  ];
+  assert.equal(FC.hasRecordableLines(rows), true);
+});
+
+/* ── VAT activity detection ───────────────────────────────────────────────
+   VAT is unlike the withholding forms: a quarter can net to ₱0 cash and
+   still need a real clearing entry (reverse output tax, close input tax,
+   carry the excess forward). So "nothing to record" for VAT means the books
+   genuinely didn't move — no sales, no purchases, no credits — NOT that the
+   net payable came out at zero. Getting this wrong either blocks a dormant
+   quarter from being filed or silently skips a required entry. ---------- */
+
+test('vatHasRecordableActivity is false only for a genuinely dormant quarter', () => {
+  assert.equal(FC.vatHasRecordableActivity({ i37: 0, i60: 0, i20: 0, i25: 0 }), false);
+  assert.equal(FC.vatHasRecordableActivity(null), false);
+});
+
+test('vatHasRecordableActivity is TRUE with purchases but no sales', () => {
+  // No output tax, so the voucher computes every line as ₱0.00 — but the
+  // quarter's input tax still has to be closed out / carried forward.
+  assert.equal(FC.vatHasRecordableActivity({ i37: 0, i60: 50000, i20: 0, i25: 0 }), true);
+});
+
+test('vatHasRecordableActivity is TRUE when output tax is fully offset', () => {
+  assert.equal(FC.vatHasRecordableActivity({ i37: 50000, i60: 50000, i20: 0, i25: 0 }), true);
+});
+
+test('vatHasRecordableActivity is TRUE when only credits moved', () => {
+  assert.equal(FC.vatHasRecordableActivity({ i37: 0, i60: 0, i20: 1200, i25: 0 }), true);
+  assert.equal(FC.vatHasRecordableActivity({ i37: 0, i60: 0, i20: 0, i25: 900 }), true);
+});
