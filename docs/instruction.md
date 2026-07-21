@@ -365,6 +365,75 @@ sudo systemctl restart txform-auth
 
 ---
 
+## Deploy watchdog (`deploy-watch.js`) — install
+
+Notices that deploys have quietly stopped and emails about it. See the trap it
+exists for in [`DEPLOY.md`](../DEPLOY.md).
+
+It alerts on two conditions, both of which mean *nothing you merge is reaching
+the site*:
+
+| Condition | Meaning |
+|---|---|
+| **dirty** | tracked files edited on the server — the next fast-forward will abort |
+| **stale** | HEAD behind `origin/main` for over 10 minutes — it is failing every tick |
+
+One alert per distinct problem, then at most hourly while it persists, and a
+single all-clear when it lifts. Decision logic is pure and unit-tested in
+`server/deploy-health.js`; `deploy-watch.js` only runs git, reads/writes a
+state file, and sends mail.
+
+### Install
+
+1. **Where to send.** Add to `/etc/txform/provisioner.env` (or its own env
+   file), alongside the SMTP settings the mailer already uses:
+
+   ```
+   DEPLOY_ALERT_TO=someone@tallocpa.com
+   ```
+
+   Without it the watcher still runs and logs, but shouts
+   `WOULD ALERT but DEPLOY_ALERT_TO is unset` rather than pretending to
+   monitor. **A watchdog that cannot bark is worse than none, because it is
+   believed.**
+
+2. **State directory** (remembers what it last said, so it doesn't repeat):
+
+   ```bash
+   sudo mkdir -p /var/lib/txform
+   ```
+
+3. **Root cron, every five minutes:**
+
+   ```bash
+   sudo crontab -e
+   ```
+
+   ```cron
+   */5 * * * * cd /var/www/taxify && set -a && . /etc/txform/provisioner.env && set +a && /usr/bin/node server/deploy-watch.js >> /var/log/txform-deploy-watch.log 2>&1
+   ```
+
+4. **Check it:**
+
+   ```bash
+   sudo tail -5 /var/log/txform-deploy-watch.log
+   # healthy head=07ec5ff origin=07ec5ff dirty=0
+   ```
+
+### Testing it without waiting for a real outage
+
+Copy the repo, dirty a file, and point the watcher at the copy — never at
+`/var/www/taxify`:
+
+```bash
+sudo cp -r /var/www/taxify /tmp/dwrepo
+echo '// test' | sudo tee -a /tmp/dwrepo/account.js
+sudo TXFORM_REPO=/tmp/dwrepo DEPLOY_WATCH_STATE=/tmp/s.json node server/deploy-watch.js
+sudo rm -rf /tmp/dwrepo /tmp/s.json
+```
+
+---
+
 ## Provisioner — credentials, and the check to run after every Manager update
 
 The provisioner reconciles the portal's access grid into Manager: it creates a

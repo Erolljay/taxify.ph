@@ -36,6 +36,40 @@ sudo cat /var/log/txform-deploy.log        # history of every check/deploy
 tail -f /var/log/txform-deploy.log         # watch live (Ctrl+C to stop)
 ```
 
+## ⚠️ The one thing that silently stops deploys
+
+If anyone edits a file **on the server** that git tracks — patching a config
+by hand to fix something urgent, say — the next deploy **aborts**:
+
+```
+error: Your local changes to the following files would be overwritten by merge
+```
+
+Nothing after that runs. The site stays on old code, GitHub still shows your
+PR merged, and the only trace is a line in a log nobody reads. This happened
+on 2026-07-21: an nginx snippet was patched by hand to bring the portal back
+up, which would have blocked every deploy from that moment on.
+
+**Two things now catch it:**
+
+- `scripts/deploy.sh` refuses up front with a message that names the files
+  and the fix, instead of a raw git error mid-run.
+- `server/deploy-watch.js` runs every five minutes and **emails you** if the
+  server has local edits, or has been behind `main` for more than ten
+  minutes. One message per problem, at most one an hour, and a single
+  all-clear when it lifts.
+
+**If you get that email**, get the change into the repo properly, then:
+
+```
+cd /var/www/taxify
+sudo git checkout -- <the files it named>
+sudo bash scripts/deploy.sh
+```
+
+Nginx keeps its config in memory, so reverting a config file on disk does
+**not** take the site down — you have time to do this calmly.
+
 ## Deploy by hand (rarely needed)
 ```
 sudo bash /var/www/taxify/scripts/deploy.sh

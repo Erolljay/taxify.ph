@@ -11,7 +11,7 @@ _Last updated: 2026-07-21_
 | Phase | Status | Notes |
 |-------|--------|-------|
 | **0 — Foundation hardening** | ✅ Largely done | Pull-based auto-deploy (`scripts/deploy.sh` via 2-min root cron), nginx web-root hardening, LF normalization. Hosting-license confirmed, Manager Server bought. **Backups live (2026-07-13):** AWS Backup EC2 snapshots + S3 Manager.io data backups, both 2 AM Manila, 7/56/400-day retention. **`save-tax-rates.php` hardened & LIVE (2026-07-14, PR #23):** shared-secret token + body cap + backup pruning on top of nginx basic-auth; token file created on the server. Still open: UFW, fail2ban, UptimeRobot, e2e BIR verification. |
-| **1 — Tenancy / entitlement / provisioning** | ✅ Live | `server/auth-*.js`, `smtp-mailer.js`, `migrate.js`, `manager-client.js`, `provisioner.js` + HTTP driver, `manager-vue-form.js` / `manager-permissions.js` / `manager-tabs.js`, `create-firm.js`, `entitlement.php`, systemd units. **403 passing tests, plus 13 read-only contract checks against live Manager (`npm run contract`, run after every Manager upgrade). Zero npm dependencies** — Playwright was deleted once it became clear Books needs no browser. **LIVE as of 2026-07-21:** Tallo CPA (code TALLO) with four users, provisioner timer reconciling every two minutes, deploys restarting the auth service automatically, and email reaching external addresses (SPF/DMARC added). Roles owner/staff/client, firm-code prefixes, archive-not-delete, removal that revokes in Books and kills the session, voucher-based comping, high-water-mark billing, one-time password handover with MFA, and portal sign-out (PR #54). **Provisioning is now complete end to end (PR #56):** a grant sets Full access inside the business as well as linking it, and new books get the firm's nine tabs — both verified live. Open: the two partner firms; failed jobs are visible only in Activity, not as a chip. |
+| **1 — Tenancy / entitlement / provisioning** | ✅ Live | `server/auth-*.js`, `smtp-mailer.js`, `migrate.js`, `manager-client.js`, `provisioner.js` + HTTP driver, `manager-vue-form.js` / `manager-permissions.js` / `manager-tabs.js`, `create-firm.js`, `entitlement.php`, systemd units. **422 passing tests, plus 13 read-only contract checks against live Manager (`npm run contract`, run after every Manager upgrade). Zero npm dependencies** — Playwright was deleted once it became clear Books needs no browser. **LIVE as of 2026-07-21:** Tallo CPA (code TALLO) with four users, provisioner timer reconciling every two minutes, deploys restarting the auth service automatically, and email reaching external addresses (SPF/DMARC added). Roles owner/staff/client, firm-code prefixes, archive-not-delete, removal that revokes in Books and kills the session, voucher-based comping, high-water-mark billing, one-time password handover with MFA, and portal sign-out (PR #54). **Provisioning is now complete end to end (PR #56):** a grant sets Full access inside the business as well as linking it, and new books get the firm's nine tabs — both verified live. Open: the two partner firms; failed jobs are visible only in Activity, not as a chip. |
 | **2 — Website rebuild & SEO** | ✅ Live | **Deployed 2026-07-14 (PR #21).** Full static multi-page site under `website/`: home + features/security/about/contact/faq/terms/privacy, shared `assets/css/site.css` + `assets/js/site.js`, real favicons, `robots.txt` + `sitemap.xml` + per-page meta & JSON-LD. **Positioned as a live product, not a waitlist** — CTAs are "Get started" → contact onboarding and "Sign in" → the owner portal at **`/account`**. Legal pages carry the firm's real details (TalloCPA, Iloilo City, DPO Erol Jay Tallo). Old JS bundle preserved as `index.legacy.html`. Open only: counsel review of legal pages, optional font self-hosting. |
 | **3 — Payments (PayMongo)** | 🔴 Not started | No PayMongo/webhook code yet. **Model decided 2026-07-20:** flat ₱500/business/month (no tiers), no trial, one monthly invoice billed on the high-water mark of active businesses. PayMongo cannot prorate, but invoice line items can be adjusted before an invoice finalises — that's the mechanism. Annual prepay deferred. |
 | **4 — ToS / Data Privacy (RA 10173)** | 🟡 Draft pages | `website/terms.html` + `website/privacy.html` drafted (RA 10173-aligned, NPC/DPO sections) with bracketed firm placeholders; needs real firm details + counsel review before launch. |
@@ -29,6 +29,78 @@ rates, the graduated-tax engine and VAT 2550Q are verified; two income-tax bugs 
   workflow engine that replaced the old monolithic setup screen).
 
 ## Changelog
+
+### 2026-07-21 (end) — The banner works; shipping it broke the portal
+
+**The banner was proved with two deliberate failures** (PR #62). A `disable`
+job was pointed at a nonexistent Books account and a `configure_tabs` job at
+a nonexistent business, both left to burn their three attempts against the
+real provisioner, then the real values restored so a retry would succeed.
+
+The owner saw the red offboarding failure above the amber tabs one, clicked
+**Try again** on each, and both bars **disappeared without a refresh**. Jobs
+58 and 59 went `done` on one attempt; 59 jobs, 0 failed. No side effects in
+Books.
+
+That last detail is the important one. Retrying a `disable` creates a job
+with no `business_id` — invisible to the access grid's data — so without the
+`pending` count added in the same PR, the bar would have cleared and never
+reported the outcome. The bug would have moved rather than gone.
+
+**And then the portal went blank.**
+
+PR #62 added `<script src="shared/portal-sync.js">` to `account.html`. The
+apex root is `/var/www/taxify/website`, **not** the repo root, and the portal
+snippet maps exactly two files — so the script 404'd in production. The
+snippet even said so, in a comment nobody re-read:
+
+> `# The one script account.html loads`
+
+The 404 alone should have cost only the banner. What made it fatal is that
+`account.js` used the global directly, so `render()` threw before drawing
+anything: sign-in worked and the page behind it was empty.
+
+The mistake underneath was pattern-matching. `shared/entitlement-core.js`
+uses the same dual-export idiom, so the directory was assumed servable — but
+that file is loaded from a **different host**, which is why nothing had ever
+noticed `/shared/` 404s on the apex. Local `file://` testing hid it
+perfectly, because there is no nginx there.
+
+Fixed three ways (PR #63): the nginx rule; a guarded `Sync` fallback so a
+missing enhancement costs only the enhancement; and a test asserting that
+**every `<script src>` in `account.html` has a matching nginx location** —
+verified by deleting the rule again and watching it fail.
+
+**The fix then set a second trap.** Restoring service meant patching the
+snippet by hand on the server, which left a tracked file dirty — and
+`scripts/deploy.sh` runs `git merge --ff-only` under `set -euo pipefail`. The
+next real deploy would have aborted, silently, forever. Confirmed by
+replaying it in a throwaway clone rather than reasoning about it.
+
+Cleared with zero downtime, because **nginx holds its config in memory**: the
+file could be reverted on disk, the deploy fast-forwarded, and the reload
+issued from the repo's own version, without the portal ever dropping.
+
+**So the last piece is a watchdog** (`server/deploy-watch.js`). Every five
+minutes it checks whether the server has local edits, or has been behind
+`main` for over ten minutes, and emails if so — one alert per problem, at
+most hourly, one all-clear when it lifts. Decision logic is pure and tested
+in `server/deploy-health.js`; the runner only touches git, a state file, and
+the mailer. `deploy.sh` also now refuses up front with a message naming the
+files, rather than a raw git error mid-run.
+
+Unconfigured, it logs `WOULD ALERT but DEPLOY_ALERT_TO is unset` rather than
+running silently. A watchdog that cannot bark is worse than none, because it
+is believed.
+
+**422 tests.**
+
+One more thing worth recording, because it was found the expensive way: the
+watchdog's own header comment documented its cron line, and `*/5` inside a
+`/* */` block **ends the comment** — silently truncating the file. No test
+caught that; it blew up on the first live run. `node --check` would have
+found it in a second, and had not been run on the new files. The install
+line now lives in `instruction.md` instead, with a note saying why.
 
 ### 2026-07-21 (last) — Making the quietest failure the loudest thing on the page
 
