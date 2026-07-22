@@ -137,6 +137,11 @@
       headline: function (f) { return (f.business_name || 'A client') + '’s books were created, but the Txform Now! button was not installed.'; },
       meaning: 'The books work; the Txform Now! app is just missing from the Summary page.',
     },
+    copy_chart_of_accounts: {
+      severity: 'warning',
+      headline: function (f) { return (f.business_name || 'A client') + '’s books were created, but the chart of accounts was not copied.'; },
+      meaning: 'The books work; they just have Manager’s default accounts instead of the firm’s standard chart.',
+    },
   };
 
   // Unknown job types must still surface. A new job type added later and

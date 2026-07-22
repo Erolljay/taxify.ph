@@ -734,3 +734,180 @@ test('configureCustomButton: rejects an empty business name rather than guessing
     /businessName is required/,
   );
 });
+
+// ── Chart of accounts: copying the firm's standard COA to a new client ──
+
+const C = require('../server/manager-coa.js');
+
+// A stateful fake of the api4 batch resource across businesses. GET reads a
+// business's collection (paginated, capital `Business` query); PUT upserts the
+// values into the destination BY KEY, so a re-run overwrites rather than
+// duplicates — the property the copy relies on. Records the Manager-Business
+// header each call carries.
+function coaClient(store, opts = {}) {
+  store = store || {};
+  const calls = [];
+  function coll(business, path) {
+    store[business] = store[business] || {};
+    store[business][path] = store[business][path] || [];
+    return store[business][path];
+  }
+  return {
+    calls, store,
+    get: async (p, headers) => {
+      calls.push(['get', p, headers]);
+      if (opts.getStatus) return { status: opts.getStatus, body: '' };
+      const parts = p.split('?');
+      const params = new URLSearchParams(parts[1]);
+      const business = params.get('Business');
+      const skip = parseInt(params.get('Skip') || '0', 10);
+      const pageSize = parseInt(params.get('PageSize') || '50', 10);
+      const page = coll(business, parts[0]).slice(skip, skip + pageSize);
+      return { status: 200, body: JSON.stringify({ items: page }) };
+    },
+    putJson: async (p, o, headers) => {
+      calls.push(['putJson', p, o, headers]);
+      if (opts.putStatus) return { status: opts.putStatus, body: '' };
+      if (opts.putError) return { status: 200, body: JSON.stringify({ message: opts.putError }) };
+      if (!opts.ignoreWrites) {
+        const dest = coll(o.business, p);
+        (o.values || []).forEach((v) => {
+          const idx = dest.findIndex((x) => x.key === v.key);
+          const record = { key: v.key, item: v.value };
+          if (idx >= 0) dest[idx] = record; else dest.push(record);
+        });
+      }
+      return { status: 200, body: 'true' };
+    },
+  };
+}
+
+const TEMPLATE = C.TEMPLATE_BUSINESS;
+const DEST = 'FIRMA-New Co';
+
+// A template with two groups, a subtotal, two BS accounts and one P&L
+// account — 6 records across the five collections.
+function seedTemplate() {
+  const store = {};
+  store[TEMPLATE] = {
+    '/api4/balance-sheet-group-batch': [{ key: 'g1', item: { name: 'Current Assets' } }],
+    '/api4/profit-and-loss-statement-group-batch': [{ key: 'pg1', item: { name: 'Operating Expenses' } }],
+    '/api4/subtotal-batch': [{ key: 's1', item: { name: 'Total Assets' } }],
+    '/api4/balance-sheet-account-batch': [
+      { key: 'a1', item: { name: 'Prepaid Tax', group: 'g1' } },
+      { key: 'a2', item: { name: 'Office Equipment', group: 'g1' } },
+    ],
+    '/api4/profit-and-loss-statement-account-batch': [
+      { key: 'p1', item: { name: 'Rent Expense', group: 'pg1' } },
+    ],
+  };
+  return store;
+}
+
+test('copyChartOfAccounts: copies all five collections and reports the count', async () => {
+  const client = coaClient(seedTemplate());
+  const res = await D.createDriver({ client }).copyChartOfAccounts({ businessName: DEST });
+
+  assert.deepEqual(res, { copied: 6, template: TEMPLATE });
+  // Every template record now exists on the destination, keys preserved.
+  C.COA_COLLECTIONS.forEach((path) => {
+    const src = (client.store[TEMPLATE][path] || []).map((x) => x.key).sort();
+    const dst = (client.store[DEST][path] || []).map((x) => x.key).sort();
+    assert.deepEqual(dst, src, path);
+  });
+  // The P&L account still points at its group — the reference survived.
+  assert.equal(client.store[DEST]['/api4/profit-and-loss-statement-account-batch'][0].item.group, 'pg1');
+});
+
+test('copyChartOfAccounts: writes groups and subtotals before the accounts', async () => {
+  const client = coaClient(seedTemplate());
+  await D.createDriver({ client }).copyChartOfAccounts({ businessName: DEST });
+
+  const puts = client.calls.filter((c) => c[0] === 'putJson').map((c) => c[1]);
+  assert.deepEqual(puts, C.COA_COLLECTIONS, 'PUT order must match the dependency order');
+});
+
+test('copyChartOfAccounts: scopes every call with the Manager-Business header', async () => {
+  const client = coaClient(seedTemplate());
+  await D.createDriver({ client }).copyChartOfAccounts({ businessName: DEST });
+
+  client.calls.forEach((c) => {
+    const headers = c[c.length - 1];
+    assert.ok(headers && headers['Manager-Business'], 'missing Manager-Business header on ' + c[0] + ' ' + c[1]);
+  });
+});
+
+test('copyChartOfAccounts: is idempotent — a re-run overwrites rather than duplicates', async () => {
+  const client = coaClient(seedTemplate());
+  const d = D.createDriver({ client });
+  await d.copyChartOfAccounts({ businessName: DEST });
+  await d.copyChartOfAccounts({ businessName: DEST });
+
+  assert.equal(client.store[DEST]['/api4/balance-sheet-account-batch'].length, 2, 'no duplicate accounts');
+});
+
+test('copyChartOfAccounts: paginates a collection larger than one page', async () => {
+  const store = seedTemplate();
+  const many = [];
+  for (let i = 0; i < 60; i++) many.push({ key: 'a' + i, item: { name: 'Acct ' + i, group: 'g1' } });
+  store[TEMPLATE]['/api4/balance-sheet-account-batch'] = many;
+  const client = coaClient(store);
+
+  const res = await D.createDriver({ client }).copyChartOfAccounts({ businessName: DEST });
+
+  assert.equal(res.copied, 64, '60 BS accounts + 2 groups + 1 subtotal + 1 P&L account');
+  assert.equal(client.store[DEST]['/api4/balance-sheet-account-batch'].length, 60);
+  const reads = client.calls.filter((c) => c[0] === 'get'
+    && c[1].indexOf('/api4/balance-sheet-account-batch?Business=' + encodeURIComponent(TEMPLATE)) === 0);
+  assert.ok(reads.some((c) => c[1].indexOf('Skip=50') !== -1), 'a second page was fetched');
+});
+
+test('copyChartOfAccounts: a rejected PUT surfaces as an error so the job retries', async () => {
+  const client = coaClient(seedTemplate(), { putStatus: 500 });
+  await assert.rejects(
+    () => D.createDriver({ client }).copyChartOfAccounts({ businessName: DEST }),
+    /Manager rejected the chart-of-accounts copy/,
+  );
+});
+
+test('copyChartOfAccounts: a PUT error body surfaces Manager\'s message', async () => {
+  const client = coaClient(seedTemplate(), { putError: 'unknown group g1' });
+  await assert.rejects(
+    () => D.createDriver({ client }).copyChartOfAccounts({ businessName: DEST }),
+    /unknown group g1/,
+  );
+});
+
+test('copyChartOfAccounts: a PUT Manager silently drops fails on read-back, not reports done', async () => {
+  // PUT answers true but nothing lands (ignoreWrites). The read-back must
+  // catch that the accounts are missing rather than report a done copy.
+  const client = coaClient(seedTemplate(), { ignoreWrites: true });
+  await assert.rejects(
+    () => D.createDriver({ client }).copyChartOfAccounts({ businessName: DEST }),
+    /missing \d+ account\(s\)/,
+  );
+});
+
+test('copyChartOfAccounts: an empty template is a wrong name, not empty books', async () => {
+  // A template that lists nothing is almost always a renamed/deleted business.
+  const client = coaClient({}); // TEMPLATE has no collections at all
+  await assert.rejects(
+    () => D.createDriver({ client }).copyChartOfAccounts({ businessName: DEST }),
+    /has no accounts to copy/,
+  );
+});
+
+test('copyChartOfAccounts: refuses to copy a business onto itself', async () => {
+  const client = coaClient(seedTemplate());
+  await assert.rejects(
+    () => D.createDriver({ client }).copyChartOfAccounts({ businessName: TEMPLATE }),
+    /the same business/,
+  );
+});
+
+test('copyChartOfAccounts: rejects an empty business name rather than guessing', async () => {
+  await assert.rejects(
+    () => D.createDriver({ client: coaClient(seedTemplate()) }).copyChartOfAccounts({ businessName: '' }),
+    /businessName is required/,
+  );
+});

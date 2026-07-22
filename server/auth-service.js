@@ -440,6 +440,12 @@ function addBusiness(db, input, deps) {
   // retries on its own, and ordered behind create_business by id.
   db.prepare('INSERT INTO provision_job (type, business_id, created_at, updated_at) VALUES (?,?,?,?)')
     .run('configure_tabs', businessId, now, now);
+  // Copy the firm's standard chart of accounts from the template business, so
+  // the new client's books arrive with the firm's accounts rather than
+  // Manager's bare defaults. After configure_tabs so the tab-created control
+  // accounts already exist for the copy to merge onto.
+  db.prepare('INSERT INTO provision_job (type, business_id, created_at, updated_at) VALUES (?,?,?,?)')
+    .run('copy_chart_of_accounts', businessId, now, now);
   // Pin the firm's "Txform Now!" custom button to the new client's Summary
   // page. Its own job so a failed install retries alone, and ordered behind
   // create_business by id like configure_tabs.

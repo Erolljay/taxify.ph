@@ -98,6 +98,17 @@ async function dispatch(db, job, driver) {
     return driver.configureCustomButton({ businessName: biz.manager_business_name });
   }
 
+  // Copy the firm's standard chart of accounts from the template business.
+  // Like configure_tabs, it carries only a business and is ordered behind
+  // create_business by the same retry mechanism: no books yet means throw,
+  // and try again next tick.
+  if (job.type === 'copy_chart_of_accounts') {
+    const biz = db.prepare('SELECT id, manager_business_name, manager_created_at FROM businesses WHERE id = ?').get(job.business_id);
+    if (!biz) throw new Error('business not found');
+    if (!biz.manager_created_at) throw new Error('business not created in Manager yet');
+    return driver.copyChartOfAccounts({ businessName: biz.manager_business_name });
+  }
+
   // Create the Manager login. The password is generated HERE, not in the
   // driver, so the one copy of it lands in the row the portal reads —
   // the owner collects it once and it is cleared.

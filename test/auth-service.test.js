@@ -386,8 +386,9 @@ test('add-business: also queues configure_tabs, ordered behind the books', () =>
   const r = S.addBusiness(db, { cookie: signIn(db, deps, 'owner@x.com'), name: 'Fresh Co' }, deps);
 
   const jobs = db.prepare('SELECT type, business_id FROM provision_job ORDER BY id').all();
-  assert.deepEqual(jobs.map((j) => j.type), ['create_business', 'configure_tabs', 'configure_custom_button'],
-    'tabs and the custom button must be queued after the books, since jobs run in id order');
+  assert.deepEqual(jobs.map((j) => j.type),
+    ['create_business', 'configure_tabs', 'copy_chart_of_accounts', 'configure_custom_button'],
+    'tabs, COA copy, and the custom button must be queued after the books, since jobs run in id order');
   jobs.forEach((j) => assert.equal(j.business_id, r.json.businessId));
 });
 
@@ -399,6 +400,18 @@ test('add-business: also queues configure_custom_button for the new books', () =
 
   const job = db.prepare("SELECT type, business_id, user_id FROM provision_job WHERE type='configure_custom_button'").get();
   assert.ok(job, 'the custom-button job was enqueued');
+  assert.equal(job.business_id, r.json.businessId);
+  assert.equal(job.user_id, null, 'a business-only job, like create_business and configure_tabs');
+});
+
+test('add-business: also queues copy_chart_of_accounts for the new books', () => {
+  // Without this the client's books arrive with Manager's bare default
+  // accounts instead of the firm's standard chart of accounts.
+  const db = freshDb(), deps = makeDeps();
+  const r = S.addBusiness(db, { cookie: signIn(db, deps, 'owner@x.com'), name: 'Fresh Co' }, deps);
+
+  const job = db.prepare("SELECT type, business_id, user_id FROM provision_job WHERE type='copy_chart_of_accounts'").get();
+  assert.ok(job, 'the chart-of-accounts copy job was enqueued');
   assert.equal(job.business_id, r.json.businessId);
   assert.equal(job.user_id, null, 'a business-only job, like create_business and configure_tabs');
 });
