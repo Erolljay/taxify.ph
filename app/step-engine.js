@@ -1823,21 +1823,40 @@ const StepEngine = (function () {
       wrap.appendChild(frame);
 
       const printBtn = container.querySelector('#tfy-print-filed');
-      if (printBtn) {
-        printBtn.onclick = () => {
-          // A sandboxed frame can't print itself — hand the stored markup
-          // to a fresh window and let the browser's own print flow run.
-          const w = window.open('', '_blank');
-          if (!w) { alert('Allow pop-ups to print the filed return.'); return; }
-          w.document.write(html);
-          w.document.close();
-          w.focus();
-          setTimeout(() => w.print(), 300);
-        };
-      }
+      if (printBtn) printBtn.onclick = () => printFiledDocument(html);
     } catch (e) {
       wrap.innerHTML = `<div class="alert alert-warn">⚠️ The stored filed return could not be opened. The figures below are still the filed record.</div>`;
     }
+  }
+
+  // Print the filed document WITHOUT ever giving its markup a script-capable
+  // context. The stored HTML is untrusted — the payload is written by any
+  // authenticated caller and could carry <script> or an on* handler — so it
+  // must never reach a same-origin document.write or an unsandboxed window,
+  // where it would execute in this origin and run as the viewer.
+  //
+  // A print iframe sandboxed WITHOUT allow-scripts renders and prints the
+  // content but cannot execute anything (no script, no img-onerror).
+  // allow-same-origin lets THIS page call print() on the frame; it does not
+  // grant scripting on its own — only the absent allow-scripts would. The
+  // dangerous pair is allow-scripts + allow-same-origin together, which we
+  // deliberately never set.
+  function printFiledDocument(html) {
+    const frame = document.createElement('iframe');
+    frame.setAttribute('sandbox', 'allow-same-origin allow-modals');
+    frame.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;';
+    frame.srcdoc = html;
+    frame.onload = () => {
+      try {
+        frame.contentWindow.focus();
+        frame.contentWindow.print();
+      } catch (e) {
+        /* nothing to recover — the on-screen frozen view is still the record */
+      } finally {
+        setTimeout(() => frame.remove(), 1000);
+      }
+    };
+    document.body.appendChild(frame);
   }
 
   function renderFrozenManualInputs(current) {
