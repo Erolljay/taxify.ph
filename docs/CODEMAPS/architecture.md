@@ -22,7 +22,7 @@ Browser ──HTTPS──> nginx ─┬─ static files (extension + portal + ma
 Node auth-service.js ─┐
 php entitlement.php  ─┼─> SQLite txform.db  (WAL; server/schema.sql)
 Node provisioner.js  ─┘        │
-                               └─ provision_job queue ─> Playwright ─> Manager Server (creates/revokes restricted users)
+                               └─ provision_job queue ─> HTTP driver ─> Manager Server (books, tabs, chart of accounts, custom button, restricted users)
 ```
 
 ## Two login realms (never unified — no SSO in self-hosted Manager)
@@ -33,7 +33,7 @@ Node provisioner.js  ─┘        │
 ```
 owner requests link → email (hello@txform.ph) → click → /api/auth/verify sets txfsid cookie
 owner console (account.html) → invite staff / tick businesses → writes user_business + enqueues provision_job
-provisioner (systemd timer) drains queue → Playwright drives Manager → emails Manager creds to staff
+provisioner (systemd timer) drains queue → HTTP driver calls Manager (api4 + admin UI) → emails Manager creds to staff
 ```
 
 ## Detail maps

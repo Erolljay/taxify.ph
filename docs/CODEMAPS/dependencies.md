@@ -12,9 +12,9 @@ needs no `npm install` on the server.
 ## External services
 | Service | Use | Status |
 |---|---|---|
-| **Manager Server** (:5000) | books DB; provisioner creates restricted users | live |
+| **Manager Server** (:5000) | books DB; provisioner creates books/users, tabs, chart of accounts, custom button | live |
 | **Google Workspace SMTP** (`smtp.gmail.com:465`) | sends magic-link email as `hello@txform.ph` (auth `ejtallo@`, App Password) | **live** |
-| **Playwright / Chromium** | provisioner drives Manager admin UI | code ready; selectors need live UI |
+| ~~Playwright / Chromium~~ | ~~provisioner drove Manager UI~~ — removed; the provisioner now talks plain HTTP to Manager (api4 + admin forms), zero npm deps | n/a |
 | **Xendit** | subscriptions + webhooks (₱) | Phase 3, not started |
 
 ## Infra

@@ -4,14 +4,14 @@ Tracking doc referenced by [`docs/ECC-PLAYBOOK.md`](ECC-PLAYBOOK.md). Snapshot o
 where the app stands against the 6-phase SaaS plan, kept current from source
 changes rather than hand-waved.
 
-_Last updated: 2026-07-21_
+_Last updated: 2026-07-22_
 
 ## Phase status
 
 | Phase | Status | Notes |
 |-------|--------|-------|
 | **0 — Foundation hardening** | ✅ Largely done | Pull-based auto-deploy (`scripts/deploy.sh` via 2-min root cron), nginx web-root hardening, LF normalization. Hosting-license confirmed, Manager Server bought. **Backups live (2026-07-13):** AWS Backup EC2 snapshots + S3 Manager.io data backups, both 2 AM Manila, 7/56/400-day retention. **`save-tax-rates.php` hardened & LIVE (2026-07-14, PR #23):** shared-secret token + body cap + backup pruning on top of nginx basic-auth; token file created on the server. Still open: UFW, fail2ban, UptimeRobot, e2e BIR verification. |
-| **1 — Tenancy / entitlement / provisioning** | ✅ Live | `server/auth-*.js`, `smtp-mailer.js`, `migrate.js`, `manager-client.js`, `provisioner.js` + HTTP driver, `manager-vue-form.js` / `manager-permissions.js` / `manager-tabs.js`, `create-firm.js`, `entitlement.php`, `deploy-health.js` + its watchdog timer, systemd units. **422 passing tests, plus 13 read-only contract checks against live Manager (`npm run contract`, run after every Manager upgrade). Zero npm dependencies** — Playwright was deleted once it became clear Books needs no browser. **LIVE as of 2026-07-21:** Tallo CPA (code TALLO) with four users, provisioner timer reconciling every two minutes, deploys restarting the auth service automatically, and email reaching external addresses (SPF/DMARC added). Roles owner/staff/client, firm-code prefixes, archive-not-delete, removal that revokes in Books and kills the session, voucher-based comping, high-water-mark billing, one-time password handover with MFA, and portal sign-out (PR #54). **Provisioning is now complete end to end (PR #56):** a grant sets Full access inside the business as well as linking it, and new books get the firm's nine tabs — both verified live. **Failed jobs now surface as a banner** the owner cannot navigate past, with a Try again that re-queues (PR #62), and a watchdog alerts if deploys stop landing (PRs #64/#65). Open: the two partner firms. |
+| **1 — Tenancy / entitlement / provisioning** | ✅ Live | `server/auth-*.js`, `smtp-mailer.js`, `migrate.js`, `manager-client.js`, `provisioner.js` + HTTP driver, `manager-vue-form.js` / `manager-permissions.js` / `manager-tabs.js` / `manager-extension.js` / `manager-coa.js`, `create-firm.js`, `entitlement.php`, `deploy-health.js` + its watchdog timer, systemd units. **482 passing tests, plus 15 read-only contract checks against live Manager (`npm run contract`, run after every Manager upgrade). Zero npm dependencies** — Playwright was deleted once it became clear Books needs no browser. **LIVE as of 2026-07-21:** Tallo CPA (code TALLO) with four users, provisioner timer reconciling every two minutes, deploys restarting the auth service automatically, and email reaching external addresses (SPF/DMARC added). Roles owner/staff/client, firm-code prefixes, archive-not-delete, removal that revokes in Books and kills the session, voucher-based comping, high-water-mark billing, one-time password handover with MFA, and portal sign-out (PR #54). **Provisioning is now complete end to end (PR #56):** a grant sets Full access inside the business as well as linking it, and new books get the firm's nine tabs — both verified live. **Failed jobs now surface as a banner** the owner cannot navigate past, with a Try again that re-queues (PR #62), and a watchdog alerts if deploys stop landing (PRs #64/#65). **New-client setup now also installs the Txform Now! custom button (PR #72) and copies the firm's standard chart of accounts from `0000 Chart of Accounts` (PR #73)** — both verified live, ordered behind the books/tabs and non-blocking on failure. Open: the two partner firms. |
 | **2 — Website rebuild & SEO** | ✅ Live | **Deployed 2026-07-14 (PR #21).** Full static multi-page site under `website/`: home + features/security/about/contact/faq/terms/privacy, shared `assets/css/site.css` + `assets/js/site.js`, real favicons, `robots.txt` + `sitemap.xml` + per-page meta & JSON-LD. **Positioned as a live product, not a waitlist** — CTAs are "Get started" → contact onboarding and "Sign in" → the owner portal at **`/account`**. Legal pages carry the firm's real details (TalloCPA, Iloilo City, DPO Erol Jay Tallo). Old JS bundle preserved as `index.legacy.html`. Open only: counsel review of legal pages, optional font self-hosting. |
 | **3 — Payments (Xendit)** | 🔴 Not started | No payment/webhook code yet. **Model decided 2026-07-20:** flat ₱500/business/month (no tiers), no trial, one monthly invoice billed on the high-water mark of active businesses. The model deliberately avoids proration — it recalculates one monthly invoice per cycle. (Processor switched PayMongo → Xendit 2026-07-22 — reason: Xendit's subscription/Recurring API is more mature; check whether its native subscription lifecycle handles the high-water-mark change directly, making the PayMongo-era line-item-adjustment workaround unnecessary.) Annual prepay deferred. |
 | **4 — ToS / Data Privacy (RA 10173)** | 🟡 Draft pages | `website/terms.html` + `website/privacy.html` drafted (RA 10173-aligned, NPC/DPO sections) with bracketed firm placeholders; needs real firm details + counsel review before launch. |
@@ -29,6 +29,35 @@ rates, the graduated-tax engine and VAT 2550Q are verified; two income-tax bugs 
   workflow engine that replaced the old monolithic setup screen).
 
 ## Changelog
+
+### 2026-07-22 — New books arrive furnished: the button and the chart of accounts
+
+Two more steps fold into provisioning, both mirroring the `configure_tabs`
+shape (own job, ordered behind `create_business`, retry-on-throw, non-blocking):
+
+- **`configure_custom_button` (PR #72)** — installs the "Txform Now!" custom
+  button on the new client's Summary page, the same one `installer.html`
+  installs by hand. A plain `POST /api4/extension` with a `Manager-Business`
+  header and the full `{business, value}` body — the exact shape Manager's own
+  `api-proxy.js` sends, read off the live proxy. Idempotent + read-back
+  verified. Code in `server/manager-extension.js`.
+- **`copy_chart_of_accounts` (PR #73)** — copies the firm's standard chart of
+  accounts from the template business **`0000 Chart of Accounts`** onto the new
+  books, so clients arrive with the firm's accounts, not Manager's defaults.
+  Reproduces Manager's own **Replicator** extension server-side (it is UI-only):
+  reads five collections (balance-sheet & P&L groups, subtotals, then the two
+  account collections) and writes each back with a bulk `PUT /api4/<x>-batch`
+  **preserving keys**, so group references stay valid and control accounts
+  (Cash/AR/AP/Employee Clearing, tab-created) merge instead of duplicating.
+  Verified live: 49 records copied into Test-Business-1, no duplicated control
+  accounts. Idempotent (upsert by key) + read-back verified; refuses an empty
+  template. Code in `server/manager-coa.js`; `manager-client.js` gained
+  `putJson`. One-off backfill helper: `scripts/test-copy-coa.js "<Business>"`
+  (existing TALLO- clients are being backfilled by hand via the Replicator).
+
+The template `0000 Chart of Accounts` is now load-bearing — a real Manager
+business the firm maintains; renaming or deleting it makes the copy step fail
+loudly (by design) rather than provision bare books.
 
 ### 2026-07-21 (finally) — The watchdog is watching, and installing it found three more
 
