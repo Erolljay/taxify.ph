@@ -54,13 +54,21 @@ tested `app/filing-core.js`. Session cookie must be `Domain=.txform.ph` to cross
 ## Provisioner — `server/provisioner.js` (systemd timer, one `drainOnce`/tick)
 ```
 claimNext (oldest pending, bump attempts) → dispatch(job, driver) → mark done|pending(retry)|failed
-job.type: create | grant | revoke | disable   MAX_ATTEMPTS=3
+job.type (users):    create | reset_password | grant | revoke | disable
+job.type (business): create_business | configure_tabs | copy_chart_of_accounts | configure_custom_button
+MAX_ATTEMPTS=3   business-scoped jobs throw (→ retry) until create_business stamps manager_created_at
 ```
-Driver interface (injected; real one = `provisioner-driver-playwright.js`, headless Chromium → Manager):
-`createUser · grantAccess · revokeAccess · disableUser` (async, may throw, may return {screenshot}).
+Driver interface (injected; real one = `provisioner-driver-http.js`, plain HTTP to Manager api4 + admin
+UI — no browser, zero deps):
+`createUser · setPassword · grantAccess · revokeAccess · disableUser · createBusiness · configureTabs ·
+copyChartOfAccounts · configureCustomButton` (async, may throw).
+Manager helpers: `manager-client.js` (auth + api4/form posts, `Manager-Business` header) ·
+`manager-vue-form` / `manager-permissions` / `manager-tabs` (scraped Vue forms) ·
+`manager-extension` (custom button → `POST /api4/extension`) ·
+`manager-coa` (COA copy → bulk `PUT /api4/<x>-batch` from template `0000 Chart of Accounts`, keys preserved).
 
 ## systemd units
 `txform-auth.service` (Node :5100, EnvironmentFile `/etc/txform/auth.env`) · `txform-provisioner.{service,timer}`.
 
-## Tests (`node --test`, 95 passing)
-`auth-core` · `auth-service` (in-mem sqlite) · `smtp-mailer` (mock SMTP) · `entitlement-core` · `entitlement-authz` · `provisioner` (fake driver).
+## Tests (`node --test`, 482 passing + 15 read-only live-Manager contract checks via `npm run contract`)
+`auth-core` · `auth-service` (in-mem sqlite) · `smtp-mailer` (mock SMTP) · `entitlement-core` · `entitlement-authz` · `provisioner` (fake driver) · `provisioner-driver-http` / `manager-tabs` / `manager-extension` / `manager-coa` (fake client).
