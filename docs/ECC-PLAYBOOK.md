@@ -157,11 +157,11 @@ JavaScript") with static multi-page HTML.
 
 ---
 
-## Phase 3 · Payments — PayMongo subscriptions (Weeks 8–14)
+## Phase 3 · Payments — Xendit subscriptions (Weeks 8–14)
 
 | Task | ECC |
 |------|-----|
-| PayMongo integration (checkout, Subscriptions API, GCash payment-link fallback) | `api-connector-builder`, `backend-patterns` |
+| Xendit integration (Invoices/checkout, Recurring API, GCash e-wallet channel) | `api-connector-builder`, `backend-patterns` |
 | Webhook → entitlement DB → provisioner → welcome email | `api-design`, `error-handling` |
 | **Security gate** | `/security-review`, **security-reviewer** |
 

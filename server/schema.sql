@@ -39,7 +39,7 @@ CREATE TABLE IF NOT EXISTS account (
   status              TEXT    NOT NULL DEFAULT 'active',    -- pending|active|grace|suspended|cancelled
   seats_limit         INTEGER NOT NULL DEFAULT 1,
   businesses_limit    INTEGER NOT NULL DEFAULT 1,
-  pm_subscription_id  TEXT,                                 -- PayMongo subscription id
+  subscription_id     TEXT,                                 -- Xendit subscription id
   current_period_end  TEXT,                                 -- ISO8601, set by webhook
   grace_until         TEXT,                                 -- ISO8601, nullable
   created_at          TEXT    NOT NULL DEFAULT (datetime('now'))

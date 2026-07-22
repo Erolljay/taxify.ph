@@ -167,7 +167,7 @@ function managerBusinessName(firmCode, name) {
 // deliberately does NOT vary by tax type: that is self-declared and
 // unaudited, so a cheaper non-VAT tier would just be the new price.
 //
-// Centavos, always. Money never touches a float, and PayMongo takes
+// Centavos, always. Money never touches a float, and Xendit takes
 // minor units anyway.
 const RATE_CENTAVOS = 50000; // ₱500.00
 
