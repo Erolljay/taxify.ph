@@ -620,7 +620,7 @@ async function renderWorkflowOverview(root, workflowKey) {
 
   const noteEl = root.querySelector('#tfy-ov-note');
   if (noteEl && authNote) {
-    noteEl.innerHTML = `<div class="alert alert-warn" style="margin-bottom:14px;">🔑 Sign in at <a href="/account" target="_blank" rel="noopener">txform.ph/account</a> to freeze filings and track which periods are filed. You can still prepare drafts without signing in.</div>`;
+    noteEl.innerHTML = `<div class="alert alert-warn" style="margin-bottom:14px;">🔑 Sign in at <a href="https://txform.ph/account" target="_blank" rel="noopener">txform.ph/account</a> to freeze filings and track which periods are filed. You can still prepare drafts without signing in.</div>`;
   }
 
   const rows = periods.map(p => {

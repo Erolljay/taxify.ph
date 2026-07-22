@@ -1693,7 +1693,7 @@ const StepEngine = (function () {
         body.querySelector('.tfy-step-footer').insertAdjacentHTML('beforebegin',
           `<div class="alert alert-warn" style="margin-bottom:10px;">🔑 <strong>Sign in to freeze filings.</strong>
              Freezing saves the return to your Txform account. Sign in at
-             <a href="/account" target="_blank" rel="noopener">txform.ph/account</a>, then click Mark as Filed again.
+             <a href="https://txform.ph/account" target="_blank" rel="noopener">txform.ph/account</a>, then click Mark as Filed again.
              Your draft progress is kept.</div>`);
       } else {
         statusEl.textContent = '❌ ' + ((e && e.message) || 'Could not freeze filing.');
@@ -1717,7 +1717,7 @@ const StepEngine = (function () {
       history = await FilingStore.loadFilingSnapshots(state.biz, state.workflow.key, state.periodKey);
     } catch (e) {
       const msg = (e && e.isAuthError)
-        ? `🔑 Sign in at <a href="/account" target="_blank" rel="noopener">txform.ph/account</a> to view filed returns.`
+        ? `🔑 Sign in at <a href="https://txform.ph/account" target="_blank" rel="noopener">txform.ph/account</a> to view filed returns.`
         : `❌ ${escHtml((e && e.message) || 'Could not load filed return.')}`;
       container.innerHTML = `<div class="tfy-frozen"><div class="alert ${e && e.isAuthError ? 'alert-warn' : 'alert-error'}">${msg}</div></div>`;
       return;
