@@ -15,7 +15,7 @@ needs no `npm install` on the server.
 | **Manager Server** (:5000) | books DB; provisioner creates restricted users | live |
 | **Google Workspace SMTP** (`smtp.gmail.com:465`) | sends magic-link email as `hello@txform.ph` (auth `ejtallo@`, App Password) | **live** |
 | **Playwright / Chromium** | provisioner drives Manager admin UI | code ready; selectors need live UI |
-| **PayMongo** | subscriptions + webhooks (₱) | Phase 3, not started |
+| **Xendit** | subscriptions + webhooks (₱) | Phase 3, not started |
 
 ## Infra
 - **nginx + Certbot** on EC2 t3.small (ap-southeast-1). vhosts: `txform.ph` (apex, `/api/*`→:5100), `extension.txform.ph`, `books.txform.ph`, `app.txform.ph`.

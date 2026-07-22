@@ -9,7 +9,7 @@ Schema: `server/schema.sql`. Manager Server remains the books DB — not here.
 ```
 account (the firm = unit of billing)
   id · plan(starter|pro|firm) · status(active|grace|suspended|cancelled)
-  seats_limit · businesses_limit · pm_subscription_id · current_period_end · grace_until
+  seats_limit · businesses_limit · subscription_id · current_period_end · grace_until
      │ 1
      ├───< users        (account_id FK) · email · role(owner|staff) · manager_user_ref · UNIQUE(account_id,email)
      └───< businesses   (account_id FK) · manager_business_guid UNIQUE · name

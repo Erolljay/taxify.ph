@@ -141,10 +141,11 @@ external addresses. 310 tests.
 - [ ] ~~**Sign-up flow**~~ — **not being built.** Every firm on the system is one we know
       personally, so onboarding is a command (`create-firm.js`), not a funnel. Revisit only if
       strangers ever need to self-serve.
-- [ ] ~~**PayMongo**~~ — **deferred indefinitely.** The three firms are comped via vouchers and
-      there is no PayMongo account. The billing model is decided and implemented (flat ₱500 per
+- [ ] ~~**Xendit**~~ — **deferred indefinitely.** The three firms are comped via vouchers and
+      there is no Xendit account yet. The billing model is decided and implemented (flat ₱500 per
       business, high-water-mark monthly, `invoiceFor` computes the amount) — only the charging
-      integration is missing, and nothing depends on it.
+      integration is missing, and nothing depends on it. (Processor switched from PayMongo →
+      Xendit 2026-07-22; the model is processor-agnostic.)
 
 ## ⭐ Month-end Prep restructure + party Excel round-trip + readiness-gated workflows (2026-07-19)
 
@@ -468,6 +469,6 @@ clean layout), then build save-reports into that clean structure.
         `https://txform.ph` (old JS bundle gone), legal pages show the firm details, `/account`
         portal 200, and `/api/auth/verify` → 400 (service reached). Open only: **counsel review**
         of legal pages, NPC DPO-registration check, and optional font self-hosting.
-- [ ] **Phase 3** — PayMongo payments (not started; security gate).
+- [ ] **Phase 3** — Xendit payments (not started; security gate).
 - [ ] **Phase 4** — ToS / RA 10173 data-privacy pages (not started).
 - [ ] **Phase 5** — beta / launch.
