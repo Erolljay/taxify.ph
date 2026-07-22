@@ -41,6 +41,7 @@ const { createClient, businessOptionValue, managerKeyParam } = require('./manage
 const P = require('./manager-permissions.js');
 const T = require('./manager-tabs.js');
 const V = require('./manager-vue-form.js');
+const E = require('./manager-extension.js');
 
 const USER_FORM = '/user-form';
 
@@ -296,6 +297,57 @@ function createDriver(opts) {
     return { tabsEnabled: turningOn, alreadyConfigured: false };
   }
 
+  // api4 scopes a business-data write with the `Manager-Business` header,
+  // exactly as Manager's own api-proxy.js does — the business name is NOT a
+  // URL key here. The batch GET carries it in the query too, matching
+  // installer.html; sending both is what a known-good request looks like.
+  function businessHeader(businessName) {
+    return { 'Manager-Business': encodeURIComponent(businessName) };
+  }
+
+  async function listExtensions(businessName) {
+    const path = E.EXTENSION_BATCH + '?business=' + encodeURIComponent(businessName)
+      + '&Skip=0&PageSize=200';
+    const res = await client.get(path, businessHeader(businessName));
+    if (res.status !== 200) {
+      throw new Error('could not list custom buttons for "' + businessName + '" (http ' + res.status + ')');
+    }
+    return E.parseExtensions(res.body);
+  }
+
+  // Install the firm's custom button on a set of books. Idempotent: a button
+  // with this endpoint already present is left alone, so a retry after a
+  // create whose response we never saw does not add a second copy.
+  async function installExtension(businessName, button) {
+    const spec = button || E.TXFORM_BUTTON;
+
+    const before = await listExtensions(businessName);
+    if (E.hasExtension(before, spec.Endpoint)) {
+      return { installed: false, alreadyInstalled: true };
+    }
+
+    // Mirror installer.html's proven shape: the whole { business, value }
+    // object as the JSON body, plus the Manager-Business header.
+    const res = await client.postJson(
+      E.EXTENSION,
+      { business: businessName, value: spec },
+      businessHeader(businessName));
+    if (res.status >= 400) {
+      throw new Error('Manager rejected the custom button for "' + businessName + '" (http ' + res.status + ')');
+    }
+
+    // Read back. Manager returns 200 for a post that changed nothing, so
+    // without this a new client's books could come up without the app on
+    // their Summary while the job reports done — the one thing this step
+    // exists to guarantee.
+    const after = await listExtensions(businessName);
+    if (!E.hasExtension(after, spec.Endpoint)) {
+      throw new Error('Manager accepted the post but the custom button is not installed for "'
+        + businessName + '"');
+    }
+    return { installed: true, alreadyInstalled: false };
+  }
+
   return {
     // POST /api4/business {"name"} — the books, empty. BIR scaffolding
     // (custom fields, tax codes, chart of accounts) is deliberately NOT
@@ -315,6 +367,14 @@ function createDriver(opts) {
     async configureTabs({ businessName, tabs }) {
       if (!businessName) throw new Error('businessName is required');
       return configureTabs(businessName, tabs);
+    },
+
+    // Pin the firm's "Txform Now!" custom button to the new client's Summary
+    // page. Its own job, ordered behind create_business like configureTabs,
+    // so a failure to install the button retries without blocking the books.
+    async configureCustomButton({ businessName, button }) {
+      if (!businessName) throw new Error('businessName is required');
+      return installExtension(businessName, button);
     },
 
     // A restricted user with no businesses yet; grants follow as their

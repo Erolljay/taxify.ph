@@ -87,6 +87,17 @@ async function dispatch(db, job, driver) {
     return driver.configureTabs({ businessName: biz.manager_business_name });
   }
 
+  // Pin the firm's "Txform Now!" custom button to the new client's Summary
+  // page. Like configure_tabs, it carries only a business and is ordered
+  // behind create_business by the same retry mechanism: no books yet means
+  // throw, and try again next tick.
+  if (job.type === 'configure_custom_button') {
+    const biz = db.prepare('SELECT id, manager_business_name, manager_created_at FROM businesses WHERE id = ?').get(job.business_id);
+    if (!biz) throw new Error('business not found');
+    if (!biz.manager_created_at) throw new Error('business not created in Manager yet');
+    return driver.configureCustomButton({ businessName: biz.manager_business_name });
+  }
+
   // Create the Manager login. The password is generated HERE, not in the
   // driver, so the one copy of it lands in the row the portal reads —
   // the owner collects it once and it is cleared.

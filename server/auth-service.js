@@ -440,6 +440,11 @@ function addBusiness(db, input, deps) {
   // retries on its own, and ordered behind create_business by id.
   db.prepare('INSERT INTO provision_job (type, business_id, created_at, updated_at) VALUES (?,?,?,?)')
     .run('configure_tabs', businessId, now, now);
+  // Pin the firm's "Txform Now!" custom button to the new client's Summary
+  // page. Its own job so a failed install retries alone, and ordered behind
+  // create_business by id like configure_tabs.
+  db.prepare('INSERT INTO provision_job (type, business_id, created_at, updated_at) VALUES (?,?,?,?)')
+    .run('configure_custom_button', businessId, now, now);
   db.prepare('INSERT INTO audit_log (account_id, actor, action, target) VALUES (?,?,?,?)')
     .run(s.account_id, s.email, 'add_business', 'business:' + businessId + ' ' + managerName);
   return { status: 201, json: { ok: true, businessId: businessId } };

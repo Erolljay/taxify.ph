@@ -28,6 +28,7 @@ const { createClient, businessOptionValue } = require('../../server/manager-clie
 const P = require('../../server/manager-permissions.js');
 const T = require('../../server/manager-tabs.js');
 const V = require('../../server/manager-vue-form.js');
+const E = require('../../server/manager-extension.js');
 
 const BASE = process.env.MANAGER_URL || 'http://127.0.0.1:5000';
 const USER = process.env.MANAGER_ADMIN_USER;
@@ -114,6 +115,21 @@ test('api4 still documents creating a business by name', opts, async () => {
   assert.ok(spec.paths && spec.paths['/api4/business'], 'POST /api4/business is gone');
   const schema = (spec.components && spec.components.schemas && spec.components.schemas.PostBusiness) || {};
   assert.ok(schema.properties && schema.properties.name, 'PostBusiness no longer takes a name');
+});
+
+test('the extension resource still lists per business, scoped by the header', opts, async () => {
+  // The custom-button step (manager-extension.js) reads and writes /api4/
+  // extension, scoping each call with the Manager-Business header exactly
+  // as Manager's own api-proxy.js does. If either the resource or that
+  // header contract changed, the provisioner would stop installing the
+  // Txform Now! button on new clients. READ-ONLY: lists, creates nothing.
+  const name = await someBusiness();
+  const path = E.EXTENSION_BATCH + '?business=' + encodeURIComponent(name) + '&Skip=0&PageSize=200';
+  const res = await client.get(path, { 'Manager-Business': encodeURIComponent(name) });
+  assert.equal(res.status, 200, '/api4/extension-batch did not list for ' + JSON.stringify(name));
+  // Parses as the { items: [...] } shape the driver's idempotency check reads.
+  assert.doesNotThrow(function () { E.parseExtensions(res.body); },
+    'the extension list is no longer the { items: [{ item }] } shape');
 });
 
 test('an expired session is recovered automatically', opts, async () => {

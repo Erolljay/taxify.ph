@@ -386,9 +386,21 @@ test('add-business: also queues configure_tabs, ordered behind the books', () =>
   const r = S.addBusiness(db, { cookie: signIn(db, deps, 'owner@x.com'), name: 'Fresh Co' }, deps);
 
   const jobs = db.prepare('SELECT type, business_id FROM provision_job ORDER BY id').all();
-  assert.deepEqual(jobs.map((j) => j.type), ['create_business', 'configure_tabs'],
-    'tabs must be queued after the books, since jobs run in id order');
+  assert.deepEqual(jobs.map((j) => j.type), ['create_business', 'configure_tabs', 'configure_custom_button'],
+    'tabs and the custom button must be queued after the books, since jobs run in id order');
   jobs.forEach((j) => assert.equal(j.business_id, r.json.businessId));
+});
+
+test('add-business: also queues configure_custom_button for the new books', () => {
+  // Without this the client's books arrive without the Txform Now! app on
+  // their Summary page, and someone has to install it by hand.
+  const db = freshDb(), deps = makeDeps();
+  const r = S.addBusiness(db, { cookie: signIn(db, deps, 'owner@x.com'), name: 'Fresh Co' }, deps);
+
+  const job = db.prepare("SELECT type, business_id, user_id FROM provision_job WHERE type='configure_custom_button'").get();
+  assert.ok(job, 'the custom-button job was enqueued');
+  assert.equal(job.business_id, r.json.businessId);
+  assert.equal(job.user_id, null, 'a business-only job, like create_business and configure_tabs');
 });
 
 test('add-business: re-adding own business is idempotent and costs no slot', () => {

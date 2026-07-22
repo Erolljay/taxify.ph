@@ -132,6 +132,11 @@
       headline: function (f) { return (f.business_name || 'A client') + '’s books were created, but the tabs were not set up.'; },
       meaning: 'The books work; the sidebar is missing the tabs the firm uses.',
     },
+    configure_custom_button: {
+      severity: 'warning',
+      headline: function (f) { return (f.business_name || 'A client') + '’s books were created, but the Txform Now! button was not installed.'; },
+      meaning: 'The books work; the Txform Now! app is just missing from the Summary page.',
+    },
   };
 
   // Unknown job types must still surface. A new job type added later and
