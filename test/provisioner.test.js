@@ -37,6 +37,7 @@ function fakeDriver(opts = {}) {
     calls,
     createBusiness: async (a) => { rec('createBusiness', a); if (opts.failCreateBusiness) throw new Error('create-business boom'); return {}; },
     configureTabs: async (a) => { rec('configureTabs', a); if (opts.failConfigureTabs) throw new Error('tabs boom'); return { tabsEnabled: [], alreadyConfigured: true }; },
+    configureCustomButton: async (a) => { rec('configureCustomButton', a); if (opts.failConfigureCustomButton) throw new Error('button boom'); return { installed: true, alreadyInstalled: false }; },
     createUser: async (a) => { rec('createUser', a); if (opts.failCreate) throw new Error('create boom'); return { managerUserRef: 'mgr:' + a.email, screenshot: '/s/create.png' }; },
     grantAccess: async (a) => { rec('grantAccess', a); if (opts.failGrant) throw new Error('grant boom'); return { screenshot: '/s/grant.png' }; },
     revokeAccess: async (a) => { rec('revokeAccess', a); return { screenshot: '/s/revoke.png' }; },
@@ -202,6 +203,51 @@ test('configure_tabs: a failure does not block the books being usable', async ()
 
   assert.equal(jobStatus(db, 1).status, 'pending');
   assert.match(jobStatus(db, 1).last_error, /tabs boom/);
+});
+
+// ── configure_custom_button ──────────────────────────────────────
+test('configure_custom_button: installs the button once the books exist', async () => {
+  const db = seed();
+  db.prepare("INSERT INTO businesses (id, account_id, manager_business_name, name, manager_created_at) VALUES (2, 1, ?, ?, ?)")
+    .run('FIRMA-New Co', 'New Co', '2026-01-01T00:00:00Z');
+  enqueue(db, 'configure_custom_button', null, 2);
+  const driver = fakeDriver();
+
+  await P.drainOnce(db, driver, { now: () => 1 });
+
+  assert.deepEqual(only(driver.calls, 'configureCustomButton')[0][1], { businessName: 'FIRMA-New Co' });
+  assert.equal(jobStatus(db, 1).status, 'done');
+});
+
+test('configure_custom_button: waits for the books rather than failing outright', async () => {
+  // Queued alongside create_business, so on the first tick the books may
+  // not exist yet. It must go back to pending, not burn its attempts.
+  const db = seed();
+  db.prepare("INSERT INTO businesses (id, account_id, manager_business_name, name) VALUES (2, 1, ?, ?)")
+    .run('FIRMA-New Co', 'New Co');
+  enqueue(db, 'configure_custom_button', null, 2);
+  const driver = fakeDriver();
+
+  await P.drainOnce(db, driver, { now: () => 1 });
+
+  assert.equal(only(driver.calls, 'configureCustomButton').length, 0, 'must not touch Manager yet');
+  assert.equal(jobStatus(db, 1).status, 'pending');
+  assert.match(jobStatus(db, 1).last_error, /not created in Manager yet/);
+});
+
+test('configure_custom_button: a failure does not block the books being usable', async () => {
+  // The books still exist and grants still work — only the Summary app is
+  // missing. It must retry, and be visible in the log if it gives up.
+  const db = seed();
+  db.prepare("INSERT INTO businesses (id, account_id, manager_business_name, name, manager_created_at) VALUES (2, 1, ?, ?, ?)")
+    .run('FIRMA-New Co', 'New Co', '2026-01-01T00:00:00Z');
+  enqueue(db, 'configure_custom_button', null, 2);
+  const driver = fakeDriver({ failConfigureCustomButton: true });
+
+  await P.drainOnce(db, driver, { now: () => 1 });
+
+  assert.equal(jobStatus(db, 1).status, 'pending');
+  assert.match(jobStatus(db, 1).last_error, /button boom/);
 });
 
 test('create_business: a retry after an unseen response does not make a second set of books', async () => {

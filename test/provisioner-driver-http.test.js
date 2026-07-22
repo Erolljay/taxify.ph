@@ -631,3 +631,106 @@ test('encodeForm: a multi-select repeats the key, which is how access is submitt
 test('encodeForm: omits undefined so an unset password is not sent as "undefined"', () => {
   assert.equal(encodeForm({ Username: 'x', Password: undefined }), 'Username=x');
 });
+
+// ── Custom button: pinning the Txform Now! app to a new client's Summary ──
+
+const E = require('../server/manager-extension.js');
+
+// A stateful fake of the api4 extension resource: the batch GET reports the
+// current list, and a POST appends to it so the driver's read-back sees the
+// button it just created. Records the Manager-Business header each call
+// carries, since that header is what scopes the write to the right books.
+function extensionClient(opts = {}) {
+  const calls = [];
+  const installed = (opts.installed || []).slice();
+  return {
+    calls,
+    installed,
+    get: async (p, headers) => {
+      calls.push(['get', p, headers]);
+      if (p.indexOf(E.EXTENSION_BATCH) === 0) {
+        if (opts.listStatus) return { status: opts.listStatus, body: '' };
+        return { status: 200, body: JSON.stringify({ items: installed.map((v, i) => ({ key: 'k' + i, item: v })) }) };
+      }
+      return { status: 200, body: '{}' };
+    },
+    postJson: async (p, o, headers) => {
+      calls.push(['postJson', p, o, headers]);
+      if (p.indexOf(E.EXTENSION) === 0) {
+        if (opts.postStatus) return { status: opts.postStatus, body: '' };
+        if (!opts.ignoreWrites) installed.push(o.value);
+        return { status: 200, body: '{}' };
+      }
+      return { status: 200, body: '{}' };
+    },
+  };
+}
+const BIZ = 'TALLO-0001 Acme';
+
+test('configureCustomButton: posts the Txform button and confirms it via read-back', async () => {
+  const client = extensionClient();
+  const res = await D.createDriver({ client }).configureCustomButton({ businessName: BIZ });
+
+  assert.deepEqual(res, { installed: true, alreadyInstalled: false });
+  const post = client.calls.find((c) => c[0] === 'postJson');
+  assert.equal(post[1], '/api4/extension');
+  assert.deepEqual(post[2], { business: BIZ, value: E.TXFORM_BUTTON });
+  assert.ok(E.hasExtension(client.installed, E.TXFORM_BUTTON.Endpoint), 'button now present');
+});
+
+test('configureCustomButton: scopes every call with the Manager-Business header', async () => {
+  // The business name is NOT a URL key here — api4 reads it from this header,
+  // exactly as Manager\'s own api-proxy.js sends it. Getting it wrong would
+  // install the button on the wrong books, or none.
+  const client = extensionClient();
+  await D.createDriver({ client }).configureCustomButton({ businessName: BIZ });
+
+  const wanted = encodeURIComponent(BIZ);
+  client.calls.forEach((c) => {
+    const headers = c[c.length - 1];
+    assert.ok(headers && headers['Manager-Business'] === wanted,
+      'missing Manager-Business header on ' + c[0] + ' ' + c[1]);
+  });
+});
+
+test('configureCustomButton: is idempotent — an already-installed button is left alone', async () => {
+  const client = extensionClient({ installed: [Object.assign({}, E.TXFORM_BUTTON)] });
+  const res = await D.createDriver({ client }).configureCustomButton({ businessName: BIZ });
+
+  assert.deepEqual(res, { installed: false, alreadyInstalled: true });
+  assert.equal(client.calls.filter((c) => c[0] === 'postJson').length, 0, 'no second copy created');
+});
+
+test('configureCustomButton: a post Manager silently drops fails instead of reporting done', async () => {
+  // Manager returns 200 for a post that changed nothing. Without the
+  // read-back, the client\'s books would come up without the app and the job
+  // would still report done.
+  const client = extensionClient({ ignoreWrites: true });
+  await assert.rejects(
+    () => D.createDriver({ client }).configureCustomButton({ businessName: BIZ }),
+    /is not installed/,
+  );
+});
+
+test('configureCustomButton: a rejected post surfaces as an error so the job retries', async () => {
+  const client = extensionClient({ postStatus: 500 });
+  await assert.rejects(
+    () => D.createDriver({ client }).configureCustomButton({ businessName: BIZ }),
+    /Manager rejected the custom button/,
+  );
+});
+
+test('configureCustomButton: a failed list read is an error, not "nothing installed"', async () => {
+  const client = extensionClient({ listStatus: 500 });
+  await assert.rejects(
+    () => D.createDriver({ client }).configureCustomButton({ businessName: BIZ }),
+    /could not list custom buttons/,
+  );
+});
+
+test('configureCustomButton: rejects an empty business name rather than guessing', async () => {
+  await assert.rejects(
+    () => D.createDriver({ client: extensionClient() }).configureCustomButton({ businessName: '' }),
+    /businessName is required/,
+  );
+});
