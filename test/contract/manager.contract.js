@@ -29,6 +29,7 @@ const P = require('../../server/manager-permissions.js');
 const T = require('../../server/manager-tabs.js');
 const V = require('../../server/manager-vue-form.js');
 const E = require('../../server/manager-extension.js');
+const C = require('../../server/manager-coa.js');
 
 const BASE = process.env.MANAGER_URL || 'http://127.0.0.1:5000';
 const USER = process.env.MANAGER_ADMIN_USER;
@@ -130,6 +131,27 @@ test('the extension resource still lists per business, scoped by the header', op
   // Parses as the { items: [...] } shape the driver's idempotency check reads.
   assert.doesNotThrow(function () { E.parseExtensions(res.body); },
     'the extension list is no longer the { items: [{ item }] } shape');
+});
+
+test('the chart-of-accounts template exists and its batch collections read', opts, async () => {
+  // The copy_chart_of_accounts step (manager-coa.js) reads these five
+  // collections from the template business and PUTs them to a new client.
+  // If the template were renamed/deleted, or a collection's batch path
+  // changed, provisioning would stop copying the firm's accounts. READ-ONLY:
+  // lists the template, writes nothing.
+  const template = process.env.MANAGER_COA_TEMPLATE || C.TEMPLATE_BUSINESS;
+  const businesses = JSON.parse((await client.get('/api4/businesses')).body).businesses || [];
+  assert.ok(businesses.some(function (b) { return b.name === template; }),
+    'the COA template business ' + JSON.stringify(template) + ' is not on this server'
+    + ' — set MANAGER_COA_TEMPLATE or fix TEMPLATE_BUSINESS in manager-coa.js');
+
+  let total = 0;
+  for (const path of C.COA_COLLECTIONS) {
+    const res = await client.get(C.batchGetPath(path, template, 0), { 'Manager-Business': encodeURIComponent(template) });
+    assert.equal(res.status, 200, path + ' did not read for the template');
+    total += C.parseBatchItems(res.body).length;   // also asserts the { items } shape parses
+  }
+  assert.ok(total > 0, 'the COA template ' + JSON.stringify(template) + ' has no accounts to copy');
 });
 
 test('an expired session is recovered automatically', opts, async () => {

@@ -38,6 +38,7 @@ function fakeDriver(opts = {}) {
     createBusiness: async (a) => { rec('createBusiness', a); if (opts.failCreateBusiness) throw new Error('create-business boom'); return {}; },
     configureTabs: async (a) => { rec('configureTabs', a); if (opts.failConfigureTabs) throw new Error('tabs boom'); return { tabsEnabled: [], alreadyConfigured: true }; },
     configureCustomButton: async (a) => { rec('configureCustomButton', a); if (opts.failConfigureCustomButton) throw new Error('button boom'); return { installed: true, alreadyInstalled: false }; },
+    copyChartOfAccounts: async (a) => { rec('copyChartOfAccounts', a); if (opts.failCopyChartOfAccounts) throw new Error('coa boom'); return { copied: 49, template: '0000 Chart of Accounts' }; },
     createUser: async (a) => { rec('createUser', a); if (opts.failCreate) throw new Error('create boom'); return { managerUserRef: 'mgr:' + a.email, screenshot: '/s/create.png' }; },
     grantAccess: async (a) => { rec('grantAccess', a); if (opts.failGrant) throw new Error('grant boom'); return { screenshot: '/s/grant.png' }; },
     revokeAccess: async (a) => { rec('revokeAccess', a); return { screenshot: '/s/revoke.png' }; },
@@ -248,6 +249,47 @@ test('configure_custom_button: a failure does not block the books being usable',
 
   assert.equal(jobStatus(db, 1).status, 'pending');
   assert.match(jobStatus(db, 1).last_error, /button boom/);
+});
+
+// ── copy_chart_of_accounts ───────────────────────────────────────
+test('copy_chart_of_accounts: copies the template COA once the books exist', async () => {
+  const db = seed();
+  db.prepare("INSERT INTO businesses (id, account_id, manager_business_name, name, manager_created_at) VALUES (2, 1, ?, ?, ?)")
+    .run('FIRMA-New Co', 'New Co', '2026-01-01T00:00:00Z');
+  enqueue(db, 'copy_chart_of_accounts', null, 2);
+  const driver = fakeDriver();
+
+  await P.drainOnce(db, driver, { now: () => 1 });
+
+  assert.deepEqual(only(driver.calls, 'copyChartOfAccounts')[0][1], { businessName: 'FIRMA-New Co' });
+  assert.equal(jobStatus(db, 1).status, 'done');
+});
+
+test('copy_chart_of_accounts: waits for the books rather than failing outright', async () => {
+  const db = seed();
+  db.prepare("INSERT INTO businesses (id, account_id, manager_business_name, name) VALUES (2, 1, ?, ?)")
+    .run('FIRMA-New Co', 'New Co');
+  enqueue(db, 'copy_chart_of_accounts', null, 2);
+  const driver = fakeDriver();
+
+  await P.drainOnce(db, driver, { now: () => 1 });
+
+  assert.equal(only(driver.calls, 'copyChartOfAccounts').length, 0, 'must not touch Manager yet');
+  assert.equal(jobStatus(db, 1).status, 'pending');
+  assert.match(jobStatus(db, 1).last_error, /not created in Manager yet/);
+});
+
+test('copy_chart_of_accounts: a failure does not block the books being usable', async () => {
+  const db = seed();
+  db.prepare("INSERT INTO businesses (id, account_id, manager_business_name, name, manager_created_at) VALUES (2, 1, ?, ?, ?)")
+    .run('FIRMA-New Co', 'New Co', '2026-01-01T00:00:00Z');
+  enqueue(db, 'copy_chart_of_accounts', null, 2);
+  const driver = fakeDriver({ failCopyChartOfAccounts: true });
+
+  await P.drainOnce(db, driver, { now: () => 1 });
+
+  assert.equal(jobStatus(db, 1).status, 'pending');
+  assert.match(jobStatus(db, 1).last_error, /coa boom/);
 });
 
 test('create_business: a retry after an unseen response does not make a second set of books', async () => {

@@ -207,11 +207,13 @@ function createClient(opts) {
     return raw('POST', path, encodeForm(fields), { 'Content-Type': 'application/x-www-form-urlencoded' });
   }
 
-  // `headers` lets a caller add request headers Manager needs beyond the
-  // JSON content type — notably `Manager-Business`, which is how api4 scopes
-  // a business-data write to the right books (see manager-extension.js).
-  function postJson(path, obj, headers) {
-    return raw('POST', path, JSON.stringify(obj),
+  // A JSON body under any method. `headers` lets a caller add request headers
+  // Manager needs beyond the JSON content type — notably `Manager-Business`,
+  // which is how api4 scopes a business-data write to the right books (see
+  // manager-extension.js). PUT is used for the bulk `-batch` upserts that copy
+  // a chart of accounts between businesses (see manager-coa.js).
+  function jsonRequest(method, path, obj, headers) {
+    return raw(method, path, JSON.stringify(obj),
       Object.assign({ 'Content-Type': 'application/json', 'Accept': 'application/json' }, headers || {}));
   }
 
@@ -274,7 +276,7 @@ function createClient(opts) {
   async function request(method, path, opts2) {
     const o = opts2 || {};
     const send = function () {
-      if (o.json) return postJson(path, o.json, o.headers);
+      if (o.json) return jsonRequest(method, path, o.json, o.headers);
       if (o.form) return postForm(path, o.form);
       if (o.multipart) return postMultipart(path, o.multipart);
       return raw(method, path, null, o.headers);
@@ -296,6 +298,7 @@ function createClient(opts) {
     get: function (path, headers) { return request('GET', path, { headers: headers }); },
     postForm: function (path, fields) { return request('POST', path, { form: fields }); },
     postJson: function (path, obj, headers) { return request('POST', path, { json: obj, headers: headers }); },
+    putJson: function (path, obj, headers) { return request('PUT', path, { json: obj, headers: headers }); },
     postMultipart: function (path, fields) { return request('POST', path, { multipart: fields }); },
     // exposed for tests / diagnostics only
     _jar: function () { return Object.assign({}, jar); },

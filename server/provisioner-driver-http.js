@@ -42,6 +42,7 @@ const P = require('./manager-permissions.js');
 const T = require('./manager-tabs.js');
 const V = require('./manager-vue-form.js');
 const E = require('./manager-extension.js');
+const C = require('./manager-coa.js');
 
 const USER_FORM = '/user-form';
 
@@ -348,6 +349,88 @@ function createDriver(opts) {
     return { installed: true, alreadyInstalled: false };
   }
 
+  // Read every page of one batch collection from a business. Returns the raw
+  // { key, item } list.
+  async function readCollection(collectionPath, business) {
+    const items = [];
+    let skip = 0;
+    for (;;) {
+      const res = await client.get(C.batchGetPath(collectionPath, business, skip), businessHeader(business));
+      if (res.status !== 200) {
+        throw new Error('could not read ' + collectionPath + ' from "' + business + '" (http ' + res.status + ')');
+      }
+      const page = C.parseBatchItems(res.body);
+      items.push.apply(items, page);
+      if (page.length < C.PAGE_SIZE) break;
+      skip += C.PAGE_SIZE;
+    }
+    return items;
+  }
+
+  // Copy the template's chart of accounts onto a new client's books. Reproduces
+  // Manager's Replicator: read each of the five collections from the template
+  // and PUT it back to the destination in order, keys preserved. Idempotent —
+  // the PUTs upsert by key, so a retry overwrites rather than duplicates.
+  async function copyChartOfAccounts(businessName, templateBusiness) {
+    const template = templateBusiness || C.TEMPLATE_BUSINESS;
+    // Copying a business onto itself would be a no-op at best and a
+    // self-overwrite at worst — refuse rather than guess the intent.
+    if (template === businessName) {
+      throw new Error('the chart-of-accounts template and the destination are the same business ("' + businessName + '")');
+    }
+
+    let copied = 0;
+    for (let i = 0; i < C.COA_COLLECTIONS.length; i++) {
+      const collectionPath = C.COA_COLLECTIONS[i];
+      const items = await readCollection(collectionPath, template);
+      if (!items.length) continue;   // nothing of this kind in the template
+
+      const values = C.toValues(items);
+      const res = await client.putJson(collectionPath, { business: businessName, values: values }, businessHeader(businessName));
+      if (!C.putSucceeded(res)) {
+        throw new Error('Manager rejected the chart-of-accounts copy for "' + businessName
+          + '" at ' + collectionPath + ' (' + C.putError(res) + ')');
+      }
+      copied += values.length;
+    }
+
+    // A template with no accounts is almost certainly the wrong name (renamed
+    // or deleted), not a firm that truly wants empty books. Fail loudly rather
+    // than silently provision a bare chart of accounts and report done.
+    if (copied === 0) {
+      throw new Error('the chart-of-accounts template "' + template
+        + '" has no accounts to copy — check the template business name');
+    }
+
+    // Read-back: confirm the template's account keys are present on the
+    // destination. Manager returns success for a PUT even when it changed
+    // nothing, so without this the books could come out without the firm's
+    // accounts while the job reports done. Keys are preserved by the copy, so
+    // presence of the template's keys is direct proof it landed.
+    await verifyAccountsCopied(businessName, template);
+    return { copied: copied, template: template };
+  }
+
+  // The two ACCOUNT collections carry the records that matter most; confirm
+  // every template account key now exists on the destination.
+  async function verifyAccountsCopied(businessName, template) {
+    const accountCollections = [
+      '/api4/balance-sheet-account-batch',
+      '/api4/profit-and-loss-statement-account-batch',
+    ];
+    for (let i = 0; i < accountCollections.length; i++) {
+      const path = accountCollections[i];
+      const want = (await readCollection(path, template)).map(function (it) { return it.key; });
+      if (!want.length) continue;
+      const have = new Set((await readCollection(path, businessName)).map(function (it) { return it.key; }));
+      const missing = want.filter(function (k) { return !have.has(k); });
+      if (missing.length) {
+        throw new Error('Manager accepted the copy but "' + businessName + '" is missing '
+          + missing.length + ' account(s) from ' + path + ' — the copy did not fully apply');
+      }
+    }
+  }
+
   return {
     // POST /api4/business {"name"} — the books, empty. BIR scaffolding
     // (custom fields, tax codes, chart of accounts) is deliberately NOT
@@ -375,6 +458,15 @@ function createDriver(opts) {
     async configureCustomButton({ businessName, button }) {
       if (!businessName) throw new Error('businessName is required');
       return installExtension(businessName, button);
+    },
+
+    // Copy the firm's standard chart of accounts (groups, subtotals, accounts)
+    // from the template business onto the new client's books. Its own job,
+    // ordered behind create_business/configure_tabs, so a failed copy retries
+    // without blocking the books.
+    async copyChartOfAccounts({ businessName, templateBusiness }) {
+      if (!businessName) throw new Error('businessName is required');
+      return copyChartOfAccounts(businessName, templateBusiness);
     },
 
     // A restricted user with no businesses yet; grants follow as their
