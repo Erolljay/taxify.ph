@@ -91,7 +91,10 @@ function createFirm(db, opts) {
   ).run(opts.firmName, code, opts.seats, opts.businesses);
   const accountId = Number(acct.lastInsertRowid);
 
-  const user = db.prepare("INSERT INTO users (account_id, email, role) VALUES (?, ?, 'owner')")
+  // all_businesses = 1: the owner is a principal and works in every client's
+  // books. No Books login is queued here — it is created lazily on the first
+  // grant (addBusiness), so an owner with no clients yet has no idle login.
+  const user = db.prepare("INSERT INTO users (account_id, email, role, all_businesses) VALUES (?, ?, 'owner', 1)")
     .run(accountId, opts.email);
   const userId = Number(user.lastInsertRowid);
 

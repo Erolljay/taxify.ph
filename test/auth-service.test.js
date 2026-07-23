@@ -303,6 +303,57 @@ test('tenancy: no session is rejected', () => {
   assert.equal(r.status, 401);
 });
 
+// ── principals: firm owners get all their own clients ─────────────
+test('principals: adding a new client auto-grants it to the firm owner and queues their login', () => {
+  const db = freshDb(), deps = makeDeps();
+  const cookie = signIn(db, deps, 'owner@x.com');
+  // create-firm sets this on real owners; the seed does not, so set it here.
+  db.prepare('UPDATE users SET all_businesses = 1 WHERE id = 1').run();
+
+  const bizId = S.addBusiness(db, { cookie: cookie, name: 'Gamma Co' }, deps).json.businessId;
+  assert.ok(db.prepare('SELECT 1 FROM user_business WHERE user_id=1 AND business_id=?').get(bizId), 'owner granted the new client');
+  assert.ok(db.prepare("SELECT 1 FROM provision_job WHERE user_id=1 AND business_id=? AND type='grant'").get(bizId), 'grant job queued');
+  assert.equal(db.prepare("SELECT COUNT(*) n FROM provision_job WHERE user_id=1 AND type='create'").get().n, 1, 'a Books login is queued once');
+});
+
+test('principals: a non-principal staff member is NOT auto-granted new clients', () => {
+  const db = freshDb(), deps = makeDeps();
+  const cookie = signIn(db, deps, 'owner@x.com');
+  db.prepare('UPDATE users SET all_businesses = 1 WHERE id = 1').run(); // owner only
+  const bizId = S.addBusiness(db, { cookie: cookie, name: 'Delta Co' }, deps).json.businessId;
+  assert.equal(db.prepare('SELECT 1 FROM user_business WHERE user_id=2 AND business_id=?').get(bizId), undefined,
+    'plain staff are assigned per-client on the grid, not automatically');
+});
+
+test('principals: reactivating an archived client re-grants the owner', () => {
+  const db = freshDb(), deps = makeDeps();
+  const cookie = signIn(db, deps, 'owner@x.com');
+  db.prepare('UPDATE users SET all_businesses = 1 WHERE id = 1').run();
+  const bizId = S.addBusiness(db, { cookie: cookie, name: 'Echo Co' }, deps).json.businessId;
+  S.archiveBusiness(db, { cookie: cookie, businessId: bizId }, deps); // revokes access
+  db.prepare('DELETE FROM user_business WHERE business_id = ?').run(bizId); // simulate the revoke landing
+  S.addBusiness(db, { cookie: cookie, name: 'Echo Co' }, deps); // re-add reactivates
+  assert.ok(db.prepare('SELECT 1 FROM user_business WHERE user_id=1 AND business_id=?').get(bizId), 're-granted on reactivation');
+});
+
+test('principals: grantBusinessTo is idempotent — no double row, no double job', () => {
+  const db = freshDb(), deps = makeDeps();
+  const now = deps.now();
+  S.grantBusinessTo(db, 2, 1, now);
+  S.grantBusinessTo(db, 2, 1, now);
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM user_business WHERE user_id=2 AND business_id=1').get().n, 1, 'one access row');
+  assert.equal(db.prepare("SELECT COUNT(*) n FROM provision_job WHERE user_id=2 AND business_id=1 AND type='grant'").get().n, 1, 'one grant job');
+});
+
+test('principals: an already-provisioned user is not queued a second Books login', () => {
+  const db = freshDb(), deps = makeDeps();
+  const now = deps.now();
+  db.prepare("UPDATE users SET manager_user_ref = 'mgr-2' WHERE id = 2").run();
+  S.grantBusinessTo(db, 2, 1, now);
+  assert.equal(db.prepare("SELECT COUNT(*) n FROM provision_job WHERE user_id=2 AND type='create'").get().n, 0, 'no duplicate login');
+  assert.ok(db.prepare('SELECT 1 FROM user_business WHERE user_id=2 AND business_id=1').get(), 'still granted');
+});
+
 // ── invite-staff ─────────────────────────────────────────────────
 test('invite-staff: owner adds a new member, consumes a seat, enqueues a create job', () => {
   const db = freshDb(), deps = makeDeps();

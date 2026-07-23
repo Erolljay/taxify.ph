@@ -167,6 +167,51 @@ function signOut(db, input) {
   return { status: 200, json: { ok: true }, setCookie: clearedCookie() };
 }
 
+// ── principals: firm owners, who work in every client's books ─────
+//
+// Every firm owner has access to ALL of their own firm's clients. Rather
+// than per-client grid ticks, they carry users.all_businesses = 1 (set at
+// firm creation; backfilled for older firms) and the provisioner keeps them
+// granted to every business — the ones that exist now and every one added
+// later (addBusiness grants them on creation). Scoped strictly to their own
+// account: a principal never sees another firm's books on the shared server.
+
+// Active user ids in this account that should hold every business.
+function principalUserIds(db, accountId) {
+  return db.prepare(
+    "SELECT id FROM users WHERE account_id = ? AND all_businesses = 1 AND status = 'active'"
+  ).all(accountId).map(function (r) { return r.id; });
+}
+
+// Make sure `userId` has a Books login on the way: queue a 'create' job,
+// unless one already ran (manager_user_ref set) or is already queued. A
+// grant can't apply without the login, but the provisioner orders create
+// ahead of grant by job id and retries, so queuing both is enough.
+function ensureBooksLogin(db, userId, now) {
+  const u = db.prepare('SELECT manager_user_ref FROM users WHERE id = ?').get(userId);
+  if (!u || u.manager_user_ref) return;
+  const queued = db.prepare(
+    "SELECT 1 FROM provision_job WHERE user_id = ? AND type = 'create' AND status IN ('pending','running','failed')"
+  ).get(userId);
+  if (queued) return;
+  db.prepare('INSERT INTO provision_job (type, user_id, created_at, updated_at) VALUES (?,?,?,?)')
+    .run('create', userId, now, now);
+}
+
+// Grant one business to one user: the access row plus a provision job,
+// both idempotent — INSERT OR IGNORE on the row, and a 'grant' job is only
+// queued when the row is newly created, so re-running never double-grants.
+// Ensures the user has a Books login to hold the grant.
+function grantBusinessTo(db, userId, businessId, now) {
+  ensureBooksLogin(db, userId, now);
+  const existed = db.prepare('SELECT 1 FROM user_business WHERE user_id = ? AND business_id = ?').get(userId, businessId);
+  db.prepare('INSERT OR IGNORE INTO user_business (user_id, business_id) VALUES (?,?)').run(userId, businessId);
+  if (!existed) {
+    db.prepare('INSERT INTO provision_job (type, user_id, business_id, created_at, updated_at) VALUES (?,?,?,?,?)')
+      .run('grant', userId, businessId, now, now);
+  }
+}
+
 // POST /api/tenancy/user-business { userId, businessId, grant }
 // Owner-only. Grants or revokes a staff member's access to a client
 // business, enqueues a provisioner job, and writes the audit log.
@@ -410,6 +455,9 @@ function addBusiness(db, input, deps) {
   if (mine) {
     db.prepare("UPDATE businesses SET status = 'active', archived_at = NULL WHERE id = ?").run(mine.id);
     recordBillingPeriod(db, mine.id, now);
+    // Archiving revoked everyone's access; bring the principals' back so a
+    // reactivated client is immediately open to the owner and partners.
+    principalUserIds(db, s.account_id).forEach(function (uid) { grantBusinessTo(db, uid, mine.id, now); });
     db.prepare('INSERT INTO audit_log (account_id, actor, action, target) VALUES (?,?,?,?)')
       .run(s.account_id, s.email, 'reactivate_business', 'business:' + mine.id);
     return { status: 200, json: { ok: true, businessId: mine.id, reactivated: true } };
@@ -457,6 +505,9 @@ function addBusiness(db, input, deps) {
   // create_business by id like configure_tabs.
   db.prepare('INSERT INTO provision_job (type, business_id, created_at, updated_at) VALUES (?,?,?,?)')
     .run('configure_custom_button', businessId, now, now);
+  // Principals (the owner and any partner) work in every client, so grant
+  // this new one to each of them right away — no ticking on the grid.
+  principalUserIds(db, s.account_id).forEach(function (uid) { grantBusinessTo(db, uid, businessId, now); });
   db.prepare('INSERT INTO audit_log (account_id, actor, action, target) VALUES (?,?,?,?)')
     .run(s.account_id, s.email, 'add_business', 'business:' + businessId + ' ' + managerName);
   return { status: 201, json: { ok: true, businessId: businessId } };
@@ -744,6 +795,7 @@ module.exports = {
   COOKIE_NAME, parseCookie, loadSession,
   requestLink, verifyLink, currentUser, signOut,
   setUserBusiness, inviteStaff, addBusiness, archiveBusiness, removeUser, clearInitialPassword, resetPassword, retryJob,
+  principalUserIds, ensureBooksLogin, grantBusinessTo,
   recordBillingPeriod, billableCount, invoiceFor, grantDiscount, overview,
 };
 

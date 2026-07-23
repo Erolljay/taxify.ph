@@ -49,7 +49,7 @@ const acct = db.prepare(
 const accountId = Number(acct.lastInsertRowid);
 
 const user = db.prepare(
-  "INSERT INTO users (account_id, email, role) VALUES (?, ?, 'owner')"
+  "INSERT INTO users (account_id, email, role, all_businesses) VALUES (?, ?, 'owner', 1)"
 ).run(accountId, email);
 
 db.prepare(
