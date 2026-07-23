@@ -503,6 +503,27 @@ function renderTeam(panel) {
       return;
     }
 
+    // Access to all clients — the principal switch. The owner is always a
+    // principal (fixed badge). A staff member can be made one (a partner):
+    // flipping it on gives them a Books login and every client, now and
+    // future, and drops them off the per-client grid.
+    if (u.role === 'owner') {
+      const badge = el('span', 'badge principal');
+      badge.textContent = 'All clients';
+      li.append(badge);
+    } else if (u.role === 'staff') {
+      const wrap = el('label', 'allclients');
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.checked = !!u.allBusinesses;
+      cb.setAttribute('aria-label', 'Give ' + u.email + ' access to all clients');
+      cb.addEventListener('change', () => onToggleAllClients(u, cb));
+      const t = document.createElement('span');
+      t.textContent = 'All clients';
+      wrap.append(cb, t);
+      li.append(wrap);
+    }
+
     if (u.provisioned && u.role !== 'owner') {
       const reset = document.createElement('button');
       reset.type = 'button';
@@ -712,9 +733,11 @@ function renderAccess(panel) {
   h.textContent = 'Clients × staff';
   card.append(h);
 
-  // Removed staff keep their `staff` role but must not appear as tickable
-  // columns — offboarding revoked their access, so the grid can't offer it.
-  const staff = state.users.filter((u) => u.role === 'staff' && u.status !== 'removed');
+  // Only per-client staff are columns here. Removed staff kept their role
+  // but lost access on offboard, so the grid can't offer it. Principals —
+  // the owner, and any partner with all-client access — already work in
+  // every client; they're managed by the Team toggle, not ticked per client.
+  const staff = state.users.filter((u) => u.role === 'staff' && u.status !== 'removed' && !u.allBusinesses);
   const allBiz = state.businesses.filter((b) => b.status === 'active');
   if (!staff.length || !allBiz.length) {
     card.append(emptyDiv('Add at least one staff member and one business to assign access.'));
@@ -807,6 +830,28 @@ async function toggleGrant(user, business, cb) {
   flash($('dash-msg'), 'ok',
     (cb.checked ? 'Granted ' : 'Revoked ') + user.email + ' → ' + business.name + '. Syncing to Books…');
   await reload();
+}
+
+// Make a staff member a partner (all-client access), or undo it. Turning
+// ON is the consequential direction — a Books login plus every client — so
+// it confirms first. Turning OFF only stops the auto-grant; it keeps their
+// current access (the server does not mass-revoke), so no confirm needed.
+async function onToggleAllClients(user, cb) {
+  const on = cb.checked;
+  if (on && !window.confirm('Give ' + user.email + ' access to ALL clients — now and every one you add later?\n\n'
+    + 'They get their own Books login and every client’s books. Use this for partners, not regular staff.')) {
+    cb.checked = false;
+    return;
+  }
+  const r = await api('POST', '/api/tenancy/user-all-clients', { userId: user.id, all: on });
+  if (r.status !== 200) {
+    cb.checked = !on;
+    flash($('dash-msg'), 'err', errText(r, 'Could not update access.'));
+    return;
+  }
+  await reload(on
+    ? user.email + ' now has every client. Creating their Books login and access — this syncs shortly.'
+    : user.email + ' is back to per-client access. Their current books stay; adjust them on the Access tab.');
 }
 
 // ── Billing ───────────────────────────────────────────────────────
@@ -968,6 +1013,8 @@ function errText(r, fallback) {
   if (e === 'cannot_remove_self') return 'You cannot remove yourself — that would leave the firm with no one to manage it.';
   if (e === 'cannot_remove_owner') return 'The firm owner cannot be removed.';
   if (e === 'user_removed') return 'That person was removed — invite them again before granting access.';
+  if (e === 'owner_always_all_clients') return 'The firm owner already has every client.';
+  if (e === 'client_not_all_clients') return 'A client is read-only and scoped to their own business.';
   if (e === 'not_owner') return 'Only the firm owner can do that.';
   return e ? String(e) : fallback;
 }

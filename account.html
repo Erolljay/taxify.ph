@@ -47,6 +47,12 @@
     .badge.pending, .badge.grace, .badge.suspended { background:var(--warn-bg); color:var(--warn-fg); }
     .badge.cancelled { background:var(--err-bg); color:var(--err-fg); }
     .badge.role { background:#1c3d63; color:#cfe0f2; }
+    .badge.principal { background:var(--accent-wash); color:var(--accent-deep); }
+
+    /* "All clients" partner toggle in the Team list. */
+    label.allclients { display:inline-flex; align-items:center; gap:6px; font-size:12px; color:var(--muted);
+      cursor:pointer; user-select:none; white-space:nowrap; }
+    label.allclients input { cursor:pointer; }
 
     main { padding:28px 0 60px; }
     h1 { font-size:22px; letter-spacing:-.02em; margin:0 0 4px; }

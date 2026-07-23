@@ -56,6 +56,12 @@ CREATE TABLE IF NOT EXISTS users (
   account_id        INTEGER NOT NULL REFERENCES account(id),
   email             TEXT    NOT NULL,
   role              TEXT    NOT NULL DEFAULT 'staff',        -- owner|staff|client
+  -- Access to ALL clients. A firm principal — the owner, and any partner
+  -- the owner designates — works in every client's books, so rather than a
+  -- per-client grant they carry this flag and the provisioner keeps them
+  -- granted to every business, existing and future. Regular staff leave it
+  -- 0 and are assigned per-client on the access grid. The owner is always 1.
+  all_businesses    INTEGER NOT NULL DEFAULT 0,              -- 0|1
   manager_user_ref  TEXT,                                   -- Manager restricted-user id, set by provisioner
   -- The Manager password the provisioner generated, held ONLY until the
   -- firm owner has collected it. Plaintext, deliberately and briefly: it
