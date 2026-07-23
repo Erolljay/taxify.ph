@@ -167,12 +167,14 @@ function signOut(db, input) {
   return { status: 200, json: { ok: true }, setCookie: clearedCookie() };
 }
 
-// ── principals: the owner + any partner with all-client access ────
+// ── principals: firm owners, who work in every client's books ─────
 //
-// A principal works in EVERY client's books. Instead of per-client grid
-// ticks, they carry users.all_businesses = 1 and the provisioner keeps
-// them granted to every business — the ones that exist now (granted here)
-// and every one added later (addBusiness grants them on creation).
+// Every firm owner has access to ALL of their own firm's clients. Rather
+// than per-client grid ticks, they carry users.all_businesses = 1 (set at
+// firm creation; backfilled for older firms) and the provisioner keeps them
+// granted to every business — the ones that exist now and every one added
+// later (addBusiness grants them on creation). Scoped strictly to their own
+// account: a principal never sees another firm's books on the shared server.
 
 // Active user ids in this account that should hold every business.
 function principalUserIds(db, accountId) {
@@ -208,41 +210,6 @@ function grantBusinessTo(db, userId, businessId, now) {
     db.prepare('INSERT INTO provision_job (type, user_id, business_id, created_at, updated_at) VALUES (?,?,?,?,?)')
       .run('grant', userId, businessId, now, now);
   }
-}
-
-// POST /api/tenancy/user-all-clients { userId, all }
-// Owner-only. Turns a staff member into a partner (all-client access) or
-// back. ON grants every active business now — new ones follow via
-// addBusiness. OFF only clears the flag and returns them to the per-client
-// grid: it deliberately does NOT mass-revoke, so no access is lost by a
-// toggle; the owner adjusts individually on the grid or removes the person.
-function setUserAllBusinesses(db, input, deps) {
-  const now = deps.now();
-  const s = loadSession(db, input.cookie, now);
-  if (!s) return { status: 401, json: { error: 'not signed in' } };
-
-  const authz = A.authorizeOwnerAction(
-    { role: s.role, account_id: s.account_id, expires_at: s.expires_at }, { id: s.account_id }, now
-  );
-  if (!authz.ok) return { status: 403, json: { error: authz.reason } };
-
-  const tu = db.prepare('SELECT id, account_id, role, status FROM users WHERE id = ?').get(input.userId);
-  if (!tu || tu.account_id !== s.account_id) return { status: 403, json: { error: 'wrong_account' } };
-  if (tu.status === 'removed') return { status: 409, json: { error: 'user_removed' } };
-  // The owner is always all-clients; a client is read-only and scoped to a
-  // single business. Neither is togglable here.
-  if (tu.role === 'owner') return { status: 409, json: { error: 'owner_always_all_clients' } };
-  if (tu.role === 'client') return { status: 409, json: { error: 'client_not_all_clients' } };
-
-  const on = !!input.all;
-  db.prepare('UPDATE users SET all_businesses = ? WHERE id = ?').run(on ? 1 : 0, input.userId);
-  if (on) {
-    db.prepare("SELECT id FROM businesses WHERE account_id = ? AND status = 'active'").all(s.account_id)
-      .forEach(function (b) { grantBusinessTo(db, input.userId, b.id, now); });
-  }
-  db.prepare('INSERT INTO audit_log (account_id, actor, action, target) VALUES (?,?,?,?)')
-    .run(s.account_id, s.email, on ? 'grant_all_clients' : 'revoke_all_clients', 'user:' + input.userId);
-  return { status: 200, json: { ok: true } };
 }
 
 // POST /api/tenancy/user-business { userId, businessId, grant }
@@ -789,7 +756,7 @@ function overview(db, input, deps) {
   const users = db.prepare(
     // Removed people are still listed, sorted below the active ones, so
     // an offboard is visible rather than a person silently vanishing.
-    `SELECT id, email, role, status, removed_at, all_businesses, manager_user_ref, initial_password, initial_password_at
+    `SELECT id, email, role, status, removed_at, manager_user_ref, initial_password, initial_password_at
        FROM users WHERE account_id = ?
       ORDER BY CASE status WHEN 'active' THEN 0 ELSE 1 END, role DESC, email`
   ).all(s.account_id).map(function (u) {
@@ -797,7 +764,6 @@ function overview(db, input, deps) {
     return {
       id: u.id, email: u.email, role: u.role,
       status: u.status, removedAt: u.removed_at,
-      allBusinesses: !!u.all_businesses,
       initialPassword: visible ? u.initial_password : null,
       provisioned: !!u.manager_user_ref,
     };
@@ -828,7 +794,7 @@ function overview(db, input, deps) {
 module.exports = {
   COOKIE_NAME, parseCookie, loadSession,
   requestLink, verifyLink, currentUser, signOut,
-  setUserBusiness, setUserAllBusinesses, inviteStaff, addBusiness, archiveBusiness, removeUser, clearInitialPassword, resetPassword, retryJob,
+  setUserBusiness, inviteStaff, addBusiness, archiveBusiness, removeUser, clearInitialPassword, resetPassword, retryJob,
   principalUserIds, ensureBooksLogin, grantBusinessTo,
   recordBillingPeriod, billableCount, invoiceFor, grantDiscount, overview,
 };
@@ -909,7 +875,6 @@ if (require.main === module) {
         if (url.pathname === '/api/auth/me') return send(res, currentUser(db, { cookie: cookie }, deps));
         if (req.method === 'POST' && url.pathname === '/api/auth/sign-out') return send(res, signOut(db, { cookie: cookie }));
         if (req.method === 'POST' && url.pathname === '/api/tenancy/user-business') return send(res, setUserBusiness(db, { cookie: cookie, userId: json.userId, businessId: json.businessId, grant: json.grant }, deps));
-        if (req.method === 'POST' && url.pathname === '/api/tenancy/user-all-clients') return send(res, setUserAllBusinesses(db, { cookie: cookie, userId: json.userId, all: json.all }, deps));
         if (req.method === 'POST' && url.pathname === '/api/tenancy/invite-staff') return send(res, inviteStaff(db, { cookie: cookie, email: json.email, role: json.role, businessId: json.businessId }, deps));
         if (req.method === 'POST' && url.pathname === '/api/tenancy/add-business') return send(res, addBusiness(db, { cookie: cookie, name: json.name }, deps));
         if (req.method === 'POST' && url.pathname === '/api/tenancy/archive-business') return send(res, archiveBusiness(db, { cookie: cookie, businessId: json.businessId }, deps));
