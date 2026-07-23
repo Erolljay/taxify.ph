@@ -270,9 +270,13 @@ function inviteStaff(db, input, deps) {
   const now = deps.now();
   const s = loadSession(db, input.cookie, now);
   if (!s) return { status: 401, json: { error: 'not signed in' } };
-  const account = db.prepare('SELECT id, seats_limit, firm_name FROM account WHERE id = ?').get(s.account_id);
+  const account = db.prepare('SELECT id, status, seats_limit, firm_name FROM account WHERE id = ?').get(s.account_id);
   const authz = A.authorizeOwnerAction({ role: s.role, account_id: s.account_id, expires_at: s.expires_at }, account, now);
   if (!authz.ok) return { status: 403, json: { error: authz.reason } };
+  // Pay-first: a signed-up-but-unpaid (pending) firm must not provision
+  // anyone in Manager. The user row is active before payment, so a magic
+  // link would otherwise let a pending owner invite staff for free.
+  if (account.status !== 'active') return { status: 402, json: { error: 'account_not_active' } };
 
   const email = (input && typeof input.email === 'string') ? input.email.trim().toLowerCase() : '';
   if (!email) return { status: 400, json: { error: 'email required' } };
@@ -436,9 +440,12 @@ function addBusiness(db, input, deps) {
   const now = deps.now();
   const s = loadSession(db, input.cookie, now);
   if (!s) return { status: 401, json: { error: 'not signed in' } };
-  const account = db.prepare('SELECT id, businesses_limit, firm_code FROM account WHERE id = ?').get(s.account_id);
+  const account = db.prepare('SELECT id, status, businesses_limit, firm_code FROM account WHERE id = ?').get(s.account_id);
   const authz = A.authorizeOwnerAction({ role: s.role, account_id: s.account_id, expires_at: s.expires_at }, account, now);
   if (!authz.ok) return { status: 403, json: { error: authz.reason } };
+  // Pay-first: no client books get created (and billed/provisioned) for a
+  // pending, unpaid firm — see the same guard in inviteStaff.
+  if (account.status !== 'active') return { status: 402, json: { error: 'account_not_active' } };
 
   const name = (input && typeof input.name === 'string') ? input.name.trim() : '';
   if (!name) return { status: 400, json: { error: 'name required' } };
@@ -845,6 +852,21 @@ if (require.main === module) {
     sendEmail: sendEmail,
   };
 
+  // ── billing / self-serve sign-up wiring ─────────────────────────
+  // The Xendit key and webhook token come from the environment only
+  // (/etc/txform/auth.env, same as SMTP creds) — never committed. With no
+  // key, createInvoice will fail and sign-up returns a friendly 502; with
+  // no webhook token, isWebhookAuthentic fails closed and no callback can
+  // activate anything. Both are safe, visible defaults for a box that has
+  // not been given keys yet.
+  const BILL = require('./billing-service.js');
+  const xenditClient = require('./xendit-client.js').makeClient(process.env.XENDIT_SECRET_KEY || '');
+  const billDeps = Object.assign({}, deps, {
+    xendit: xenditClient,
+    webhookToken: process.env.XENDIT_WEBHOOK_TOKEN || '',
+    signupUrl: process.env.TXFORM_SIGNUP_URL || (baseUrl + '/signup.html'),
+  });
+
   // Thin responder. A handler result may carry either a JSON body or a
   // `location` (302 redirect); `setCookie` attaches to either.
   function send(res, out) {
@@ -864,12 +886,24 @@ if (require.main === module) {
     const url = new URL(req.url, 'http://localhost');
     let body = '';
     req.on('data', function (c) { body += c; });
-    req.on('end', function () {
+    req.on('end', async function () {
       let json = {};
       try { json = body ? JSON.parse(body) : {}; } catch (e) { return send(res, { status: 400, json: { error: 'bad json' } }); }
       const cookie = req.headers.cookie;
       const ip = req.socket.remoteAddress;
       try {
+        // Self-serve sign-up + Xendit checkout (async: signUp calls Xendit).
+        if (req.method === 'POST' && url.pathname === '/api/auth/sign-up') {
+          return send(res, await BILL.signUp(db, { firmName: json.firmName, email: json.email, firmCode: json.firmCode, businesses: json.businesses }, billDeps));
+        }
+        // Xendit's payment callback. Authenticated by the x-callback-token
+        // header, NOT a session cookie — the caller is Xendit, not a browser.
+        if (req.method === 'POST' && url.pathname === '/api/billing/xendit-webhook') {
+          return send(res, BILL.xenditWebhook(db, { token: req.headers['x-callback-token'], body: json }, billDeps));
+        }
+        if (req.method === 'GET' && url.pathname === '/api/billing/signup-status') {
+          return send(res, BILL.signupStatus(db, { ref: url.searchParams.get('ref') }));
+        }
         if (req.method === 'POST' && url.pathname === '/api/auth/request-link') return send(res, requestLink(db, { email: json.email, ip: ip }, deps));
         if (url.pathname === '/api/auth/verify') return send(res, verifyLink(db, { token: url.searchParams.get('token'), accept: req.headers.accept }, deps));
         if (url.pathname === '/api/auth/me') return send(res, currentUser(db, { cookie: cookie }, deps));

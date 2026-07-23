@@ -56,6 +56,14 @@ test('magicLinkContent: subject + link + expiry wording', () => {
   assert.match(text, /expires in 15 minutes/i);
 });
 
+test('welcomeContent: names the payment, carries the link, keeps the 15-min expiry', () => {
+  const { subject, text } = M.welcomeContent('https://txform.ph/api/auth/verify?token=xyz');
+  assert.match(subject, /welcome/i);
+  assert.match(text, /payment/i, 'says why they got it — not a bare login link');
+  assert.ok(text.includes('https://txform.ph/api/auth/verify?token=xyz'));
+  assert.match(text, /expires in 15 minutes/i);
+});
+
 test('dotStuff: only lines beginning with a dot get an extra dot', () => {
   const stuffed = M.dotStuff(['normal', '.leading dot', 'mid.dle', '..two'].join(CRLF));
   assert.equal(stuffed, ['normal', '..leading dot', 'mid.dle', '...two'].join(CRLF));

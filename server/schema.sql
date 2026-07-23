@@ -236,6 +236,36 @@ CREATE TABLE IF NOT EXISTS session (
 );
 CREATE INDEX IF NOT EXISTS idx_session_user ON session(user_id);
 
+-- ── Self-serve sign-up + Xendit checkout ────────────────────────
+-- One row per Xendit invoice we ask a firm to pay: the activation charge
+-- at sign-up, and (later) each monthly high-water-mark bill.
+--
+-- external_id is OUR key, generated deterministically per account+period+
+-- kind (see billing-core.externalId) and sent to Xendit as its external_id.
+-- It is the idempotency anchor: Xendit retries webhooks, and a firm may
+-- reload the pay page, so both "create invoice" and "apply payment" key off
+-- this and are safe to repeat. xendit_invoice_id is Xendit's own id, kept
+-- for support/reconciliation.
+--
+-- amount_centavos matches the rest of the system (money is integer minor
+-- units everywhere); the whole-peso figure sent to Xendit is derived, never
+-- stored, so the two can never drift.
+CREATE TABLE IF NOT EXISTS billing_invoice (
+  id                INTEGER PRIMARY KEY,
+  account_id        INTEGER NOT NULL REFERENCES account(id),
+  external_id       TEXT    NOT NULL UNIQUE,                 -- our key, also sent to Xendit
+  xendit_invoice_id TEXT,                                    -- Xendit's id, set on create
+  kind              TEXT    NOT NULL DEFAULT 'activation',   -- activation|monthly
+  period_key        TEXT    NOT NULL,                        -- 'YYYY-MM'
+  businesses        INTEGER NOT NULL,                        -- quantity this invoice paid for
+  amount_centavos   INTEGER NOT NULL,
+  status            TEXT    NOT NULL DEFAULT 'pending',      -- pending|paid|expired|failed
+  invoice_url       TEXT,                                    -- Xendit hosted checkout page
+  paid_at           TEXT,
+  created_at        TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_billing_invoice_account ON billing_invoice(account_id);
+
 -- ── Priority 2: frozen filing snapshots (save/freeze reports) ────
 -- When a preparer marks a filing "Filed", the report figures + manual
 -- inputs are frozen here as of that moment, so later edits to that period's

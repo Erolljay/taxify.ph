@@ -125,13 +125,29 @@ function linkErrorMessage(code) {
   return 'That sign-in link is invalid. Enter your email to get a new one.';
 }
 
+// A paid self-serve sign-up returns from Xendit as /account?signup=success.
+// The activating webhook may not have landed yet, and they have no session
+// here — so read the flag once, strip it, and let init() show a welcoming
+// "check your email" message on the sign-in view.
+function takeSignupSuccess() {
+  const flag = new URLSearchParams(window.location.search).get('signup');
+  if (flag !== 'success') return false;
+  history.replaceState(null, '', window.location.pathname);
+  return true;
+}
+
 // ── boot ──────────────────────────────────────────────────────────
 async function init() {
   const linkError = takeLinkError();
+  const signedUp = takeSignupSuccess();
   const me = await api('GET', '/api/auth/me');
   if (me.status !== 200) {
     showSignin();
-    if (linkError) flash($('signin-msg'), 'warn', linkErrorMessage(linkError));
+    if (signedUp) {
+      flash($('signin-msg'), 'ok', 'Payment received — welcome to Txform! We’ve emailed your sign-in link. Or enter your email below for a new one.');
+    } else if (linkError) {
+      flash($('signin-msg'), 'warn', linkErrorMessage(linkError));
+    }
     return;
   }
   await loadDashboard();
