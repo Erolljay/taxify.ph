@@ -712,7 +712,9 @@ function renderAccess(panel) {
   h.textContent = 'Clients × staff';
   card.append(h);
 
-  const staff = state.users.filter((u) => u.role === 'staff');
+  // Removed staff keep their `staff` role but must not appear as tickable
+  // columns — offboarding revoked their access, so the grid can't offer it.
+  const staff = state.users.filter((u) => u.role === 'staff' && u.status !== 'removed');
   const allBiz = state.businesses.filter((b) => b.status === 'active');
   if (!staff.length || !allBiz.length) {
     card.append(emptyDiv('Add at least one staff member and one business to assign access.'));
@@ -965,6 +967,7 @@ function errText(r, fallback) {
   if (e === 'wrong_account') return 'That does not belong to your firm.';
   if (e === 'cannot_remove_self') return 'You cannot remove yourself — that would leave the firm with no one to manage it.';
   if (e === 'cannot_remove_owner') return 'The firm owner cannot be removed.';
+  if (e === 'user_removed') return 'That person was removed — invite them again before granting access.';
   if (e === 'not_owner') return 'Only the firm owner can do that.';
   return e ? String(e) : fallback;
 }

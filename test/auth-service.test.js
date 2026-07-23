@@ -260,6 +260,27 @@ test('tenancy: revoke removes access and enqueues a revoke job', () => {
   assert.ok(db.prepare("SELECT 1 FROM provision_job WHERE type='revoke'").get());
 });
 
+test('tenancy: a removed staff member cannot be granted access', () => {
+  const db = freshDb(), deps = makeDeps();
+  const cookie = signIn(db, deps, 'owner@x.com');
+  db.prepare("UPDATE users SET status = 'removed' WHERE id = 2").run();
+  const r = S.setUserBusiness(db, { cookie: cookie, userId: 2, businessId: 1, grant: true }, deps);
+  assert.equal(r.status, 409);
+  assert.match(r.json.error, /user_removed/);
+  assert.equal(db.prepare('SELECT 1 FROM user_business WHERE user_id=2 AND business_id=1').get(), undefined, 'no access row');
+  assert.equal(db.prepare("SELECT 1 FROM provision_job WHERE type='grant'").get(), undefined, 'no grant job enqueued');
+});
+
+test('tenancy: a removed staff member CAN still be revoked (cleanup)', () => {
+  const db = freshDb(), deps = makeDeps();
+  const cookie = signIn(db, deps, 'owner@x.com');
+  S.setUserBusiness(db, { cookie: cookie, userId: 2, businessId: 1, grant: true }, deps);
+  db.prepare("UPDATE users SET status = 'removed' WHERE id = 2").run();
+  const r = S.setUserBusiness(db, { cookie: cookie, userId: 2, businessId: 1, grant: false }, deps);
+  assert.equal(r.status, 200);
+  assert.equal(db.prepare('SELECT 1 FROM user_business WHERE user_id=2 AND business_id=1').get(), undefined);
+});
+
 test('tenancy: staff (non-owner) is denied', () => {
   const db = freshDb(), deps = makeDeps();
   const cookie = signIn(db, deps, 'staff@x.com');
