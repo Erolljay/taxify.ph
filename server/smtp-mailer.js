@@ -147,6 +147,30 @@ function inviteContent(opts) {
   return { subject, text };
 }
 
+// "Payment received — you're in" — sent once, when a self-serve sign-up
+// is activated by its Xendit payment. Carries the same one-time sign-in
+// link as the magic-link mail (15 minutes, single use), wrapped in copy
+// that names WHY they got it, so it doesn't read like an out-of-context
+// login link the way a bare sign-in mail would after a purchase.
+function welcomeContent(link) {
+  const subject = 'Welcome to Txform.ph — your account is active';
+  const text = [
+    'Hi,',
+    '',
+    'Your payment came through and your Txform.ph account is now active.',
+    'Thank you!',
+    '',
+    'Use the link below to sign in and set up your firm — add your client',
+    'businesses and invite your team. It works once and expires in 15 minutes;',
+    'if it lapses, just enter your email at txform.ph/account for a fresh one.',
+    '',
+    link,
+    '',
+    '— Txform.ph',
+  ].join('\n');
+  return { subject, text };
+}
+
 // The sign-in email copy. Pure so the wording stays under test.
 function magicLinkContent(link) {
   const subject = 'Your Txform.ph sign-in link';
@@ -314,9 +338,11 @@ function makeMailer(config) {
     const to = oneLine(m.to);
     // Two kinds of mail now. Anything without an explicit kind is a
     // sign-in link, keeping the original contract for existing callers.
-    const { subject, text } = m.kind === 'invite' ? inviteContent(m) : magicLinkContent(m.link);
+    const { subject, text } = m.kind === 'invite' ? inviteContent(m)
+      : m.kind === 'welcome' ? welcomeContent(m.link)
+      : magicLinkContent(m.link);
     const message = buildMessage({ from: from, to: to, subject: subject, text: text });
-    const kind = m.kind === 'invite' ? 'invite' : 'signin';
+    const kind = m.kind === 'invite' ? 'invite' : m.kind === 'welcome' ? 'welcome' : 'signin';
     // Log the SUCCESS too, not only the failure. Until this was added, a
     // mail that sent fine and a mail that was never attempted produced
     // exactly the same output — nothing — so "they didn't get the email"
@@ -329,6 +355,6 @@ function makeMailer(config) {
 }
 
 module.exports = {
-  buildMessage, magicLinkContent, inviteContent, dotStuff, addressOnly, encodeHeader, rfc5322Date,
+  buildMessage, magicLinkContent, inviteContent, welcomeContent, dotStuff, addressOnly, encodeHeader, rfc5322Date,
   createClient, session, sendMail, makeMailer,
 };

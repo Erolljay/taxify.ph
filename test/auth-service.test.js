@@ -319,6 +319,30 @@ test('invite-staff: staff cannot invite', () => {
   assert.equal(S.inviteStaff(db, { cookie: cookie, email: 'x@x.com' }, deps).status, 403);
 });
 
+// ── pay-first: a pending (unpaid) firm provisions nothing ────────
+// The owner's USER row is active the moment they sign up, so a magic link
+// would let them in before payment. These guard the two actions that would
+// otherwise create billed/provisioned state in Manager.
+test('pay-first: a pending account cannot add a business (402), even signed in', () => {
+  const db = freshDb(), deps = makeDeps();
+  db.prepare("UPDATE account SET status='pending' WHERE id=1").run();
+  const cookie = signIn(db, deps, 'owner@x.com');
+  const r = S.addBusiness(db, { cookie: cookie, name: 'Too Early Co' }, deps);
+  assert.equal(r.status, 402);
+  assert.equal(r.json.error, 'account_not_active');
+  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM businesses WHERE account_id=1 AND name='Too Early Co'").get().n, 0);
+  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM provision_job").get().n, 0, 'nothing was enqueued to Manager');
+});
+
+test('pay-first: a pending account cannot invite staff (402)', () => {
+  const db = freshDb(), deps = makeDeps();
+  db.prepare("UPDATE account SET status='pending' WHERE id=1").run();
+  const cookie = signIn(db, deps, 'owner@x.com');
+  const r = S.inviteStaff(db, { cookie: cookie, email: 'early@x.com' }, deps);
+  assert.equal(r.status, 402);
+  assert.equal(r.json.error, 'account_not_active');
+});
+
 // ── add-business ─────────────────────────────────────────────────
 test('add-business: owner registers a new client business', () => {
   const db = freshDb(), deps = makeDeps();
