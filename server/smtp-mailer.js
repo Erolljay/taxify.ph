@@ -171,6 +171,34 @@ function welcomeContent(link) {
   return { subject, text };
 }
 
+// The monthly invoice email — sent by the bill-run when it charges an
+// account for a period. Carries the Xendit checkout link, the amount, and
+// what it's for, so a payment request never arrives as a bare link.
+// opts: { link, amountCentavos, period, businesses }
+function monthlyInvoiceContent(opts) {
+  const amount = '₱' + Math.round((Number(opts.amountCentavos) || 0) / 100).toLocaleString('en-US');
+  const period = opts.period || '';
+  const n = Number(opts.businesses) || 0;
+  const line = n + (n === 1 ? ' client business' : ' client businesses') + ' × ₱500  =  ' + amount;
+  const subject = 'Your Txform.ph invoice for ' + period + ' — ' + amount;
+  const text = [
+    'Hi,',
+    '',
+    'Here is your Txform.ph invoice for ' + period + ':',
+    '',
+    line,
+    '',
+    'Pay securely here (you can use a card, GCash, Maya, or over the counter):',
+    '',
+    opts.link,
+    '',
+    'Thanks for using Txform.ph.',
+    '',
+    '— Txform.ph',
+  ].join('\n');
+  return { subject, text };
+}
+
 // The sign-in email copy. Pure so the wording stays under test.
 function magicLinkContent(link) {
   const subject = 'Your Txform.ph sign-in link';
@@ -340,9 +368,11 @@ function makeMailer(config) {
     // sign-in link, keeping the original contract for existing callers.
     const { subject, text } = m.kind === 'invite' ? inviteContent(m)
       : m.kind === 'welcome' ? welcomeContent(m.link)
+      : m.kind === 'invoice' ? monthlyInvoiceContent(m)
       : magicLinkContent(m.link);
     const message = buildMessage({ from: from, to: to, subject: subject, text: text });
-    const kind = m.kind === 'invite' ? 'invite' : m.kind === 'welcome' ? 'welcome' : 'signin';
+    const kind = m.kind === 'invite' ? 'invite' : m.kind === 'welcome' ? 'welcome'
+      : m.kind === 'invoice' ? 'invoice' : 'signin';
     // Log the SUCCESS too, not only the failure. Until this was added, a
     // mail that sent fine and a mail that was never attempted produced
     // exactly the same output — nothing — so "they didn't get the email"
@@ -355,6 +385,6 @@ function makeMailer(config) {
 }
 
 module.exports = {
-  buildMessage, magicLinkContent, inviteContent, welcomeContent, dotStuff, addressOnly, encodeHeader, rfc5322Date,
+  buildMessage, magicLinkContent, inviteContent, welcomeContent, monthlyInvoiceContent, dotStuff, addressOnly, encodeHeader, rfc5322Date,
   createClient, session, sendMail, makeMailer,
 };

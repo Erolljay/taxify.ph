@@ -1,0 +1,26 @@
+# ============================================================
+# Txform.ph — systemd timer for the monthly bill-run
+#
+# Fires once a month, early on the 1st, to bill the month that just
+# ended. Billing is in arrears (high-water-mark, no proration), so the
+# 1st is the earliest the previous month's count is final.
+#
+#   sudo systemctl enable --now txform-bill-run.timer
+#   systemctl list-timers txform-bill-run.timer     # confirm the next fire
+#   journalctl -u txform-bill-run.service -n 100    # what the last run did
+# ============================================================
+[Unit]
+Description=Run the Txform.ph monthly bill-run
+
+[Timer]
+# 03:00 on the 1st of every month.
+OnCalendar=*-*-01 03:00:00
+AccuracySec=1h
+# A missed 1st (box off, deploy mid-flight) runs once on the next start
+# rather than being skipped — a month must never go unbilled. The run is
+# idempotent, so a late fire re-bills nothing already invoiced.
+Persistent=true
+Unit=txform-bill-run.service
+
+[Install]
+WantedBy=timers.target

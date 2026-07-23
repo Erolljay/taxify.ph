@@ -64,6 +64,16 @@ test('welcomeContent: names the payment, carries the link, keeps the 15-min expi
   assert.match(text, /expires in 15 minutes/i);
 });
 
+test('monthlyInvoiceContent: names the period + amount and carries the pay link', () => {
+  const { subject, text } = M.monthlyInvoiceContent({
+    link: 'https://checkout.xendit.co/inv_9', amountCentavos: 250000, period: '2026-07', businesses: 5,
+  });
+  assert.match(subject, /2026-07/);
+  assert.match(subject, /₱2,500/);
+  assert.match(text, /5 client businesses × ₱500/);
+  assert.ok(text.includes('https://checkout.xendit.co/inv_9'));
+});
+
 test('dotStuff: only lines beginning with a dot get an extra dot', () => {
   const stuffed = M.dotStuff(['normal', '.leading dot', 'mid.dle', '..two'].join(CRLF));
   assert.equal(stuffed, ['normal', '..leading dot', 'mid.dle', '...two'].join(CRLF));
