@@ -183,13 +183,19 @@ function setUserBusiness(db, input, deps) {
 
   // Both the target user and business must belong to the owner's account
   // — data-layer cross-tenant guard, beyond the role check above.
-  const tu = db.prepare('SELECT account_id FROM users WHERE id = ?').get(input.userId);
+  const tu = db.prepare('SELECT account_id, status FROM users WHERE id = ?').get(input.userId);
   const tb = db.prepare('SELECT account_id FROM businesses WHERE id = ?').get(input.businessId);
   if (!tu || !tb || tu.account_id !== s.account_id || tb.account_id !== s.account_id) {
     return { status: 403, json: { error: 'wrong_account' } };
   }
 
   const grant = !!input.grant;
+  // A removed person must not be re-granted access — offboarding revoked it,
+  // and a grant here would enqueue a provisioner job that re-opens their
+  // books. Revokes stay allowed so leftover access can always be cleaned up.
+  if (grant && tu.status === 'removed') {
+    return { status: 409, json: { error: 'user_removed' } };
+  }
   if (grant) {
     db.prepare('INSERT OR IGNORE INTO user_business (user_id, business_id) VALUES (?,?)')
       .run(input.userId, input.businessId);
