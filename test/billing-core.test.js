@@ -94,3 +94,15 @@ test('isExpiredStatus: recognises EXPIRED case-insensitively', () => {
   assert.equal(B.isExpiredStatus('expired'), true);
   assert.equal(B.isExpiredStatus('PAID'), false);
 });
+
+// ── previous period ──────────────────────────────────────────────
+test('previousPeriod: steps back one month, rolling the year at January', () => {
+  assert.equal(B.previousPeriod('2026-07'), '2026-06');
+  assert.equal(B.previousPeriod('2026-01'), '2025-12', 'January rolls to prior December');
+  assert.equal(B.previousPeriod('2026-11'), '2026-10', 'two-digit month stays padded');
+});
+
+test('previousPeriod: rejects a malformed key rather than guessing', () => {
+  assert.throws(() => B.previousPeriod('2026-7'), /bad period key/);
+  assert.throws(() => B.previousPeriod('nope'), /bad period key/);
+});

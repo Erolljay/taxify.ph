@@ -1,0 +1,45 @@
+# ============================================================
+# Txform.ph — systemd service for the monthly bill-run
+#
+# Oneshot: rolls the current billing period and issues each active
+# account's invoice for the previous, now-complete month, then exits.
+# Runs on a schedule via txform-bill-run.timer (NOT enabled directly).
+#
+# Install:
+#   sudo cp server/txform-bill-run.{service,timer} /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now txform-bill-run.timer
+#
+# Node built-ins only — nothing to npm install, like the rest of this
+# server. Preview a run without charging anyone:
+#   sudo -u www-data node /var/www/taxify/server/bill-run.js --dry-run
+#
+# Reads the SAME secrets file the auth service uses (root-owned, 600):
+# XENDIT_SECRET_KEY to raise invoices, and the SMTP_* creds to email
+# them. It does NOT need XENDIT_WEBHOOK_TOKEN — that authenticates the
+# inbound payment callback, which is the auth service's job, not this one.
+# ============================================================
+[Unit]
+Description=Txform.ph monthly bill-run (roll period -> issue invoices)
+After=network.target
+
+[Service]
+Type=oneshot
+User=www-data
+WorkingDirectory=/var/www/taxify/server
+Environment=TXFORM_DB=/var/www/taxify/server/txform.db
+Environment=TXFORM_BASE_URL=https://txform.ph
+EnvironmentFile=/etc/txform/auth.env
+
+ExecStart=/usr/bin/node /var/www/taxify/server/bill-run.js
+
+# A run that hangs must not wedge the timer. The job is idempotent —
+# invoices already raised are skipped — so the next fire retries cleanly.
+TimeoutStartSec=300
+
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/var/www/taxify/server
+PrivateTmp=true
+ProtectHome=true

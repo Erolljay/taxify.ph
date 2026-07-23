@@ -117,8 +117,22 @@ function isExpiredStatus(status) {
   return String(status || '').toUpperCase() === 'EXPIRED';
 }
 
+// ── BILLING PERIODS ───────────────────────────────────────────────
+// The month before `periodKey` ('YYYY-MM'). The monthly bill-run charges
+// in arrears — on the 1st of month M it bills the now-complete M-1 — so it
+// needs the previous key, and January must roll the year back.
+function previousPeriod(periodKey) {
+  const m = /^(\d{4})-(\d{2})$/.exec(String(periodKey || ''));
+  if (!m) throw new Error('bad period key: ' + periodKey);
+  const year = Number(m[1]);
+  const month = Number(m[2]);
+  const prevYear = month === 1 ? year - 1 : year;
+  const prevMonth = month === 1 ? 12 : month - 1;
+  return prevYear + '-' + String(prevMonth).padStart(2, '0');
+}
+
 module.exports = {
   MIN_SIGNUP_BUSINESSES, MAX_SIGNUP_BUSINESSES, DEFAULT_SEATS_LIMIT,
   validateSignup, activationAmountCentavos, amountPesos, externalId,
-  isWebhookAuthentic, isPaidStatus, isExpiredStatus,
+  isWebhookAuthentic, isPaidStatus, isExpiredStatus, previousPeriod,
 };
