@@ -31,9 +31,12 @@ const B = require('./billing-core.js');
 // return its Xendit checkout URL. `businesses` is the account's chosen
 // quantity — the source of truth is account.businesses_limit, so a resumed
 // sign-up continues the original order rather than silently re-pricing it.
-async function createActivationInvoice(db, accountId, businesses, email, now, deps) {
+async function createActivationInvoice(db, accountId, businesses, email, now, deps, kind) {
+  kind = kind || 'activation';
   const periodKey = A.billingPeriodKey(now);
-  const extId = B.externalId(accountId, periodKey, 'activation');
+  // 'resubscribe' gets its own external_id so it can never collide with (and
+  // overwrite) the original 'activation' invoice from the same month.
+  const extId = B.externalId(accountId, periodKey, kind);
   const amountCentavos = B.activationAmountCentavos(businesses);
 
   // Resume: a still-pending invoice for this account+month already has a
@@ -72,7 +75,7 @@ async function createActivationInvoice(db, accountId, businesses, email, now, de
        businesses        = excluded.businesses,
        amount_centavos   = excluded.amount_centavos,
        status            = 'pending'`
-  ).run(accountId, extId, inv.id, 'activation', periodKey, businesses, amountCentavos, inv.invoiceUrl);
+  ).run(accountId, extId, inv.id, kind, periodKey, businesses, amountCentavos, inv.invoiceUrl);
 
   return { status: 201, json: { ok: true, invoiceUrl: inv.invoiceUrl, ref: extId } };
 }
@@ -166,16 +169,21 @@ function xenditWebhook(db, input, deps) {
     db.prepare("UPDATE billing_invoice SET status = 'paid', xendit_invoice_id = COALESCE(?, xendit_invoice_id), paid_at = ? WHERE id = ?")
       .run(body.id || null, new Date(now).toISOString(), inv.id);
 
-    // Activate only from pending, and never downgrade — a later webhook for
-    // an already-active account must not disturb its status.
+    // Activate from pending (first-time sign-up) or cancelled (a resubscribe
+    // payment). Never downgrade — a later webhook for an already-active
+    // account must not disturb its status. A cancelled account also had a
+    // team with grants, so bring their Books access back; a pending one is
+    // brand new and provisions per-business as clients are added.
     const acct = db.prepare('SELECT id, status FROM account WHERE id = ?').get(inv.account_id);
-    if (acct && acct.status === 'pending') {
-      db.prepare("UPDATE account SET status = 'active', current_period_end = ? WHERE id = ?")
+    if (acct && (acct.status === 'pending' || acct.status === 'cancelled')) {
+      const wasCancelled = acct.status === 'cancelled';
+      db.prepare("UPDATE account SET status = 'active', grace_until = NULL, current_period_end = ? WHERE id = ?")
         .run(A.billingPeriodKey(now), acct.id);
+      if (wasCancelled) require('./auth-service.js').restoreManagerAccess(db, acct.id, now);
       db.prepare('INSERT INTO audit_log (account_id, actor, action, target) VALUES (?,?,?,?)')
-        .run(acct.id, 'xendit-webhook', 'activate_account', 'invoice:' + extId + ' businesses:' + inv.businesses);
+        .run(acct.id, 'xendit-webhook', wasCancelled ? 'resubscribe_account' : 'activate_account', 'invoice:' + extId + ' businesses:' + inv.businesses);
       sendOwnerWelcome(db, acct.id, now, deps);
-      return { status: 200, json: { ok: true, activated: true } };
+      return { status: 200, json: { ok: true, activated: true, resubscribed: wasCancelled } };
     }
 
     // A lapsed account (grace/suspended) paying its outstanding bill comes
@@ -185,7 +193,7 @@ function xenditWebhook(db, input, deps) {
     // return instant instead of up-to-a-day later.
     if (acct && (acct.status === 'grace' || acct.status === 'suspended')) {
       const stillOwes = db.prepare(
-        "SELECT 1 FROM billing_invoice WHERE account_id = ? AND kind = 'monthly' AND status != 'paid' LIMIT 1"
+        "SELECT 1 FROM billing_invoice WHERE account_id = ? AND kind = 'monthly' AND status IN ('pending','expired') LIMIT 1"
       ).get(acct.id);
       if (!stillOwes) {
         db.prepare("UPDATE account SET status = 'active', grace_until = NULL WHERE id = ?").run(acct.id);
@@ -286,4 +294,61 @@ async function reactivate(db, input, deps) {
   return { status: 200, json: { ok: true, invoiceUrl: inv.invoiceUrl, ref: owed.external_id } };
 }
 
-module.exports = { signUp, xenditWebhook, signupStatus, reactivate, createActivationInvoice, sendOwnerWelcome };
+// POST /api/billing/cancel  (owner-only, cookie'd)
+// Explicit self-serve churn: the owner stops their subscription. Billing
+// stops (the bill-run and dunning both skip 'cancelled'), Books access is
+// cut for the firm's people, and any outstanding bill is written off so a
+// later resubscribe starts clean. NOTHING is deleted — clients, books, team
+// and filed returns are preserved, and resubscribe brings it all back.
+//
+// No final/prorated charge: pricing has no proration, so cancelling forfeits
+// the rest of the current (unbilled, in-arrears) month rather than billing it.
+function cancelSubscription(db, input, deps) {
+  const now = deps.now();
+  const authSvc = require('./auth-service.js');
+  const s = authSvc.loadSession(db, input.cookie, now);
+  if (!s) return { status: 401, json: { error: 'not signed in' } };
+  if (s.role !== 'owner') return { status: 403, json: { error: 'not_owner' } };
+
+  const acct = db.prepare('SELECT id, status FROM account WHERE id = ?').get(s.account_id);
+  if (!acct) return { status: 404, json: { error: 'no_account' } };
+  if (acct.status === 'cancelled') return { status: 200, json: { ok: true, alreadyCancelled: true } };
+  // A never-activated 'pending' account has no subscription to cancel — it
+  // just abandons checkout. Only a live/lapsed one can be cancelled.
+  if (acct.status !== 'active' && acct.status !== 'grace' && acct.status !== 'suspended') {
+    return { status: 409, json: { error: 'not_cancellable', status: acct.status } };
+  }
+
+  db.prepare("UPDATE account SET status = 'cancelled', grace_until = NULL WHERE id = ?").run(acct.id);
+  // Void any outstanding bill so a future resubscribe doesn't instantly
+  // re-lapse on a debt they walked away from.
+  db.prepare("UPDATE billing_invoice SET status = 'void' WHERE account_id = ? AND kind = 'monthly' AND status IN ('pending','expired')").run(acct.id);
+  authSvc.suspendManagerAccess(db, acct.id, now);
+  db.prepare('INSERT INTO audit_log (account_id, actor, action, target) VALUES (?,?,?,?)')
+    .run(acct.id, s.email, 'cancel_account', 'from:' + acct.status);
+  return { status: 200, json: { ok: true, cancelled: true } };
+}
+
+// POST /api/billing/resubscribe  (owner-only, cookie'd)
+// The way back from an explicit cancel: a fresh activation charge for the
+// current month, for the businesses the firm still has. Paying it runs the
+// same webhook that reactivates the account and restores access.
+async function resubscribe(db, input, deps) {
+  const now = deps.now();
+  const authSvc = require('./auth-service.js');
+  const s = authSvc.loadSession(db, input.cookie, now);
+  if (!s) return { status: 401, json: { error: 'not signed in' } };
+  if (s.role !== 'owner') return { status: 403, json: { error: 'not_owner' } };
+
+  const acct = db.prepare('SELECT id, status, businesses_limit FROM account WHERE id = ?').get(s.account_id);
+  if (!acct) return { status: 404, json: { error: 'no_account' } };
+  if (acct.status === 'active') return { status: 200, json: { ok: true, alreadyActive: true } };
+  // Cancelled is the only state that resubscribes here. A lapsed (grace/
+  // suspended) account pays its OUTSTANDING bill via reactivate instead.
+  if (acct.status !== 'cancelled') return { status: 409, json: { error: 'not_cancelled', status: acct.status } };
+
+  const businesses = Math.max(1, Number(acct.businesses_limit) || 1);
+  return createActivationInvoice(db, acct.id, businesses, s.email, now, deps, 'resubscribe');
+}
+
+module.exports = { signUp, xenditWebhook, signupStatus, reactivate, cancelSubscription, resubscribe, createActivationInvoice, sendOwnerWelcome };
