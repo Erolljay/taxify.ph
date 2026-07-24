@@ -35,8 +35,10 @@ const T = require('./auth-service.js');
 // Restore only happens when NONE remain, so a firm with two missed months
 // stays lapsed until both are cleared.
 function hasUnpaidMonthlyInvoice(db, accountId) {
+  // Only genuinely-owed states count. 'void' (written off on cancel) and
+  // 'paid' do not, so a resubscribed firm isn't re-lapsed by an old bill.
   return !!db.prepare(
-    "SELECT 1 FROM billing_invoice WHERE account_id = ? AND kind = 'monthly' AND status != 'paid' LIMIT 1"
+    "SELECT 1 FROM billing_invoice WHERE account_id = ? AND kind = 'monthly' AND status IN ('pending','expired') LIMIT 1"
   ).get(accountId);
 }
 

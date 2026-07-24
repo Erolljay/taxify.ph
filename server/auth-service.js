@@ -981,6 +981,13 @@ if (require.main === module) {
         if (req.method === 'POST' && url.pathname === '/api/billing/reactivate') {
           return send(res, await BILL.reactivate(db, { cookie: cookie }, billDeps));
         }
+        // Explicit self-serve cancel, and the resubscribe that reverses it.
+        if (req.method === 'POST' && url.pathname === '/api/billing/cancel') {
+          return send(res, BILL.cancelSubscription(db, { cookie: cookie }, billDeps));
+        }
+        if (req.method === 'POST' && url.pathname === '/api/billing/resubscribe') {
+          return send(res, await BILL.resubscribe(db, { cookie: cookie }, billDeps));
+        }
         if (req.method === 'POST' && url.pathname === '/api/auth/request-link') return send(res, requestLink(db, { email: json.email, ip: ip }, deps));
         if (url.pathname === '/api/auth/verify') return send(res, verifyLink(db, { token: url.searchParams.get('token'), accept: req.headers.accept }, deps));
         if (url.pathname === '/api/auth/me') return send(res, currentUser(db, { cookie: cookie }, deps));

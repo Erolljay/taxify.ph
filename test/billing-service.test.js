@@ -223,7 +223,7 @@ function seedSuspended(db, invoiceStatus, invoiceUrl) {
 }
 function ownerCookie(db, uid) {
   const raw = 'sess-' + uid;
-  db.prepare('INSERT INTO session (user_id, session_hash, expires_at, created_at) VALUES (?,?,?,?)').run(uid, A.hashToken(raw), NOW + 3600000, NOW);
+  db.prepare('INSERT OR IGNORE INTO session (user_id, session_hash, expires_at, created_at) VALUES (?,?,?,?)').run(uid, A.hashToken(raw), NOW + 3600000, NOW);
   return 'txfsid=' + raw;
 }
 
@@ -267,6 +267,67 @@ test('xenditWebhook: paying the outstanding monthly restores a suspended account
   assert.equal(out.json.reactivated, true);
   assert.equal(db.prepare('SELECT status FROM account WHERE id=?').get(acctId).status, 'active');
   assert.ok(db.prepare("SELECT 1 FROM provision_job WHERE type='grant' AND user_id=?").get(uid), 'the owner’s Books access was re-granted');
+});
+
+// ── cancel + resubscribe ─────────────────────────────────────────
+test('cancel: an active owner cancels — cancelled, access disabled, outstanding bill voided', () => {
+  const db = freshDb();
+  const { deps } = makeDeps();
+  const { acctId, uid } = seedSuspended(db, 'pending', 'u'); // owner + a pending monthly
+  db.prepare("UPDATE account SET status='active' WHERE id=?").run(acctId);
+
+  const r = S.cancelSubscription(db, { cookie: ownerCookie(db, uid) }, deps);
+  assert.equal(r.json.cancelled, true);
+  assert.equal(db.prepare('SELECT status FROM account WHERE id=?').get(acctId).status, 'cancelled');
+  assert.equal(db.prepare('SELECT status FROM billing_invoice WHERE account_id=?').get(acctId).status, 'void', 'the outstanding bill is written off');
+  assert.ok(db.prepare("SELECT 1 FROM provision_job WHERE type='disable' AND user_id=?").get(uid), 'Books access revoked');
+  assert.ok(db.prepare("SELECT 1 FROM audit_log WHERE action='cancel_account'").get());
+});
+
+test('cancel: idempotent, and refuses a never-activated pending account', () => {
+  const db = freshDb();
+  const { deps } = makeDeps();
+  const { acctId, uid } = seedSuspended(db, 'void', null);
+  db.prepare("UPDATE account SET status='cancelled' WHERE id=?").run(acctId);
+  assert.equal(S.cancelSubscription(db, { cookie: ownerCookie(db, uid) }, deps).json.alreadyCancelled, true);
+  db.prepare("UPDATE account SET status='pending' WHERE id=?").run(acctId);
+  assert.equal(S.cancelSubscription(db, { cookie: ownerCookie(db, uid) }, deps).status, 409);
+});
+
+test('resubscribe: a cancelled owner gets a FRESH activation invoice with a distinct external_id', async () => {
+  const db = freshDb();
+  const { deps, xendit } = makeDeps();
+  const { acctId, uid } = seedSuspended(db, 'void', null);
+  db.prepare("UPDATE account SET status='cancelled', businesses_limit=3 WHERE id=?").run(acctId);
+
+  const r = await S.resubscribe(db, { cookie: ownerCookie(db, uid) }, deps);
+  assert.equal(r.status, 201);
+  assert.match(r.json.ref, /^txf-resubscribe-/, 'own external_id, cannot clobber the original activation');
+  assert.equal(xendit.calls[0].amountPesos, 1500, '3 businesses × ₱500');
+});
+
+test('resubscribe: refuses an account that is not cancelled', async () => {
+  const db = freshDb();
+  const { deps } = makeDeps();
+  const { uid } = seedSuspended(db, 'pending', 'u'); // suspended, not cancelled
+  const r = await S.resubscribe(db, { cookie: ownerCookie(db, uid) }, deps);
+  assert.equal(r.status, 409);
+  assert.equal(r.json.error, 'not_cancelled');
+});
+
+test('xenditWebhook: paying a resubscribe invoice reactivates a cancelled account AND restores access', () => {
+  const db = freshDb();
+  const { deps } = makeDeps();
+  const { acctId, uid } = seedSuspended(db, 'void', null);
+  db.prepare("UPDATE account SET status='cancelled' WHERE id=?").run(acctId);
+  db.prepare("INSERT INTO businesses (id, account_id, manager_business_name, name, manager_created_at) VALUES (600, ?, 'Y', 'Y', '2026-01-01')").run(acctId);
+  const ref = 'txf-resubscribe-' + acctId + '-2026-07';
+  db.prepare("INSERT INTO billing_invoice (account_id, external_id, kind, period_key, businesses, amount_centavos, status) VALUES (?,?, 'resubscribe', '2026-07', 1, 50000, 'pending')").run(acctId, ref);
+
+  const out = S.xenditWebhook(db, { token: 'wh-secret', body: { external_id: ref, status: 'PAID' } }, deps);
+  assert.equal(out.json.resubscribed, true);
+  assert.equal(db.prepare('SELECT status FROM account WHERE id=?').get(acctId).status, 'active');
+  assert.ok(db.prepare("SELECT 1 FROM provision_job WHERE type='grant' AND user_id=?").get(uid), 'the team’s access was restored');
 });
 
 // ── status poll ──────────────────────────────────────────────────

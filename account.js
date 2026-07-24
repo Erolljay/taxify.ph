@@ -723,17 +723,22 @@ async function onInvite(e) {
 function renderAccess(panel) {
   heading('Access', 'Who can open which books. Changes reach Books within a couple of minutes.');
 
-  // Frozen while suspended: the provisioner has already removed every grant,
-  // so the grid would only fight it. The one way forward is to pay.
-  if (state.account && state.account.status === 'suspended') {
+  // Frozen while suspended OR cancelled: the provisioner has already removed
+  // every grant, so the grid would only fight it. The way forward is to pay
+  // (suspended: the outstanding bill) or resubscribe (cancelled).
+  const acctStatus = state.account && state.account.status;
+  if (acctStatus === 'suspended' || acctStatus === 'cancelled') {
+    const cancelled = acctStatus === 'cancelled';
     const frozen = el('div', 'card');
     const a = el('div', 'alert err');
-    a.textContent = 'Access is frozen. Your account is suspended for non-payment, and your team’s access to all client books has been removed. Update payment to restore everyone — your grants are remembered and come straight back.';
+    a.textContent = cancelled
+      ? 'Access is frozen. Your subscription is cancelled and your team’s access to all client books has been removed. Resubscribe to restore everyone — your grants are remembered and come straight back.'
+      : 'Access is frozen. Your account is suspended for non-payment, and your team’s access to all client books has been removed. Update payment to restore everyone — your grants are remembered and come straight back.';
     frozen.append(a);
     const btn = document.createElement('button');
     btn.style.marginTop = '12px';
-    btn.textContent = 'Update payment to continue';
-    btn.addEventListener('click', () => payNow(btn));
+    btn.textContent = cancelled ? 'Resubscribe' : 'Update payment to continue';
+    btn.addEventListener('click', () => (cancelled ? resubscribeNow(btn) : payNow(btn)));
     frozen.append(btn);
     panel.append(frozen);
     return;
@@ -876,9 +881,64 @@ function reactivateCard(status) {
   return card;
 }
 
+// Resubscribe after an explicit cancel: a fresh activation charge that,
+// once paid, reactivates the account and restores the team's access.
+async function resubscribeNow(btn) {
+  const prev = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Starting checkout…';
+  const r = await api('POST', '/api/billing/resubscribe');
+  if (r.status === 200 && r.json && r.json.invoiceUrl) { window.location.href = r.json.invoiceUrl; return; }
+  if (r.status === 200 && r.json && r.json.alreadyActive) { await reload('Your account is active.'); return; }
+  btn.disabled = false;
+  btn.textContent = prev;
+  flash($('dash-msg'), 'err', (r.json && r.json.message) || 'Could not start checkout. Please try again in a moment.');
+}
+
+function resubscribeCard() {
+  const card = el('div', 'card');
+  const a = el('div', 'alert warn');
+  a.textContent = 'Your subscription is cancelled. Your clients, books and filed returns are all kept — resubscribe to restore your team’s access and continue.';
+  card.append(a);
+  const btn = document.createElement('button');
+  btn.style.marginTop = '12px';
+  btn.textContent = 'Resubscribe';
+  btn.addEventListener('click', () => resubscribeNow(btn));
+  card.append(btn);
+  return card;
+}
+
+// Self-serve cancel, guarded by a confirm — it stops billing and pulls the
+// team's Books access. Deliberately non-destructive: resubscribe restores it.
+async function cancelSub(btn) {
+  if (!window.confirm('Cancel your Txform subscription?\n\nBilling stops and your team loses access to all client books. Nothing is deleted — you can resubscribe anytime and everything comes back.')) return;
+  btn.disabled = true;
+  const r = await api('POST', '/api/billing/cancel');
+  if (r.status === 200) { await reload('Your subscription has been cancelled.'); return; }
+  btn.disabled = false;
+  flash($('dash-msg'), 'err', (r.json && r.json.message) || 'Could not cancel. Please try again in a moment.');
+}
+
+function cancelCard() {
+  const card = el('div', 'card');
+  const note = el('div', 'note');
+  note.textContent = 'Cancelling stops billing and removes your team’s access to all client books. Nothing is deleted — you can resubscribe anytime and everything comes back.';
+  card.append(note);
+  const btn = document.createElement('button');
+  btn.className = 'danger';
+  btn.style.marginTop = '10px';
+  btn.textContent = 'Cancel subscription';
+  btn.addEventListener('click', () => cancelSub(btn));
+  card.append(btn);
+  return card;
+}
+
 function renderBilling(panel) {
   heading('Billing', 'One invoice a month. A business is billed for any month it was active at any point.');
   const st = state.account && state.account.status;
+  // A cancelled subscription shows only the way back — this month's invoice
+  // is moot until they resubscribe.
+  if (st === 'cancelled') { panel.append(resubscribeCard()); return; }
   if (st === 'grace' || st === 'suspended') panel.append(reactivateCard(st));
   const b = state.billing || {};
 
@@ -904,6 +964,7 @@ function renderBilling(panel) {
     card.append(v);
   }
   panel.append(card);
+  panel.append(cancelCard());
 }
 
 function invoiceRow(label, amount, isTotal) {
