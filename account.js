@@ -723,6 +723,22 @@ async function onInvite(e) {
 function renderAccess(panel) {
   heading('Access', 'Who can open which books. Changes reach Books within a couple of minutes.');
 
+  // Frozen while suspended: the provisioner has already removed every grant,
+  // so the grid would only fight it. The one way forward is to pay.
+  if (state.account && state.account.status === 'suspended') {
+    const frozen = el('div', 'card');
+    const a = el('div', 'alert err');
+    a.textContent = 'Access is frozen. Your account is suspended for non-payment, and your team’s access to all client books has been removed. Update payment to restore everyone — your grants are remembered and come straight back.';
+    frozen.append(a);
+    const btn = document.createElement('button');
+    btn.style.marginTop = '12px';
+    btn.textContent = 'Update payment to continue';
+    btn.addEventListener('click', () => payNow(btn));
+    frozen.append(btn);
+    panel.append(frozen);
+    return;
+  }
+
   const card = el('div', 'card');
   const h = document.createElement('h2');
   h.textContent = 'Clients × staff';
@@ -828,8 +844,42 @@ async function toggleGrant(user, business, cb) {
 // ── Billing ───────────────────────────────────────────────────────
 const peso = (centavos) => '₱' + (centavos / 100).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
+// A lapsed firm's way back: shown on the Billing tab when the account is in
+// grace (behind, still working) or suspended (blocked). "Pay now" asks the
+// server for a checkout link for what's owed and sends them to Xendit;
+// paying it flips the account back to active via the payment webhook.
+async function payNow(btn) {
+  const prev = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Starting checkout…';
+  const r = await api('POST', '/api/billing/reactivate');
+  if (r.status === 200 && r.json && r.json.invoiceUrl) { window.location.href = r.json.invoiceUrl; return; }
+  if (r.status === 200 && r.json && r.json.reactivated) { await reload('Your account is active again.'); return; }
+  btn.disabled = false;
+  btn.textContent = prev;
+  flash($('dash-msg'), 'err', (r.json && r.json.message) || 'Could not start checkout. Please try again in a moment.');
+}
+
+function reactivateCard(status) {
+  const suspended = status === 'suspended';
+  const card = el('div', 'card');
+  const a = el('div', 'alert ' + (suspended ? 'err' : 'warn'));
+  a.textContent = suspended
+    ? 'Your account is suspended for non-payment. Your clients, books and filed returns are all safe — pay your outstanding invoice to reactivate, and everything comes straight back.'
+    : 'Payment is due. Your account is still active, but it will be suspended if the invoice goes unpaid.';
+  card.append(a);
+  const btn = document.createElement('button');
+  btn.style.marginTop = '12px';
+  btn.textContent = suspended ? 'Reactivate — pay now' : 'Pay now';
+  btn.addEventListener('click', () => payNow(btn));
+  card.append(btn);
+  return card;
+}
+
 function renderBilling(panel) {
   heading('Billing', 'One invoice a month. A business is billed for any month it was active at any point.');
+  const st = state.account && state.account.status;
+  if (st === 'grace' || st === 'suspended') panel.append(reactivateCard(st));
   const b = state.billing || {};
 
   const card = el('div', 'card');

@@ -1,0 +1,41 @@
+# ============================================================
+# Txform.ph — systemd service for the non-payment (dunning) sweep
+#
+# Oneshot: walks accounts through active -> grace -> suspended when a
+# monthly invoice goes unpaid, and back to active the moment it's paid,
+# then exits. Runs daily via txform-dunning.timer (NOT enabled directly).
+#
+# Install:
+#   sudo cp server/txform-dunning.{service,timer} /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now txform-dunning.timer
+#
+# Node built-ins only. Preview transitions without applying them:
+#   sudo -u www-data node /var/www/taxify/server/dunning.js --dry-run
+#
+# Enforcement is NOT here — the client entitlement gate already blocks a
+# 'suspended' account live. This only moves the authoritative status, so it
+# needs no Xendit key; it emails via the same SMTP_* creds in auth.env.
+# ============================================================
+[Unit]
+Description=Txform.ph dunning sweep (grace -> suspend on non-payment)
+After=network.target
+
+[Service]
+Type=oneshot
+User=www-data
+WorkingDirectory=/var/www/taxify/server
+Environment=TXFORM_DB=/var/www/taxify/server/txform.db
+Environment=TXFORM_BASE_URL=https://txform.ph
+EnvironmentFile=/etc/txform/auth.env
+
+ExecStart=/usr/bin/node /var/www/taxify/server/dunning.js
+
+TimeoutStartSec=120
+
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/var/www/taxify/server
+PrivateTmp=true
+ProtectHome=true

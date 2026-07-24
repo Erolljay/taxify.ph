@@ -106,3 +106,45 @@ test('previousPeriod: rejects a malformed key rather than guessing', () => {
   assert.throws(() => B.previousPeriod('2026-7'), /bad period key/);
   assert.throws(() => B.previousPeriod('nope'), /bad period key/);
 });
+
+// ── dunning transitions ──────────────────────────────────────────
+const DAY = 24 * 60 * 60 * 1000;
+const NOW = Date.UTC(2026, 8, 15);
+
+test('dunningTransition: an active account that owes moves to grace with a deadline', () => {
+  const t = B.dunningTransition({ status: 'active', graceUntil: null }, { hasUnpaidInvoice: true, now: NOW, graceDays: 7 });
+  assert.equal(t.to, 'grace');
+  assert.equal(t.graceUntil, NOW + 7 * DAY);
+});
+
+test('dunningTransition: an active account that is paid up does not move', () => {
+  assert.equal(B.dunningTransition({ status: 'active', graceUntil: null }, { hasUnpaidInvoice: false, now: NOW }).to, null);
+});
+
+test('dunningTransition: grace holds until the deadline, then suspends', () => {
+  const before = B.dunningTransition({ status: 'grace', graceUntil: NOW + DAY }, { hasUnpaidInvoice: true, now: NOW });
+  assert.equal(before.to, null, 'still within the grace window');
+  const after = B.dunningTransition({ status: 'grace', graceUntil: NOW - DAY }, { hasUnpaidInvoice: true, now: NOW });
+  assert.equal(after.to, 'suspended', 'deadline passed');
+});
+
+test('dunningTransition: never suspends when a filing deadline is near (holdSuspend)', () => {
+  const t = B.dunningTransition({ status: 'grace', graceUntil: NOW - DAY }, { hasUnpaidInvoice: true, now: NOW, holdSuspend: true });
+  assert.equal(t.to, null, 'a firm is not cut off right before it must file');
+});
+
+test('dunningTransition: paying up restores grace OR suspended to active and clears the deadline', () => {
+  const fromGrace = B.dunningTransition({ status: 'grace', graceUntil: NOW - DAY }, { hasUnpaidInvoice: false, now: NOW });
+  assert.deepEqual(fromGrace, { to: 'active', graceUntil: null });
+  const fromSuspended = B.dunningTransition({ status: 'suspended', graceUntil: NOW - DAY }, { hasUnpaidInvoice: false, now: NOW });
+  assert.deepEqual(fromSuspended, { to: 'active', graceUntil: null });
+});
+
+test('dunningTransition: a suspended account that still owes stays suspended', () => {
+  assert.equal(B.dunningTransition({ status: 'suspended', graceUntil: NOW - DAY }, { hasUnpaidInvoice: true, now: NOW }).to, null);
+});
+
+test('dunningTransition: pending and cancelled accounts are never touched by dunning', () => {
+  assert.equal(B.dunningTransition({ status: 'pending' }, { hasUnpaidInvoice: true, now: NOW }).to, null);
+  assert.equal(B.dunningTransition({ status: 'cancelled' }, { hasUnpaidInvoice: true, now: NOW }).to, null);
+});

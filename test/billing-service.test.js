@@ -211,6 +211,64 @@ test('xenditWebhook: EXPIRED marks the invoice expired but never touches the acc
   assert.equal(db.prepare('SELECT status FROM account').get().status, 'pending');
 });
 
+// ── reactivation (returning lapsed owner) ────────────────────────
+// Seed a suspended firm with an owner (provisioned) and one outstanding
+// monthly invoice, plus a real session cookie for that owner.
+function seedSuspended(db, invoiceStatus, invoiceUrl) {
+  const acctId = Number(db.prepare("INSERT INTO account (firm_name, firm_code, plan, status, seats_limit, businesses_limit) VALUES ('L','LAPS','firm','suspended',10,100)").run().lastInsertRowid);
+  const uid = Number(db.prepare("INSERT INTO users (account_id, email, role, manager_user_ref, all_businesses) VALUES (?,?, 'owner', 'mref', 1)").run(acctId, 'boss@laps.ph').lastInsertRowid);
+  db.prepare("INSERT INTO billing_invoice (account_id, external_id, kind, period_key, businesses, amount_centavos, status, invoice_url) VALUES (?,?, 'monthly', '2026-08', 2, 100000, ?, ?)")
+    .run(acctId, 'txf-monthly-' + acctId + '-2026-08', invoiceStatus, invoiceUrl || null);
+  return { acctId: acctId, uid: uid };
+}
+function ownerCookie(db, uid) {
+  const raw = 'sess-' + uid;
+  db.prepare('INSERT INTO session (user_id, session_hash, expires_at, created_at) VALUES (?,?,?,?)').run(uid, A.hashToken(raw), NOW + 3600000, NOW);
+  return 'txfsid=' + raw;
+}
+
+test('reactivate: a suspended owner gets the outstanding invoice link (reused, no new charge)', async () => {
+  const db = freshDb();
+  const { deps, xendit } = makeDeps();
+  const { uid } = seedSuspended(db, 'pending', 'https://checkout.xendit.co/live');
+  const r = await S.reactivate(db, { cookie: ownerCookie(db, uid) }, deps);
+  assert.equal(r.status, 200);
+  assert.equal(r.json.invoiceUrl, 'https://checkout.xendit.co/live');
+  assert.equal(xendit.calls.length, 0, 'a still-live invoice is reused');
+});
+
+test('reactivate: re-issues a fresh invoice for the owed period when the old one expired', async () => {
+  const db = freshDb();
+  const { deps, xendit } = makeDeps();
+  const { acctId, uid } = seedSuspended(db, 'expired', null);
+  const r = await S.reactivate(db, { cookie: ownerCookie(db, uid) }, deps);
+  assert.equal(r.status, 200);
+  assert.match(r.json.invoiceUrl, /checkout\.xendit\.co/);
+  assert.equal(xendit.calls[0].amountPesos, 1000, '2 × ₱500 for the owed month');
+  assert.equal(db.prepare('SELECT status FROM billing_invoice WHERE account_id=?').get(acctId).status, 'pending');
+});
+
+test('reactivate: an already-active account has nothing to do; a non-owner is refused', async () => {
+  const db = freshDb();
+  const { deps } = makeDeps();
+  const { acctId, uid } = seedSuspended(db, 'pending', 'u');
+  db.prepare("UPDATE account SET status='active' WHERE id=?").run(acctId);
+  assert.equal((await S.reactivate(db, { cookie: ownerCookie(db, uid) }, deps)).json.alreadyActive, true);
+});
+
+test('xenditWebhook: paying the outstanding monthly restores a suspended account AND re-grants access', () => {
+  const db = freshDb();
+  const { deps } = makeDeps();
+  const { acctId, uid } = seedSuspended(db, 'pending', 'u');
+  db.prepare("INSERT INTO businesses (id, account_id, manager_business_name, name, manager_created_at) VALUES (500, ?, 'X', 'X', '2026-01-01')").run(acctId);
+
+  const ref = 'txf-monthly-' + acctId + '-2026-08';
+  const out = S.xenditWebhook(db, { token: 'wh-secret', body: { external_id: ref, status: 'PAID' } }, deps);
+  assert.equal(out.json.reactivated, true);
+  assert.equal(db.prepare('SELECT status FROM account WHERE id=?').get(acctId).status, 'active');
+  assert.ok(db.prepare("SELECT 1 FROM provision_job WHERE type='grant' AND user_id=?").get(uid), 'the owner’s Books access was re-granted');
+});
+
 // ── status poll ──────────────────────────────────────────────────
 test('signupStatus: reports invoice + account status for the success page', async () => {
   const db = freshDb();
