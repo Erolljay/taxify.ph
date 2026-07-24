@@ -131,8 +131,56 @@ function previousPeriod(periodKey) {
   return prevYear + '-' + String(prevMonth).padStart(2, '0');
 }
 
+// ── DUNNING (grace → suspend) ─────────────────────────────────────
+// How long an unpaid firm keeps working after a monthly invoice goes
+// unpaid, before its account is suspended. A week is enough for a slow
+// payer without letting a month's use go free.
+const DUNNING_GRACE_DAYS = 7;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+// The one place the account-status lifecycle for non-payment is decided.
+// PURE: given the current status + grace deadline and whether the account
+// still owes, return the transition to apply (or { to: null } for none).
+// The client entitlement gate (entitlement-core.gateForStatus) turns the
+// resulting status into full / warn / block — this only chooses the status.
+//
+//   current: { status, graceUntil:ms|null }
+//   opts:    { hasUnpaidInvoice, now:ms, graceDays?, holdSuspend? }
+//
+// Transitions:
+//   paid up          → active (only if it had been downgraded)
+//   active + owes     → grace, with a graceDays deadline
+//   grace + owes      → suspended once the deadline passes …
+//   grace + owes      … UNLESS holdSuspend (e.g. a BIR deadline is near) —
+//                       never cut a firm off right before it must file.
+//   suspended/pending/cancelled + owes → left as-is (dunning doesn't touch
+//     a pending sign-up or an already-suspended/cancelled account).
+//
+// A restore returns graceUntil:null (clear the deadline); a move to grace
+// sets it; a move to suspended omits the key, leaving the record intact.
+function dunningTransition(current, opts) {
+  const status = current && current.status;
+  const graceUntil = current && current.graceUntil != null ? Number(current.graceUntil) : null;
+  const owes = !!(opts && opts.hasUnpaidInvoice);
+  const now = opts && opts.now;
+  const graceDays = (opts && opts.graceDays) || DUNNING_GRACE_DAYS;
+  const holdSuspend = !!(opts && opts.holdSuspend);
+
+  if (!owes) {
+    if (status === 'grace' || status === 'suspended') return { to: 'active', graceUntil: null };
+    return { to: null };
+  }
+  if (status === 'active') return { to: 'grace', graceUntil: now + graceDays * DAY_MS };
+  if (status === 'grace') {
+    if (holdSuspend) return { to: null };
+    if (graceUntil != null && now >= graceUntil) return { to: 'suspended' };
+    return { to: null };
+  }
+  return { to: null };
+}
+
 module.exports = {
-  MIN_SIGNUP_BUSINESSES, MAX_SIGNUP_BUSINESSES, DEFAULT_SEATS_LIMIT,
+  MIN_SIGNUP_BUSINESSES, MAX_SIGNUP_BUSINESSES, DEFAULT_SEATS_LIMIT, DUNNING_GRACE_DAYS,
   validateSignup, activationAmountCentavos, amountPesos, externalId,
-  isWebhookAuthentic, isPaidStatus, isExpiredStatus, previousPeriod,
+  isWebhookAuthentic, isPaidStatus, isExpiredStatus, previousPeriod, dunningTransition,
 };

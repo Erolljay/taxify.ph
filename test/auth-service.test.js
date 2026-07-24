@@ -415,6 +415,56 @@ test('pay-first: a pending account cannot invite staff (402)', () => {
   assert.equal(r.json.error, 'account_not_active');
 });
 
+// ── billing enforcement: freeze / restore Books access ───────────
+// Provision the two seeded users and give staff a grant, so there is real
+// access to strip and put back.
+function provisionAccountOne(db) {
+  db.prepare("UPDATE users SET manager_user_ref = 'mref1', all_businesses = 1 WHERE id = 1").run(); // owner = principal
+  db.prepare("UPDATE users SET manager_user_ref = 'mref2' WHERE id = 2").run(); // staff
+  db.prepare('INSERT OR IGNORE INTO user_business (user_id, business_id) VALUES (2, 1)').run();
+}
+
+test('suspendManagerAccess: queues a disable for each provisioned owner/staff, keeps the grant rows', () => {
+  const db = freshDb();
+  provisionAccountOne(db);
+  const n = S.suspendManagerAccess(db, 1, Date.now());
+  assert.equal(n, 2, 'owner + staff');
+  const disables = db.prepare("SELECT user_id FROM provision_job WHERE type='disable' AND status='pending' ORDER BY user_id").all().map((r) => r.user_id);
+  assert.deepEqual(disables, [1, 2]);
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM user_business WHERE user_id = 2').get().n, 1, 'grant row is kept as the record of intent');
+});
+
+test('suspendManagerAccess: skips a user who already has a disable in flight', () => {
+  const db = freshDb();
+  provisionAccountOne(db);
+  S.suspendManagerAccess(db, 1, Date.now());
+  const n = S.suspendManagerAccess(db, 1, Date.now());
+  assert.equal(n, 0, 'no duplicate disables');
+});
+
+test('restoreManagerAccess: re-grants principals to every client and staff to their own rows', () => {
+  const db = freshDb();
+  provisionAccountOne(db);
+  db.prepare("INSERT INTO businesses (id, account_id, manager_business_name, name, manager_created_at) VALUES (3, 1, 'Beta', 'Beta', '2026-01-01T00:00:00Z')").run();
+  const n = S.restoreManagerAccess(db, 1, Date.now());
+  // owner (principal) -> both businesses (1,3); staff -> only its row (1). = 3
+  assert.equal(n, 3);
+  const owner = db.prepare("SELECT business_id FROM provision_job WHERE type='grant' AND user_id=1 ORDER BY business_id").all().map((r) => r.business_id);
+  assert.deepEqual(owner, [1, 3], 'principal re-granted to every active client');
+  const staff = db.prepare("SELECT business_id FROM provision_job WHERE type='grant' AND user_id=2").all().map((r) => r.business_id);
+  assert.deepEqual(staff, [1], 'staff re-granted only what user_business says');
+});
+
+test('user-business: the Access grid is frozen (402) while the account is suspended', () => {
+  const db = freshDb(), deps = makeDeps();
+  const cookie = signIn(db, deps, 'owner@x.com');
+  db.prepare("UPDATE account SET status='suspended' WHERE id=1").run();
+  const r = S.setUserBusiness(db, { cookie: cookie, userId: 2, businessId: 1, grant: true }, deps);
+  assert.equal(r.status, 402);
+  assert.equal(r.json.error, 'account_suspended');
+  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM provision_job WHERE type='grant'").get().n, 0, 'no grant queued while frozen');
+});
+
 // ── add-business ─────────────────────────────────────────────────
 test('add-business: owner registers a new client business', () => {
   const db = freshDb(), deps = makeDeps();

@@ -212,6 +212,66 @@ function grantBusinessTo(db, userId, businessId, now) {
   }
 }
 
+// ── billing enforcement: freeze / restore a firm's Books access ───
+// When a firm is suspended for non-payment, its owner and staff lose all
+// access to every client's books; paying reactivates and brings it back.
+// Deliberately owner+staff only — a read-only client isn't the one who
+// failed to pay. user_business rows are the record of intent and are NEVER
+// touched here: suspend empties Manager while keeping the rows, and restore
+// re-grants straight from them, so a firm comes back exactly as it left.
+
+// The firm's own people who hold a Books login (skip clients and anyone
+// not yet provisioned — there's nothing to disable/grant for them).
+function firmBooksUsers(db, accountId) {
+  return db.prepare(
+    "SELECT id FROM users WHERE account_id = ? AND role IN ('owner','staff') AND status = 'active' AND manager_user_ref IS NOT NULL"
+  ).all(accountId).map(function (r) { return r.id; });
+}
+
+// Queue a 'disable' for every owner/staff, unless one is already in flight.
+// The provisioner's disableUser empties their Businesses selection, so the
+// login survives and a later grant restores it. Returns how many were queued.
+function suspendManagerAccess(db, accountId, now) {
+  const ids = firmBooksUsers(db, accountId);
+  let queued = 0;
+  ids.forEach(function (uid) {
+    const inflight = db.prepare("SELECT 1 FROM provision_job WHERE user_id = ? AND type = 'disable' AND status IN ('pending','running')").get(uid);
+    if (inflight) return;
+    db.prepare('INSERT INTO provision_job (type, user_id, created_at, updated_at) VALUES (?,?,?,?)').run('disable', uid, now, now);
+    queued++;
+  });
+  db.prepare('INSERT INTO audit_log (account_id, actor, action, target) VALUES (?,?,?,?)')
+    .run(accountId, 'dunning', 'freeze_access', 'disabled ' + queued + ' user(s)');
+  return queued;
+}
+
+// Re-grant every owner/staff exactly the access their rows describe — a
+// principal (all_businesses) to every active client, everyone else to their
+// user_business rows. Grants are queued UNCONDITIONALLY: suspend stripped
+// Manager while leaving the rows, so a row existing is not proof access does.
+// A grant already in flight is skipped, so a double restore doesn't pile up.
+function restoreManagerAccess(db, accountId, now) {
+  const principals = new Set(principalUserIds(db, accountId));
+  const activeBiz = db.prepare("SELECT id FROM businesses WHERE account_id = ? AND status = 'active'").all(accountId).map(function (b) { return b.id; });
+  const ids = firmBooksUsers(db, accountId);
+  let queued = 0;
+  ids.forEach(function (uid) {
+    const bizIds = principals.has(uid)
+      ? activeBiz
+      : db.prepare('SELECT business_id FROM user_business WHERE user_id = ?').all(uid).map(function (r) { return r.business_id; });
+    bizIds.forEach(function (bizId) {
+      db.prepare('INSERT OR IGNORE INTO user_business (user_id, business_id) VALUES (?,?)').run(uid, bizId);
+      const inflight = db.prepare("SELECT 1 FROM provision_job WHERE user_id = ? AND business_id = ? AND type = 'grant' AND status IN ('pending','running')").get(uid, bizId);
+      if (inflight) return;
+      db.prepare('INSERT INTO provision_job (type, user_id, business_id, created_at, updated_at) VALUES (?,?,?,?,?)').run('grant', uid, bizId, now, now);
+      queued++;
+    });
+  });
+  db.prepare('INSERT INTO audit_log (account_id, actor, action, target) VALUES (?,?,?,?)')
+    .run(accountId, 'billing', 'restore_access', 're-granted ' + queued + ' access(es)');
+  return queued;
+}
+
 // POST /api/tenancy/user-business { userId, businessId, grant }
 // Owner-only. Grants or revokes a staff member's access to a client
 // business, enqueues a provisioner job, and writes the audit log.
@@ -225,6 +285,13 @@ function setUserBusiness(db, input, deps) {
     { role: s.role, account_id: s.account_id, expires_at: s.expires_at }, account, now
   );
   if (!authz.ok) return { status: 403, json: { error: authz.reason } };
+
+  // Access is FROZEN while suspended: the provisioner has stripped every
+  // grant, and letting the grid be edited would fight it (and re-open books
+  // for an unpaid firm). The owner's only action here is to pay — the portal
+  // shows the reactivate prompt instead of the grid.
+  const acct = db.prepare('SELECT status FROM account WHERE id = ?').get(s.account_id);
+  if (acct && acct.status === 'suspended') return { status: 402, json: { error: 'account_suspended' } };
 
   // Both the target user and business must belong to the owner's account
   // — data-layer cross-tenant guard, beyond the role check above.
@@ -274,9 +341,11 @@ function inviteStaff(db, input, deps) {
   const authz = A.authorizeOwnerAction({ role: s.role, account_id: s.account_id, expires_at: s.expires_at }, account, now);
   if (!authz.ok) return { status: 403, json: { error: authz.reason } };
   // Pay-first: a signed-up-but-unpaid (pending) firm must not provision
-  // anyone in Manager. The user row is active before payment, so a magic
-  // link would otherwise let a pending owner invite staff for free.
-  if (account.status !== 'active') return { status: 402, json: { error: 'account_not_active' } };
+  // anyone in Manager, and a suspended one must reactivate first. A firm in
+  // grace is behind but still working, so it keeps its normal abilities.
+  if (account.status !== 'active' && account.status !== 'grace') {
+    return { status: 402, json: { error: 'account_not_active' } };
+  }
 
   const email = (input && typeof input.email === 'string') ? input.email.trim().toLowerCase() : '';
   if (!email) return { status: 400, json: { error: 'email required' } };
@@ -443,9 +512,11 @@ function addBusiness(db, input, deps) {
   const account = db.prepare('SELECT id, status, businesses_limit, firm_code FROM account WHERE id = ?').get(s.account_id);
   const authz = A.authorizeOwnerAction({ role: s.role, account_id: s.account_id, expires_at: s.expires_at }, account, now);
   if (!authz.ok) return { status: 403, json: { error: authz.reason } };
-  // Pay-first: no client books get created (and billed/provisioned) for a
-  // pending, unpaid firm — see the same guard in inviteStaff.
-  if (account.status !== 'active') return { status: 402, json: { error: 'account_not_active' } };
+  // Pay-first: no client books get created for a pending or suspended firm;
+  // a firm in grace is behind but still working — see inviteStaff.
+  if (account.status !== 'active' && account.status !== 'grace') {
+    return { status: 402, json: { error: 'account_not_active' } };
+  }
 
   const name = (input && typeof input.name === 'string') ? input.name.trim() : '';
   if (!name) return { status: 400, json: { error: 'name required' } };
@@ -804,6 +875,7 @@ module.exports = {
   setUserBusiness, inviteStaff, addBusiness, archiveBusiness, removeUser, clearInitialPassword, resetPassword, retryJob,
   principalUserIds, ensureBooksLogin, grantBusinessTo,
   recordBillingPeriod, billableCount, invoiceFor, grantDiscount, overview,
+  suspendManagerAccess, restoreManagerAccess,
 };
 
 // ── HTTP wiring (thin; not unit-tested — handlers are) ────────────
@@ -903,6 +975,11 @@ if (require.main === module) {
         }
         if (req.method === 'GET' && url.pathname === '/api/billing/signup-status') {
           return send(res, BILL.signupStatus(db, { ref: url.searchParams.get('ref') }));
+        }
+        // Returning-owner reactivation: a grace/suspended owner pays what
+        // they owe. Cookie-authenticated (owner-only) inside the handler.
+        if (req.method === 'POST' && url.pathname === '/api/billing/reactivate') {
+          return send(res, await BILL.reactivate(db, { cookie: cookie }, billDeps));
         }
         if (req.method === 'POST' && url.pathname === '/api/auth/request-link') return send(res, requestLink(db, { email: json.email, ip: ip }, deps));
         if (url.pathname === '/api/auth/verify') return send(res, verifyLink(db, { token: url.searchParams.get('token'), accept: req.headers.accept }, deps));

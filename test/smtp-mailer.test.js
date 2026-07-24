@@ -74,6 +74,26 @@ test('monthlyInvoiceContent: names the period + amount and carries the pay link'
   assert.ok(text.includes('https://checkout.xendit.co/inv_9'));
 });
 
+test('pastDueContent: warns with the suspension date and a pay link', () => {
+  const { subject, text } = M.pastDueContent({ link: 'https://checkout.xendit.co/x', graceUntil: Date.UTC(2026, 8, 27) });
+  assert.match(subject, /Payment due/i);
+  assert.match(text, /2026-09-27/, 'names the date access is lost');
+  assert.ok(text.includes('https://checkout.xendit.co/x'));
+});
+
+test('suspendedContent: reassures data is safe and points to reactivation', () => {
+  const { subject, text } = M.suspendedContent({ link: 'https://txform.ph/account' });
+  assert.match(subject, /suspended/i);
+  assert.match(text, /nothing has been\s*\n?deleted|safe/i);
+  assert.ok(text.includes('https://txform.ph/account'));
+});
+
+test('reactivatedContent: welcomes them back', () => {
+  const { subject, text } = M.reactivatedContent({ link: 'https://txform.ph/account' });
+  assert.match(subject, /active again|welcome back/i);
+  assert.ok(text.includes('https://txform.ph/account'));
+});
+
 test('dotStuff: only lines beginning with a dot get an extra dot', () => {
   const stuffed = M.dotStuff(['normal', '.leading dot', 'mid.dle', '..two'].join(CRLF));
   assert.equal(stuffed, ['normal', '..leading dot', 'mid.dle', '...two'].join(CRLF));

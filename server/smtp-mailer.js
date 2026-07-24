@@ -199,6 +199,63 @@ function monthlyInvoiceContent(opts) {
   return { subject, text };
 }
 
+// Dunning emails, sent by the non-payment sweep (dunning.js). Three
+// escalating notes, each with a way to pay/return. Pure so the wording
+// stays under test. opts: { link, graceUntil? }.
+function pastDueContent(opts) {
+  const by = opts && opts.graceUntil ? new Date(opts.graceUntil).toISOString().slice(0, 10) : '';
+  const subject = 'Payment due — keep your Txform.ph account active';
+  const text = [
+    'Hi,',
+    '',
+    'Your latest Txform.ph invoice is still unpaid. Your account is active',
+    'for now' + (by ? ', but it will be suspended on ' + by + ' if payment is not received' : '') + '.',
+    '',
+    'Pay here to stay current:',
+    '',
+    opts.link,
+    '',
+    'Already paid? Thank you — you can ignore this.',
+    '',
+    '— Txform.ph',
+  ].join('\n');
+  return { subject, text };
+}
+
+function suspendedContent(opts) {
+  const subject = 'Your Txform.ph account has been suspended';
+  const text = [
+    'Hi,',
+    '',
+    'Your Txform.ph account has been suspended for non-payment. Your data,',
+    'clients, and filed returns are all safe and untouched — nothing has been',
+    'deleted.',
+    '',
+    'To reactivate, sign in and pay your outstanding invoice. Your account',
+    'comes straight back, exactly as you left it:',
+    '',
+    opts.link,
+    '',
+    '— Txform.ph',
+  ].join('\n');
+  return { subject, text };
+}
+
+function reactivatedContent(opts) {
+  const subject = 'Welcome back — your Txform.ph account is active';
+  const text = [
+    'Hi,',
+    '',
+    'Your payment came through and your Txform.ph account is active again.',
+    'Everything is right where you left it.',
+    '',
+    opts.link,
+    '',
+    '— Txform.ph',
+  ].join('\n');
+  return { subject, text };
+}
+
 // The sign-in email copy. Pure so the wording stays under test.
 function magicLinkContent(link) {
   const subject = 'Your Txform.ph sign-in link';
@@ -369,10 +426,12 @@ function makeMailer(config) {
     const { subject, text } = m.kind === 'invite' ? inviteContent(m)
       : m.kind === 'welcome' ? welcomeContent(m.link)
       : m.kind === 'invoice' ? monthlyInvoiceContent(m)
+      : m.kind === 'past_due' ? pastDueContent(m)
+      : m.kind === 'suspended' ? suspendedContent(m)
+      : m.kind === 'reactivated' ? reactivatedContent(m)
       : magicLinkContent(m.link);
     const message = buildMessage({ from: from, to: to, subject: subject, text: text });
-    const kind = m.kind === 'invite' ? 'invite' : m.kind === 'welcome' ? 'welcome'
-      : m.kind === 'invoice' ? 'invoice' : 'signin';
+    const kind = ['invite', 'welcome', 'invoice', 'past_due', 'suspended', 'reactivated'].indexOf(m.kind) !== -1 ? m.kind : 'signin';
     // Log the SUCCESS too, not only the failure. Until this was added, a
     // mail that sent fine and a mail that was never attempted produced
     // exactly the same output — nothing — so "they didn't get the email"
@@ -385,6 +444,7 @@ function makeMailer(config) {
 }
 
 module.exports = {
-  buildMessage, magicLinkContent, inviteContent, welcomeContent, monthlyInvoiceContent, dotStuff, addressOnly, encodeHeader, rfc5322Date,
+  buildMessage, magicLinkContent, inviteContent, welcomeContent, monthlyInvoiceContent,
+  pastDueContent, suspendedContent, reactivatedContent, dotStuff, addressOnly, encodeHeader, rfc5322Date,
   createClient, session, sendMail, makeMailer,
 };

@@ -177,6 +177,27 @@ function xenditWebhook(db, input, deps) {
       sendOwnerWelcome(db, acct.id, now, deps);
       return { status: 200, json: { ok: true, activated: true } };
     }
+
+    // A lapsed account (grace/suspended) paying its outstanding bill comes
+    // straight back — but only once NOTHING monthly is still unpaid, so a
+    // firm two months behind isn't restored by clearing just one. The
+    // daily dunning sweep would also do this; doing it here makes the
+    // return instant instead of up-to-a-day later.
+    if (acct && (acct.status === 'grace' || acct.status === 'suspended')) {
+      const stillOwes = db.prepare(
+        "SELECT 1 FROM billing_invoice WHERE account_id = ? AND kind = 'monthly' AND status != 'paid' LIMIT 1"
+      ).get(acct.id);
+      if (!stillOwes) {
+        db.prepare("UPDATE account SET status = 'active', grace_until = NULL WHERE id = ?").run(acct.id);
+        // Bring their team's Books access back — the mirror of the suspend
+        // that stripped it. Only matters if they'd reached 'suspended', but
+        // it's safe (and idempotent) to run from grace too.
+        require('./auth-service.js').restoreManagerAccess(db, acct.id, now);
+        db.prepare('INSERT INTO audit_log (account_id, actor, action, target) VALUES (?,?,?,?)')
+          .run(acct.id, 'xendit-webhook', 'account_active', 'from:' + acct.status + ' paid:' + extId);
+        return { status: 200, json: { ok: true, reactivated: true } };
+      }
+    }
     return { status: 200, json: { ok: true, paid: true } };
   }
 
@@ -200,4 +221,69 @@ function signupStatus(db, input) {
   return { status: 200, json: { invoice: inv.status, account: acct ? acct.status : null } };
 }
 
-module.exports = { signUp, xenditWebhook, signupStatus, createActivationInvoice, sendOwnerWelcome };
+// POST /api/billing/reactivate  (owner-only, cookie'd)
+// The way back for a lapsed firm: a grace/suspended owner signs in, hits
+// the portal's "Pay now", and this hands back a Xendit checkout URL for
+// what they owe. Paying it fires the same webhook that flips them back to
+// active — nothing here changes status, it only produces the payable link.
+// Requiring loadSession from auth-service is safe: auth-service's top level
+// pulls in only auth-core, so there is no require cycle.
+async function reactivate(db, input, deps) {
+  const now = deps.now();
+  const authSvc = require('./auth-service.js');
+  const s = authSvc.loadSession(db, input.cookie, now);
+  if (!s) return { status: 401, json: { error: 'not signed in' } };
+  if (s.role !== 'owner') return { status: 403, json: { error: 'not_owner' } };
+
+  const acct = db.prepare('SELECT id, status FROM account WHERE id = ?').get(s.account_id);
+  if (!acct) return { status: 404, json: { error: 'no_account' } };
+  if (acct.status === 'active') return { status: 200, json: { ok: true, alreadyActive: true } };
+  // Only a lapsed account reactivates here. A never-paid 'pending' account
+  // goes back through sign-up/checkout, not this.
+  if (acct.status !== 'grace' && acct.status !== 'suspended') {
+    return { status: 409, json: { error: 'not_reactivatable', status: acct.status } };
+  }
+
+  // What they owe: the oldest unpaid monthly invoice.
+  const owed = db.prepare(
+    "SELECT id, external_id, period_key, businesses, amount_centavos, status, invoice_url FROM billing_invoice WHERE account_id = ? AND kind = 'monthly' AND status != 'paid' ORDER BY period_key ASC LIMIT 1"
+  ).get(acct.id);
+
+  // Nothing outstanding but not active — the data says they shouldn't be
+  // lapsed at all. Restore rather than charge them for nothing.
+  if (!owed) {
+    db.prepare("UPDATE account SET status = 'active', grace_until = NULL WHERE id = ?").run(acct.id);
+    authSvc.restoreManagerAccess(db, acct.id, now);
+    db.prepare('INSERT INTO audit_log (account_id, actor, action, target) VALUES (?,?,?,?)')
+      .run(acct.id, s.email, 'account_active', 'reactivate: nothing owed');
+    return { status: 200, json: { ok: true, reactivated: true } };
+  }
+
+  // A still-live Xendit page for that bill — reuse it, don't mint a second.
+  if (owed.status === 'pending' && owed.invoice_url) {
+    return { status: 200, json: { ok: true, invoiceUrl: owed.invoice_url, ref: owed.external_id, resumed: true } };
+  }
+
+  // Expired/failed page — raise a fresh invoice for the SAME period + amount,
+  // keeping the external_id so the webhook still maps to this row.
+  const plural = owed.businesses === 1 ? ' client business' : ' client businesses';
+  let inv;
+  try {
+    inv = await deps.xendit.createInvoice({
+      externalId: owed.external_id,
+      amountPesos: B.amountPesos(owed.amount_centavos),
+      payerEmail: s.email,
+      description: owed.businesses + plural + ' — ' + owed.period_key + ' — Txform.ph (reactivate)',
+      successRedirectUrl: deps.baseUrl + '/account?billing=paid',
+      failureRedirectUrl: deps.baseUrl + '/account?billing=unpaid',
+    });
+  } catch (e) {
+    console.error('[reactivate] Xendit invoice failed for account', acct.id, '-', e.message);
+    return { status: 502, json: { error: 'payment_setup_failed', message: 'We couldn’t start checkout just now. Please try again in a moment.' } };
+  }
+  db.prepare("UPDATE billing_invoice SET status = 'pending', xendit_invoice_id = ?, invoice_url = ? WHERE id = ?")
+    .run(inv.id, inv.invoiceUrl, owed.id);
+  return { status: 200, json: { ok: true, invoiceUrl: inv.invoiceUrl, ref: owed.external_id } };
+}
+
+module.exports = { signUp, xenditWebhook, signupStatus, reactivate, createActivationInvoice, sendOwnerWelcome };

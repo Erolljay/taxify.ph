@@ -1,0 +1,25 @@
+# ============================================================
+# Txform.ph — systemd timer for the dunning sweep
+#
+# Daily: grace deadlines are day-grained, so once a day is enough to move
+# a lapsed account to suspended on the day its window closes, and to
+# restore a payer promptly (the payment webhook already restores instantly;
+# this is the backstop).
+#
+#   sudo systemctl enable --now txform-dunning.timer
+#   systemctl list-timers txform-dunning.timer      # confirm the next fire
+#   journalctl -u txform-dunning.service -n 100     # what the last run did
+# ============================================================
+[Unit]
+Description=Run the Txform.ph dunning sweep daily
+
+[Timer]
+# 04:00 daily — after the monthly bill-run's 03:00 slot, so on the 1st the
+# day's new invoices already exist before dunning evaluates them.
+OnCalendar=*-*-* 04:00:00
+AccuracySec=1h
+Persistent=true
+Unit=txform-dunning.service
+
+[Install]
+WantedBy=timers.target
