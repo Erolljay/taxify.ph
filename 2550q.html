@@ -186,7 +186,7 @@ async function loadTaxCodesTab() {
         <tr>
           <td>
             <strong>${escHtml(tcName)}</strong>
-            ${found ? '' : `<div style="font-size:10px;color:#c0392b;">⚠️ No matching tax code found in Manager</div>`}
+            ${found ? '' : `<div style="font-size:10px;color:#c0392b;">⚠️ No matching tax code found in your books</div>`}
           </td>
           <td>
             <select class="tc-map-sel" data-cat="${catKey}">
@@ -199,12 +199,12 @@ async function loadTaxCodesTab() {
 
     out.innerHTML = `
       <div class="alert alert-info" style="margin-bottom:14px;font-size:11px;">
-        ℹ️ Each BIR category is matched by default to the Manager tax code with the matching standard name.
+        ℹ️ Each BIR category is matched by default to the tax code in your books with the matching standard name.
         If you renamed a tax code or use a different one, choose it here. This affects the figures pulled into the 2550Q.
       </div>
       <div class="card" style="padding:0;overflow:hidden;">
         <table class="tax-codes-table">
-          <thead><tr><th style="width:45%;">BIR Tax Code</th><th>Tax Code in Manager (${taxCodes.length} found)</th></tr></thead>
+          <thead><tr><th style="width:45%;">BIR Tax Code</th><th>Tax Code in your books (${taxCodes.length} found)</th></tr></thead>
           <tbody>${rows}</tbody>
         </table>
       </div>
@@ -288,7 +288,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     App.currentBusiness = await getReportBusiness(document.getElementById('biz-selector-wrap'));
   } catch(e) {
     document.getElementById('output').innerHTML =
-      `<div class="alert alert-warn">⚠️ Could not connect to Manager: ${e.message}</div>`;
+      `<div class="alert alert-warn">⚠️ Could not connect to your books: ${e.message}</div>`;
     return;
   }
 
@@ -363,7 +363,7 @@ async function generate() {
   // into the figures, for businesses that close their books monthly.
   const { start, end } = isMonthlyView ? getPeriodDates('monthly', month, year) : getPeriodDates('quarterly', quarter, year);
 
-  output.innerHTML = `<div class="spinner-wrap"><div class="spinner"></div><span>Fetching transactions from Manager…</span></div>`;
+  output.innerHTML = `<div class="spinner-wrap"><div class="spinner"></div><span>Fetching transactions…</span></div>`;
 
   try {
     const { vm, rateByKey } = await getVatMapping(biz);
@@ -821,7 +821,7 @@ function renderForm(el, d) {
 
   <!-- NOTES -->
   <div class="alert alert-info no-print" style="font-size:11px;">
-    ℹ️ <strong>Yellow fields</strong> require manual input. <strong>White fields</strong> are auto-computed from Manager.io transactions.
+    ℹ️ <strong>Yellow fields</strong> require manual input. <strong>White fields</strong> are auto-computed from your transactions.
     Figures are based on the standard BIR tax codes. Verify all amounts before filing.
     ${!d.vm.sales_taxable ? '<br>⚠️ <strong>Standard tax codes not found.</strong> Go to Setup → Tax Codes and create the missing standard tax codes.' : ''}
   </div>
