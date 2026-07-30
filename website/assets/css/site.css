@@ -118,8 +118,9 @@ ul { margin: 0; padding: 0; list-style: none; }
 }
 .nav { display: flex; align-items: center; gap: 2rem; height: 68px; }
 .brand { display: flex; align-items: center; gap: 0.6rem; font-family: var(--font-display); font-weight: 800; font-size: 1.15rem; letter-spacing: -0.03em; }
-.brand-mark { width: 30px; height: 30px; border-radius: 9px; background: var(--green); display: grid; place-items: center; flex: none; }
-.brand-mark svg { width: 18px; height: 18px; }
+.brand-logo { height: 32px; width: auto; display: block; }
+.brand-mark { width: 30px; height: 30px; border-radius: 9px; background: #fff; display: grid; place-items: center; flex: none; overflow: hidden; }
+.brand-mark img { width: 26px; height: 26px; object-fit: contain; }
 .nav-links { display: flex; align-items: center; gap: 1.75rem; margin-left: auto; }
 .nav-links a { font-size: 0.95rem; font-weight: 500; color: var(--muted); transition: color var(--dur) var(--ease); }
 .nav-links a:hover { color: var(--ink); }
