@@ -190,6 +190,10 @@ ul { margin: 0; padding: 0; list-style: none; }
   border-radius: var(--radius-lg); background: var(--white); border: 1px solid var(--line);
   box-shadow: var(--shadow-lg); padding: 1.25rem; overflow: hidden;
 }
+.feature-shot {
+  width: 100%; height: auto; display: block; border-radius: var(--radius-lg);
+  border: 1px solid var(--line); box-shadow: var(--shadow-lg); background: var(--white);
+}
 .mock-dark { background: var(--navy-800); border-color: var(--navy-700); color: var(--white); }
 .mock-bar { display: flex; gap: 0.4rem; margin-bottom: 1rem; }
 .mock-bar i { width: 10px; height: 10px; border-radius: 50%; background: var(--line); }
